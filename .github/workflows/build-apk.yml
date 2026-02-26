@@ -70,6 +70,9 @@ jobs:
           echo "is_prod=$IS_PROD"     >> $GITHUB_OUTPUT
           echo "url=https://apps.8020solutions.org/${DEST}/${APK_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Create .env file
+        run: touch .env
+
       - name: Build APK
         run: flutter build apk --release
 
