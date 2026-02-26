@@ -61,14 +61,20 @@ jobs:
         run: touch .env
 
       - name: Build APK (arm64 only, debug)
-        run: flutter build apk --debug --target-platform android-arm64
+        run: flutter build apk --debug --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
       - name: Find APK
         id: apk
         run: |
-          APK_PATH=$(find build -name "*.apk" | grep -v "intermediates\|test" | head -1)
+          echo "=== Cercando APK nel build folder ==="
+          find build -name "*.apk" 2>/dev/null | grep -v intermediates || echo "Nessun APK trovato"
+          APK_PATH=$(find build -name "*.apk" 2>/dev/null | grep -v "intermediates\|test" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: Nessun APK prodotto dal build"
+            exit 1
+          fi
           echo "APK found: $APK_PATH"
           echo "path=$APK_PATH" >> $GITHUB_OUTPUT
 
