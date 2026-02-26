@@ -70,23 +70,23 @@ jobs:
           echo "is_prod=$IS_PROD"     >> $GITHUB_OUTPUT
           echo "url=https://apps.8020solutions.org/${DEST}/${APK_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Create .env file
-        run: touch .env
-
-      - name: Build APK
-        run: flutter build apk --release
-
-      - name: Rename APK
-        run: |
-          cp build/app/outputs/flutter-apk/app-release.apk \
-             ${{ steps.info.outputs.apk_name }}
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create .env file
+        run: touch .env
+
+      - name: Build APK
+        run: flutter build apk --debug
+
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+             ${{ steps.info.outputs.apk_name }}
 
       - name: Deploy APK to app-hub
         run: |
