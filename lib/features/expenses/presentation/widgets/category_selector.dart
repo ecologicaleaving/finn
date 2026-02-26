@@ -41,9 +41,12 @@ class _CategorySelectorState extends ConsumerState<CategorySelector> {
     if (!_hasAutoSelected &&
         widget.selectedCategoryId == null &&
         categoryState.categories.isNotEmpty) {
+      _hasAutoSelected = true;
+      final categoryToSelect = categoryState.categories.first.id;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.onCategorySelected(categoryState.categories.first.id);
-        _hasAutoSelected = true;
+        if (mounted) {
+          widget.onCategorySelected(categoryToSelect);
+        }
       });
     }
 

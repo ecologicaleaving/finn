@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.0.0
+- **Version**: v1.0.1
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese AI-powered
@@ -83,6 +83,7 @@
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Notifiche smart per budget overrun e saving opportunities
+- **DONE**: Fix #6 - categoria default non salvata (CategorySelector race condition)
 - **DONE**: Core expense tracking + multi-user family support
 - **DONE**: Receipt scanning AI integration
 - **IN PROGRESS**: Advanced analytics e spending insights
@@ -90,5 +91,5 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-02-22T06:10:00Z*
+*Last Updated: 2026-02-26T00:00:00Z*
 *Auto-generated from: https://app.8020solutions.org/status.html*
