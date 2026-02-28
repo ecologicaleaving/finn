@@ -60,8 +60,8 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
 
-      - name: Build APK (arm64 only, debug)
-        run: flutter build apk --debug --target-platform android-arm64 || true
+      - name: Build APK (arm64 only, production release)
+        run: flutter build apk --release --flavor production --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
