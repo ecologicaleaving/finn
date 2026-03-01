@@ -23,8 +23,6 @@ class CategorySelector extends ConsumerStatefulWidget {
 }
 
 class _CategorySelectorState extends ConsumerState<CategorySelector> {
-  bool _hasAutoSelected = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -36,16 +34,6 @@ class _CategorySelectorState extends ConsumerState<CategorySelector> {
     }
 
     final categoryState = ref.watch(categoryProvider(groupId));
-
-    // Auto-select first category if none is selected
-    if (!_hasAutoSelected &&
-        widget.selectedCategoryId == null &&
-        categoryState.categories.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.onCategorySelected(categoryState.categories.first.id);
-        _hasAutoSelected = true;
-      });
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,14 +112,27 @@ class _CategoryChip extends StatelessWidget {
                 ? Border.all(color: theme.colorScheme.primary, width: 2)
                 : null,
           ),
-          child: Text(
-            category.name,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: isSelected
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                category.getIcon(),
+                size: 18,
+                color: isSelected
+                    ? theme.colorScheme.onPrimaryContainer
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                category.name,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: isSelected
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -171,25 +172,146 @@ class CategoryDropdown extends ConsumerWidget {
       return Text(categoryState.errorMessage!);
     }
 
-    return DropdownButtonFormField<String>(
-      value: selectedCategoryId,
-      decoration: const InputDecoration(
-        labelText: 'Categoria',
-        prefixIcon: Icon(Icons.category_outlined),
-      ),
-      items: categoryState.categories.map((category) {
-        return DropdownMenuItem(
-          value: category.id,
-          child: Text(category.name),
-        );
-      }).toList(),
-      onChanged: enabled
-          ? (value) {
-              if (value != null) {
-                onCategorySelected(value);
-              }
-            }
+    final selectedCategory = categoryState.categories.firstWhere(
+      (cat) => cat.id == selectedCategoryId,
+      orElse: () => categoryState.categories.first,
+    );
+
+    return InkWell(
+      onTap: enabled
+          ? () => _showCategoryGridDialog(context, ref, categoryState.categories)
           : null,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Categoria',
+          prefixIcon: Icon(selectedCategory.getIcon()),
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+          enabled: enabled,
+        ),
+        child: Text(selectedCategory.name),
+      ),
+    );
+  }
+
+  void _showCategoryGridDialog(
+    BuildContext context,
+    WidgetRef ref,
+    List<ExpenseCategoryEntity> categories,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Text(
+                'Seleziona Categoria',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: GridView.builder(
+                  controller: scrollController,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: 0.85,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                  ),
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    final category = categories[index];
+                    final isSelected = category.id == selectedCategoryId;
+
+                    return _CategoryCard(
+                      category: category,
+                      isSelected: isSelected,
+                      onTap: () {
+                        onCategorySelected(category.id);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+}
+
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({
+    required this.category,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final ExpenseCategoryEntity category;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: isSelected ? 4 : 1,
+      color: isSelected
+          ? theme.colorScheme.primaryContainer
+          : theme.colorScheme.surface,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              category.getIcon(),
+              size: 40,
+              color: isSelected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                category.name,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: isSelected
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -21,6 +21,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     DateTime? endDate,
     String? categoryId,
     String? createdBy,
+    String? paidBy,
     bool? isGroupExpense,
     ReimbursementStatus? reimbursementStatus, // T048
     int? limit,
@@ -32,6 +33,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         endDate: endDate,
         categoryId: categoryId,
         createdBy: createdBy,
+        paidBy: paidBy,
         isGroupExpense: isGroupExpense,
         reimbursementStatus: reimbursementStatus, // T048
         limit: limit,
@@ -74,6 +76,9 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     Uint8List? receiptImage,
     bool isGroupExpense = true,
     ReimbursementStatus reimbursementStatus = ReimbursementStatus.none, // T048
+    String? createdBy, // T014
+    String? paidBy, // For admin creating expense for specific member
+    String? lastModifiedBy, // T014
   }) async {
     try {
       // Create the expense first
@@ -86,6 +91,9 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         notes: notes,
         isGroupExpense: isGroupExpense,
         reimbursementStatus: reimbursementStatus, // T048
+        createdBy: createdBy, // T014
+        paidBy: paidBy, // For admin creating expense for specific member
+        lastModifiedBy: lastModifiedBy, // T014
       );
 
       // Upload receipt if provided
@@ -132,6 +140,42 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         reimbursementStatus: reimbursementStatus, // T048
       );
       return Right(expense.toEntity());
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, ExpenseEntity>> updateExpenseWithTimestamp({
+    required String expenseId,
+    required DateTime originalUpdatedAt,
+    required String lastModifiedBy,
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? paymentMethodId,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+  }) async {
+    try {
+      final expense = await remoteDataSource.updateExpenseWithTimestamp(
+        expenseId: expenseId,
+        originalUpdatedAt: originalUpdatedAt,
+        lastModifiedBy: lastModifiedBy,
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        paymentMethodId: paymentMethodId,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus,
+      );
+      return Right(expense.toEntity());
+    } on ConflictException catch (e) {
+      return Left(ConflictFailure(e.message));
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
     } catch (e) {
@@ -228,14 +272,18 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         final categoryKey = expense.categoryName ?? 'N/A';
         byCategory[categoryKey] = (byCategory[categoryKey] ?? 0) + expense.amount;
 
-        // By member
-        if (!byMember.containsKey(expense.createdBy)) {
-          byMember[expense.createdBy] = _MemberAccumulator(
-            displayName: expense.createdByName ?? 'Utente',
+        // By member - use paidBy to attribute expense to correct member
+        // This ensures expenses created by admin for other members are counted correctly
+        final memberKey = expense.paidBy ?? expense.createdBy;
+        final memberName = expense.paidByName ?? expense.createdByName ?? 'Utente';
+
+        if (!byMember.containsKey(memberKey)) {
+          byMember[memberKey] = _MemberAccumulator(
+            displayName: memberName,
           );
         }
-        byMember[expense.createdBy]!.totalAmount += expense.amount;
-        byMember[expense.createdBy]!.expenseCount++;
+        byMember[memberKey]!.totalAmount += expense.amount;
+        byMember[memberKey]!.expenseCount++;
       }
 
       return Right(ExpensesSummary(

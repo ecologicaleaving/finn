@@ -2,22 +2,29 @@ import 'dart:convert';
 import '../../domain/entities/widget_data_entity.dart';
 
 /// Serializable version of WidgetDataEntity for persistence and API communication
+/// Shows group expenses, personal expenses, and total separately
 class WidgetDataModel extends WidgetDataEntity {
   const WidgetDataModel({
-    required double spent,
-    required double limit,
+    required double groupAmount,
+    required double personalAmount,
+    required double totalAmount,
+    required int expenseCount,
     required String month,
     String currency = '€',
     required bool isDarkMode,
+    bool hasError = false,
     required DateTime lastUpdated,
     required String groupId,
     String? groupName,
   }) : super(
-          spent: spent,
-          limit: limit,
+          groupAmount: groupAmount,
+          personalAmount: personalAmount,
+          totalAmount: totalAmount,
+          expenseCount: expenseCount,
           month: month,
           currency: currency,
           isDarkMode: isDarkMode,
+          hasError: hasError,
           lastUpdated: lastUpdated,
           groupId: groupId,
           groupName: groupName,
@@ -26,11 +33,14 @@ class WidgetDataModel extends WidgetDataEntity {
   /// Create model from entity
   factory WidgetDataModel.fromEntity(WidgetDataEntity entity) {
     return WidgetDataModel(
-      spent: entity.spent,
-      limit: entity.limit,
+      groupAmount: entity.groupAmount,
+      personalAmount: entity.personalAmount,
+      totalAmount: entity.totalAmount,
+      expenseCount: entity.expenseCount,
       month: entity.month,
       currency: entity.currency,
       isDarkMode: entity.isDarkMode,
+      hasError: entity.hasError,
       lastUpdated: entity.lastUpdated,
       groupId: entity.groupId,
       groupName: entity.groupName,
@@ -40,11 +50,14 @@ class WidgetDataModel extends WidgetDataEntity {
   /// Create model from JSON
   factory WidgetDataModel.fromJson(Map<String, dynamic> json) {
     return WidgetDataModel(
-      spent: (json['spent'] as num).toDouble(),
-      limit: (json['limit'] as num).toDouble(),
+      groupAmount: (json['groupAmount'] as num).toDouble(),
+      personalAmount: (json['personalAmount'] as num).toDouble(),
+      totalAmount: (json['totalAmount'] as num).toDouble(),
+      expenseCount: json['expenseCount'] as int,
       month: json['month'] as String,
       currency: (json['currency'] as String?) ?? '€',
       isDarkMode: json['isDarkMode'] as bool,
+      hasError: (json['hasError'] as bool?) ?? false,
       lastUpdated: DateTime.parse(json['lastUpdated'] as String),
       groupId: json['groupId'] as String,
       groupName: json['groupName'] as String?,
@@ -54,11 +67,14 @@ class WidgetDataModel extends WidgetDataEntity {
   /// Convert model to JSON
   Map<String, dynamic> toJson() {
     return {
-      'spent': spent,
-      'limit': limit,
+      'groupAmount': groupAmount,
+      'personalAmount': personalAmount,
+      'totalAmount': totalAmount,
+      'expenseCount': expenseCount,
       'month': month,
       'currency': currency,
       'isDarkMode': isDarkMode,
+      'hasError': hasError,
       'lastUpdated': lastUpdated.toIso8601String(),
       'groupId': groupId,
       'groupName': groupName,

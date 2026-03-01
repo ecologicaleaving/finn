@@ -48,7 +48,7 @@
 
         <!-- Budget Widget Provider -->
         <receiver
-            android:name=".widget.BudgetWidgetProvider"
+            android:name="com.ecologicaleaving.fin.widget.BudgetWidgetProvider"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>

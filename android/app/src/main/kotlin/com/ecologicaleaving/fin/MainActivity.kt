@@ -32,6 +32,10 @@ class MainActivity: FlutterActivity() {
                     cancelBackgroundRefresh()
                     result.success(null)
                 }
+                "updateWidget" -> {
+                    updateWidget()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -88,5 +92,20 @@ class MainActivity: FlutterActivity() {
     private fun cancelBackgroundRefresh() {
         println("MainActivity: Cancelling background widget refresh")
         WorkManager.getInstance(this).cancelUniqueWork("widget_background_refresh")
+    }
+
+    private fun updateWidget() {
+        println("MainActivity: Sending widget update broadcast")
+        val intent = Intent(this, com.ecologicaleaving.fin.widget.BudgetWidgetProvider::class.java)
+        intent.action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
+
+        val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(this)
+        val widgetComponent = android.content.ComponentName(this, com.ecologicaleaving.fin.widget.BudgetWidgetProvider::class.java)
+        val widgetIds = appWidgetManager.getAppWidgetIds(widgetComponent)
+
+        intent.putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, widgetIds)
+        sendBroadcast(intent)
+
+        println("MainActivity: Widget update broadcast sent for ${widgetIds.size} widgets")
     }
 }

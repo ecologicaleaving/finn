@@ -25,73 +25,102 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Dicembre 2024"
-            android:textSize="@dimen/widget_text_small"
+            android:textSize="12sp"
             android:textColor="@color/widget_text_secondary"
-            android:fontFamily="sans-serif-medium" />
+            android:fontFamily="sans-serif" />
 
-        <!-- Budget Amounts -->
+        <!-- Group/Personal/Total Expense Display -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:orientation="vertical"
             android:layout_marginTop="2dp">
 
+            <!-- Group Expenses -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="2dp">
+
+                <TextView
+                    android:id="@+id/group_amount_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Gruppo: €0,00"
+                    android:textSize="13sp"
+                    android:textColor="@color/widget_text_primary"
+                    android:fontFamily="sans-serif"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <!-- Error Indicator -->
+                <ImageView
+                    android:id="@+id/error_indicator"
+                    android:layout_width="@dimen/widget_icon_size_small"
+                    android:layout_height="@dimen/widget_icon_size_small"
+                    android:src="@drawable/ic_error_indicator"
+                    android:tint="@color/widget_error"
+                    android:visibility="gone"
+                    android:contentDescription="@string/error_loading_data"
+                    android:layout_marginStart="8dp" />
+            </LinearLayout>
+
+            <!-- Personal Expenses -->
             <TextView
-                android:id="@+id/spent_text"
+                android:id="@+id/personal_amount_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="€450.00"
-                android:textSize="@dimen/widget_text_large"
+                android:text="Personali: €0,00"
+                android:textSize="13sp"
                 android:textColor="@color/widget_text_primary"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="sans-serif"
                 android:maxLines="1"
-                android:ellipsize="end" />
+                android:ellipsize="end"
+                android:layout_marginBottom="2dp" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Total Amount and Count -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text=" / "
-                android:textSize="@dimen/widget_text_medium"
-                android:textColor="@color/widget_text_secondary"
-                android:layout_marginStart="2dp"
-                android:layout_marginEnd="2dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/limit_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="€800"
-                android:textSize="@dimen/widget_text_medium"
-                android:textColor="@color/widget_text_secondary"
-                android:maxLines="1"
-                android:ellipsize="end" />
+                <TextView
+                    android:id="@+id/total_amount_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Totale: €0,00"
+                    android:textSize="14sp"
+                    android:textColor="@color/widget_text_primary"
+                    android:fontFamily="sans-serif"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
 
-            <TextView
-                android:id="@+id/percentage_text"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="56%"
-                android:textSize="@dimen/widget_text_small"
-                android:textColor="@color/widget_text_secondary"
-                android:gravity="end"
-                android:fontFamily="sans-serif-medium"
-                android:maxLines="1"
-                android:layout_marginStart="4dp" />
+                <!-- Separator -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=" • "
+                    android:textSize="13sp"
+                    android:textColor="@color/widget_text_secondary"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Expense Count -->
+                <TextView
+                    android:id="@+id/expense_count_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="12 spese"
+                    android:textSize="13sp"
+                    android:textColor="@color/widget_text_secondary"
+                    android:fontFamily="sans-serif"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+            </LinearLayout>
         </LinearLayout>
-
-        <!-- Progress Bar -->
-        <ProgressBar
-            android:id="@+id/budget_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/widget_progress_height"
-            android:layout_marginTop="4dp"
-            android:progress="56"
-            android:max="100"
-            android:progressTint="@color/widget_progress_normal"
-            android:progressBackgroundTint="@color/widget_progress_background" />
     </LinearLayout>
 
     <!-- Quick Action Buttons -->
@@ -127,9 +156,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/scan"
-                android:textSize="@dimen/widget_button_text"
+                android:textSize="12sp"
                 android:textColor="@color/widget_button_text"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="sans-serif"
                 android:maxLines="1"
                 android:layout_marginStart="4dp" />
         </LinearLayout>
@@ -159,9 +188,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/manual"
-                android:textSize="@dimen/widget_button_text"
+                android:textSize="12sp"
                 android:textColor="@color/widget_button_text"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="sans-serif"
                 android:maxLines="1"
                 android:layout_marginStart="4dp" />
         </LinearLayout>
@@ -173,8 +202,9 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Aggiornato ora"
-        android:textSize="@dimen/widget_text_tiny"
+        android:textSize="10sp"
         android:textColor="@color/widget_text_tertiary"
+        android:fontFamily="sans-serif"
         android:layout_gravity="end"
         android:maxLines="1"
         android:layout_marginTop="4dp" />

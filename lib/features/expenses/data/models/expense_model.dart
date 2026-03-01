@@ -20,10 +20,15 @@ class ExpenseModel extends ExpenseEntity {
     super.notes,
     super.receiptUrl,
     super.createdByName,
+    super.paidBy,
+    super.paidByName,
     super.createdAt,
     super.updatedAt,
     super.reimbursementStatus = ReimbursementStatus.none,
     super.reimbursedAt,
+    super.recurringExpenseId,
+    super.isRecurringInstance = false,
+    super.lastModifiedBy,
   });
 
   /// Create an ExpenseModel from a JSON map (expenses table row).
@@ -44,6 +49,8 @@ class ExpenseModel extends ExpenseEntity {
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
       createdByName: json['created_by_name'] as String?,
+      paidBy: json['paid_by'] as String?,
+      paidByName: json['paid_by_name'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
@@ -56,6 +63,9 @@ class ExpenseModel extends ExpenseEntity {
       reimbursedAt: json['reimbursed_at'] != null
           ? DateTime.parse(json['reimbursed_at'] as String)
           : null,
+      recurringExpenseId: json['recurring_expense_id'] as String?,
+      isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
+      lastModifiedBy: json['last_modified_by'] as String?,
     );
   }
 
@@ -77,10 +87,13 @@ class ExpenseModel extends ExpenseEntity {
       'merchant': merchant,
       'notes': notes,
       'receipt_url': receiptUrl,
+      'paid_by': paidBy,
+      'paid_by_name': paidByName,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
       'reimbursement_status': reimbursementStatus.value,
       'reimbursed_at': reimbursedAt?.toIso8601String(),
+      'last_modified_by': lastModifiedBy,
     };
   }
 
@@ -101,10 +114,15 @@ class ExpenseModel extends ExpenseEntity {
       notes: entity.notes,
       receiptUrl: entity.receiptUrl,
       createdByName: entity.createdByName,
+      paidBy: entity.paidBy,
+      paidByName: entity.paidByName,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
       reimbursementStatus: entity.reimbursementStatus,
       reimbursedAt: entity.reimbursedAt,
+      recurringExpenseId: entity.recurringExpenseId,
+      isRecurringInstance: entity.isRecurringInstance,
+      lastModifiedBy: entity.lastModifiedBy,
     );
   }
 
@@ -125,10 +143,15 @@ class ExpenseModel extends ExpenseEntity {
       notes: notes,
       receiptUrl: receiptUrl,
       createdByName: createdByName,
+      paidBy: paidBy,
+      paidByName: paidByName,
       createdAt: createdAt,
       updatedAt: updatedAt,
       reimbursementStatus: reimbursementStatus,
       reimbursedAt: reimbursedAt,
+      recurringExpenseId: recurringExpenseId,
+      isRecurringInstance: isRecurringInstance,
+      lastModifiedBy: lastModifiedBy,
     );
   }
 
@@ -149,10 +172,15 @@ class ExpenseModel extends ExpenseEntity {
     String? notes,
     String? receiptUrl,
     String? createdByName,
+    String? paidBy,
+    String? paidByName,
     DateTime? createdAt,
     DateTime? updatedAt,
     ReimbursementStatus? reimbursementStatus,
     DateTime? reimbursedAt,
+    String? recurringExpenseId,
+    bool? isRecurringInstance,
+    String? lastModifiedBy,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -169,10 +197,15 @@ class ExpenseModel extends ExpenseEntity {
       notes: notes ?? this.notes,
       receiptUrl: receiptUrl ?? this.receiptUrl,
       createdByName: createdByName ?? this.createdByName,
+      paidBy: paidBy ?? this.paidBy,
+      paidByName: paidByName ?? this.paidByName,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       reimbursementStatus: reimbursementStatus ?? this.reimbursementStatus,
       reimbursedAt: reimbursedAt ?? this.reimbursedAt,
+      recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
+      isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
+      lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
     );
   }
 }

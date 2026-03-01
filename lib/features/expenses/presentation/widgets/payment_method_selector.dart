@@ -7,7 +7,7 @@ import '../../../payment_methods/presentation/providers/payment_method_provider.
 ///
 /// Displays a dropdown with default payment methods followed by custom methods.
 /// Default payment methods are shown first, then custom methods are grouped separately.
-class PaymentMethodSelector extends ConsumerWidget {
+class PaymentMethodSelector extends ConsumerStatefulWidget {
   const PaymentMethodSelector({
     super.key,
     required this.userId,
@@ -22,8 +22,15 @@ class PaymentMethodSelector extends ConsumerWidget {
   final bool enabled;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final paymentMethodState = ref.watch(paymentMethodProvider(userId));
+  ConsumerState<PaymentMethodSelector> createState() => _PaymentMethodSelectorState();
+}
+
+class _PaymentMethodSelectorState extends ConsumerState<PaymentMethodSelector> {
+  bool _hasNotifiedAutoSelection = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final paymentMethodState = ref.watch(paymentMethodProvider(widget.userId));
 
     // Show loading indicator while fetching
     if (paymentMethodState.isLoading && paymentMethodState.isEmpty) {
@@ -44,6 +51,15 @@ class PaymentMethodSelector extends ConsumerWidget {
     // Get default and custom methods
     final defaultMethods = paymentMethodState.defaultMethods;
     final customMethods = paymentMethodState.customMethods;
+
+    // T011: Defensive edge case - no payment methods available
+    if (defaultMethods.isEmpty && customMethods.isEmpty) {
+      return ListTile(
+        leading: const Icon(Icons.error, color: Colors.red),
+        title: const Text('Nessun metodo di pagamento disponibile'),
+        subtitle: const Text('Contatta l\'amministratore del gruppo'),
+      );
+    }
 
     // Build dropdown items
     final items = <DropdownMenuItem<String>>[];
@@ -91,8 +107,38 @@ class PaymentMethodSelector extends ConsumerWidget {
       }
     }
 
-    // Determine selected value (default to Contanti if not set)
-    final effectiveValue = selectedId ?? paymentMethodState.defaultContanti?.id;
+    // T011: Determine selected value with defensive handling for deleted payment methods
+    String? effectiveValue = widget.selectedId;
+
+    // If widget.selectedId is not null, verify it still exists in available methods
+    if (widget.selectedId != null) {
+      final selectedExists = paymentMethodState.paymentMethods.any((m) => m.id == widget.selectedId);
+      if (!selectedExists) {
+        // Selected payment method was deleted - auto-select first available
+        effectiveValue = defaultMethods.isNotEmpty
+            ? defaultMethods.first.id
+            : (customMethods.isNotEmpty ? customMethods.first.id : null);
+      }
+    } else {
+      // No selection - default to Contanti or first available
+      effectiveValue = paymentMethodState.defaultContanti?.id ??
+          (defaultMethods.isNotEmpty
+              ? defaultMethods.first.id
+              : (customMethods.isNotEmpty ? customMethods.first.id : null));
+    }
+
+    // T010: Notify parent of auto-selection (fix for US1 bug)
+    if (!_hasNotifiedAutoSelection && widget.selectedId == null && effectiveValue != null) {
+      _hasNotifiedAutoSelection = true;
+      // Capture value for closure
+      final valueToNotify = effectiveValue;
+      // Schedule callback after build completes
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onChanged(valueToNotify);
+        }
+      });
+    }
 
     return DropdownButtonFormField<String>(
       value: effectiveValue,
@@ -102,7 +148,7 @@ class PaymentMethodSelector extends ConsumerWidget {
         prefixIcon: Icon(Icons.payment),
       ),
       items: items,
-      onChanged: enabled ? onChanged : null,
+      onChanged: widget.enabled ? widget.onChanged : null,
       validator: (value) {
         if (value == null || value.isEmpty) {
           return 'Seleziona un metodo di pagamento';

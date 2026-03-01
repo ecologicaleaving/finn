@@ -47,6 +47,7 @@ class ExpenseListState {
     this.filterEndDate,
     this.filterCreatedBy,
     this.filterReimbursementStatus, // T044
+    this.filterIsGroupExpense,
   });
 
   final ExpenseListStatus status;
@@ -58,6 +59,7 @@ class ExpenseListState {
   final DateTime? filterEndDate;
   final String? filterCreatedBy;
   final ReimbursementStatus? filterReimbursementStatus; // T044
+  final bool? filterIsGroupExpense;
 
   ExpenseListState copyWith({
     ExpenseListStatus? status,
@@ -69,6 +71,7 @@ class ExpenseListState {
     DateTime? filterEndDate,
     String? filterCreatedBy,
     ReimbursementStatus? filterReimbursementStatus, // T044
+    bool? filterIsGroupExpense,
   }) {
     return ExpenseListState(
       status: status ?? this.status,
@@ -80,6 +83,7 @@ class ExpenseListState {
       filterEndDate: filterEndDate ?? this.filterEndDate,
       filterCreatedBy: filterCreatedBy ?? this.filterCreatedBy,
       filterReimbursementStatus: filterReimbursementStatus ?? this.filterReimbursementStatus, // T044
+      filterIsGroupExpense: filterIsGroupExpense ?? this.filterIsGroupExpense,
     );
   }
 
@@ -91,6 +95,7 @@ class ExpenseListState {
       filterStartDate != null ||
       filterEndDate != null ||
       filterCreatedBy != null;
+  // Note: filterIsGroupExpense is not included because it's always set by the tab
 }
 
 /// Expense list notifier
@@ -116,6 +121,7 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
       categoryId: state.filterCategoryId,
       createdBy: state.filterCreatedBy,
       reimbursementStatus: state.filterReimbursementStatus, // T045, T046
+      isGroupExpense: state.filterIsGroupExpense,
       limit: _pageSize,
       offset: refresh ? 0 : state.expenses.length,
     );
@@ -175,9 +181,22 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
     loadExpenses(refresh: true);
   }
 
-  /// Clear all filters
+  /// Set group expense filter
+  void setFilterIsGroupExpense(bool? isGroupExpense) {
+    state = state.copyWith(filterIsGroupExpense: isGroupExpense);
+    loadExpenses(refresh: true);
+  }
+
+  /// Clear group expense filter to show all expenses
+  void clearIsGroupExpenseFilter() {
+    state = state.copyWith(filterIsGroupExpense: null);
+    loadExpenses(refresh: true);
+  }
+
+  /// Clear all filters (except isGroupExpense which is set by the tab)
   void clearFilters() {
-    state = const ExpenseListState();
+    final currentIsGroupExpense = state.filterIsGroupExpense;
+    state = ExpenseListState(filterIsGroupExpense: currentIsGroupExpense);
     loadExpenses(refresh: true);
   }
 
@@ -341,6 +360,10 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
   final WidgetUpdateService _widgetUpdateService;
 
   /// Create a new expense
+  ///
+  /// T014: For admin creating expenses on behalf of members:
+  /// - createdBy: User ID of who created the expense (defaults to current user)
+  /// - lastModifiedBy: User ID of who last modified (for audit trail when admin creates)
   Future<ExpenseEntity?> createExpense({
     required double amount,
     required DateTime date,
@@ -351,6 +374,9 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
     Uint8List? receiptImage,
     bool isGroupExpense = true,
     ReimbursementStatus reimbursementStatus = ReimbursementStatus.none, // T035
+    String? createdBy, // T014
+    String? paidBy, // For admin creating expense for specific member
+    String? lastModifiedBy, // T014
   }) async {
     state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
 
@@ -364,6 +390,9 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       receiptImage: receiptImage,
       isGroupExpense: isGroupExpense,
       reimbursementStatus: reimbursementStatus, // T035
+      createdBy: createdBy, // T014
+      paidBy: paidBy, // Pass paid_by to repository
+      lastModifiedBy: lastModifiedBy, // T014
     );
 
     return result.fold(
@@ -410,6 +439,59 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       merchant: merchant,
       notes: notes,
       reimbursementStatus: reimbursementStatus, // T036
+    );
+
+    return result.fold(
+      (failure) {
+        state = state.copyWith(
+          status: ExpenseFormStatus.error,
+          errorMessage: failure.message,
+        );
+        return null;
+      },
+      (expense) {
+        state = state.copyWith(
+          status: ExpenseFormStatus.success,
+          expense: expense,
+        );
+        // Trigger widget update after successful expense update
+        _widgetUpdateService.triggerUpdate().catchError((error) {
+          print('Failed to update widget: $error');
+        });
+        return expense;
+      },
+    );
+  }
+
+  /// Update an existing expense with optimistic locking (Feature 001-admin-expenses-cash-fix)
+  ///
+  /// Uses the updated_at timestamp for optimistic locking to prevent concurrent edit conflicts.
+  /// Throws ConflictException (wrapped in ConflictFailure) if the expense was modified by another user.
+  Future<ExpenseEntity?> updateExpenseWithLock({
+    required String expenseId,
+    required DateTime originalUpdatedAt,
+    required String lastModifiedBy,
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? paymentMethodId,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+  }) async {
+    state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
+
+    final result = await _expenseRepository.updateExpenseWithTimestamp(
+      expenseId: expenseId,
+      originalUpdatedAt: originalUpdatedAt,
+      lastModifiedBy: lastModifiedBy,
+      amount: amount,
+      date: date,
+      categoryId: categoryId,
+      paymentMethodId: paymentMethodId,
+      merchant: merchant,
+      notes: notes,
+      reimbursementStatus: reimbursementStatus,
     );
 
     return result.fold(
@@ -533,7 +615,8 @@ final recentGroupExpensesProvider = FutureProvider<List<ExpenseEntity>>((ref) as
   );
 });
 
-/// Provider for recent personal expenses (last 10 expenses created by current user)
+/// Provider for recent personal expenses (last 10 expenses paid by current user)
+/// Uses paid_by filter to include expenses created by admin on behalf of user
 final recentPersonalExpensesProvider = FutureProvider<List<ExpenseEntity>>((ref) async {
   final repository = ref.watch(expenseRepositoryProvider);
   final currentUser = Supabase.instance.client.auth.currentUser;
@@ -541,7 +624,7 @@ final recentPersonalExpensesProvider = FutureProvider<List<ExpenseEntity>>((ref)
   if (currentUser == null) return [];
 
   final result = await repository.getExpenses(
-    createdBy: currentUser.id,
+    paidBy: currentUser.id,
     isGroupExpense: false,
     limit: 10,
   );
@@ -551,7 +634,8 @@ final recentPersonalExpensesProvider = FutureProvider<List<ExpenseEntity>>((ref)
   );
 });
 
-/// Provider per spese filtrate per categoria e utente (tutte le spese della categoria)
+/// Provider per spese filtrate per categoria e utente (tutte le spese pagate dall'utente)
+/// Uses paid_by to include expenses created by admin on behalf of user
 final expensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<ExpenseEntity>, ({String userId, String categoryId})>((ref, params) async {
   final repository = ref.watch(expenseRepositoryProvider);
@@ -560,7 +644,7 @@ final expensesByCategoryProvider = FutureProvider.autoDispose
   final endOfMonth = DateTime(now.year, now.month + 1, 0);
 
   final result = await repository.getExpenses(
-    createdBy: params.userId,
+    paidBy: params.userId, // Use paid_by instead of created_by
     categoryId: params.categoryId,
     // Non filtriamo per isGroupExpense - mostriamo tutte le spese della categoria
     startDate: startOfMonth,
@@ -572,3 +656,10 @@ final expensesByCategoryProvider = FutureProvider.autoDispose
     (expenses) => expenses,
   );
 });
+
+/// Provider for selected member when admin creates expense on behalf of member (Feature 001-admin-expenses-cash-fix)
+///
+/// This provider holds the user ID of the member for whom the admin is creating/editing an expense.
+/// - null means expense created by/for current user (default behavior)
+/// - Non-null means admin is creating expense on behalf of selected member
+final selectedMemberForExpenseProvider = StateProvider<String?>((ref) => null);

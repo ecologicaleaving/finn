@@ -45,12 +45,40 @@ class DeepLinkHandler {
 
     // Extract path from finapp:// scheme
     if (uri.scheme == 'finapp') {
-      final path = '/${uri.host}${uri.path}';
+      // Map widget deep links to app routes
+      String path;
+      switch (uri.host) {
+        case 'dashboard':
+          path = '/main'; // Navigate to main screen with dashboard tab
+          break;
+        case 'scan-receipt':
+          path = '/scan-receipt';
+          break;
+        case 'add-expense':
+          path = '/add-expense';
+          break;
+        default:
+          path = '/${uri.host}${uri.path}';
+      }
+
       print('Navigating to: $path');
 
-      // Use push instead of go to preserve navigation stack
-      // This prevents issues when app opens from closed state
-      _router.push(path);
+      // Delay navigation slightly to ensure app is fully initialized
+      Future.delayed(const Duration(milliseconds: 100), () {
+        try {
+          // Use go for main navigation to reset stack
+          if (path == '/main') {
+            _router.go(path);
+          } else {
+            // Use push for other screens to allow back navigation
+            _router.push(path);
+          }
+        } catch (e) {
+          print('Navigation error: $e');
+          // Fallback to main screen if navigation fails
+          _router.go('/main');
+        }
+      });
     }
   }
 }

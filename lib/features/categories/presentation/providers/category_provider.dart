@@ -253,3 +253,103 @@ final categoryProvider = StateNotifierProvider.family<CategoryNotifier, Category
     );
   },
 );
+
+// ========== MRU (Most Recently Used) Category Provider (Feature 001 T052) ==========
+
+/// State for MRU-ordered categories
+class MRUCategoryState {
+  const MRUCategoryState({
+    this.categories = const [],
+    this.isLoading = false,
+    this.errorMessage,
+  });
+
+  final List<ExpenseCategoryEntity> categories;
+  final bool isLoading;
+  final String? errorMessage;
+
+  MRUCategoryState copyWith({
+    List<ExpenseCategoryEntity>? categories,
+    bool? isLoading,
+    String? errorMessage,
+  }) {
+    return MRUCategoryState(
+      categories: categories ?? this.categories,
+      isLoading: isLoading ?? this.isLoading,
+      errorMessage: errorMessage,
+    );
+  }
+
+  factory MRUCategoryState.initial() {
+    return const MRUCategoryState();
+  }
+}
+
+/// Notifier for MRU-ordered categories
+class MRUCategoryNotifier extends StateNotifier<MRUCategoryState> {
+  MRUCategoryNotifier(
+    this._repository,
+    this._groupId,
+    this._userId,
+  ) : super(MRUCategoryState.initial()) {
+    loadCategoriesByMRU();
+  }
+
+  final CategoryRepository _repository;
+  final String _groupId;
+  final String _userId;
+
+  /// Load categories ordered by MRU (Most Recently Used)
+  Future<void> loadCategoriesByMRU() async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+
+    final result = await _repository.getCategoriesByMRU(
+      groupId: _groupId,
+      userId: _userId,
+    );
+
+    result.fold(
+      (failure) {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: failure.message,
+        );
+      },
+      (categories) {
+        state = state.copyWith(
+          categories: categories,
+          isLoading: false,
+        );
+      },
+    );
+  }
+
+  /// Update category usage tracking after selecting a category
+  Future<void> updateCategoryUsage(String categoryId) async {
+    await _repository.updateCategoryUsage(
+      userId: _userId,
+      categoryId: categoryId,
+    );
+
+    // Reload categories to reflect new MRU order
+    await loadCategoriesByMRU();
+  }
+}
+
+/// Provider for MRU-ordered categories
+///
+/// Usage: categoryMRUProvider((groupId: 'xxx', userId: 'yyy'))
+final categoryMRUProvider = StateNotifierProvider.family<
+    MRUCategoryNotifier,
+    MRUCategoryState,
+    ({String groupId, String userId})>(
+  (ref, params) {
+    final repository = ref.watch(categoryRepositoryProvider);
+
+    return MRUCategoryNotifier(
+      repository,
+      params.groupId,
+      params.userId,
+    );
+  },
+);

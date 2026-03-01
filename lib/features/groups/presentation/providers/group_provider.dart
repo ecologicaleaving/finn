@@ -86,12 +86,14 @@ class GroupNotifier extends StateNotifier<GroupState> {
 
   /// Load the current user's group
   Future<void> loadCurrentGroup() async {
+    print('🔍 [GROUP] loadCurrentGroup called');
     state = state.copyWith(status: GroupStatus.loading, errorMessage: null);
 
     final result = await _groupRepository.getCurrentGroup();
 
     result.fold(
       (failure) {
+        print('❌ [GROUP] Failed to load group: ${failure.message}');
         state = state.copyWith(
           status: GroupStatus.noGroup,
           group: null,
@@ -99,6 +101,7 @@ class GroupNotifier extends StateNotifier<GroupState> {
         );
       },
       (group) async {
+        print('✅ [GROUP] Group loaded: ${group.name} (id: ${group.id})');
         state = state.copyWith(
           status: GroupStatus.loaded,
           group: group,
@@ -115,15 +118,18 @@ class GroupNotifier extends StateNotifier<GroupState> {
   Future<void> loadMembers() async {
     if (state.group == null) return;
 
+    print('🔍 [GROUP] Loading members for group ${state.group!.id}');
     final result = await _groupRepository.getGroupMembers(
       groupId: state.group!.id,
     );
 
     result.fold(
       (failure) {
+        print('❌ [GROUP] Failed to load members: ${failure.message}');
         // Keep current state, just log the error
       },
       (members) {
+        print('✅ [GROUP] Loaded ${members.length} members');
         state = state.copyWith(members: members);
       },
     );
@@ -349,6 +355,12 @@ final groupMembersProvider = Provider<List<MemberEntity>>((ref) {
 final isGroupAdminProvider = Provider<bool>((ref) {
   final group = ref.watch(groupProvider).group;
   final currentUser = ref.watch(currentUserProvider);
-  if (group == null || currentUser == null) return false;
-  return group.isAdmin(currentUser.id);
+  print('🔍 [isGroupAdminProvider] Checking admin status: group=${group?.name}, user=${currentUser?.id}');
+  if (group == null || currentUser == null) {
+    print('❌ [isGroupAdminProvider] No group or user, returning false');
+    return false;
+  }
+  final isAdmin = group.isAdmin(currentUser.id);
+  print('${isAdmin ? "✅" : "❌"} [isGroupAdminProvider] User is ${isAdmin ? "admin" : "not admin"}');
+  return isAdmin;
 });

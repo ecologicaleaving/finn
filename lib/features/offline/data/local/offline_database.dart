@@ -14,6 +14,14 @@ import '../../../../core/database/drift/tables/savings_goals_table.dart';
 import '../../../../core/database/drift/tables/group_expense_assignments_table.dart';
 import '../../../budgets/domain/entities/income_source_entity.dart';
 
+// Recurring expenses tables
+import '../../../../core/database/drift/tables/recurring_expenses_table.dart';
+import '../../../../core/database/drift/tables/recurring_expense_instances_table.dart';
+
+// Enums
+import '../../../../core/enums/recurrence_frequency.dart';
+import '../../../../core/enums/reimbursement_status.dart';
+
 part 'offline_database.g.dart';
 
 // Table 1: OfflineExpenses
@@ -40,6 +48,10 @@ class OfflineExpenses extends Table {
       .withDefault(const Constant('none'))
       .check(reimbursementStatus.isIn(['none', 'reimbursable', 'reimbursed']))();
   DateTimeColumn get reimbursedAt => dateTime().nullable()();
+
+  // Recurring expense tracking (Feature 013-recurring-expenses)
+  TextColumn get recurringExpenseId => text().nullable()(); // References recurring_expenses(id)
+  BoolColumn get isRecurringInstance => boolean().withDefault(const Constant(false))(); // Whether this expense was auto-generated from a template
 
   // Receipt Image Reference (if uploaded offline)
   TextColumn get localReceiptPath => text().nullable()(); // Local file path
@@ -177,12 +189,15 @@ class CachedCategories extends Table {
   IncomeSources,
   SavingsGoals,
   GroupExpenseAssignments,
+  // Recurring expenses tables
+  RecurringExpenses,
+  RecurringExpenseInstances,
 ])
 class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -199,6 +214,15 @@ class OfflineDatabase extends _$OfflineDatabase {
         await m.createTable(incomeSources);
         await m.createTable(savingsGoals);
         await m.createTable(groupExpenseAssignments);
+      }
+      if (from < 4) {
+        // Add recurring expenses tables (Feature 013)
+        await m.createTable(recurringExpenses);
+        await m.createTable(recurringExpenseInstances);
+
+        // Add recurring expense fields to OfflineExpenses
+        await m.addColumn(offlineExpenses, offlineExpenses.recurringExpenseId);
+        await m.addColumn(offlineExpenses, offlineExpenses.isRecurringInstance);
       }
     },
   );

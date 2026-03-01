@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/services/icon_matching_service.dart';
 import '../../../budgets/presentation/providers/category_budget_provider.dart';
 import '../../../budgets/presentation/providers/budget_repository_provider.dart';
 import '../../../categories/presentation/providers/category_provider.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../domain/entities/dashboard_stats_entity.dart';
 
 /// Widget showing list of category budgets with progress bars
 class CategoryBudgetList extends ConsumerWidget {
@@ -17,22 +19,28 @@ class CategoryBudgetList extends ConsumerWidget {
     super.key,
     this.maxItems = 5,
     this.onViewAll,
+    required this.period,
+    required this.offset,
   });
 
   final int maxItems;
   final VoidCallback? onViewAll;
+  final DashboardPeriod period;
+  final int offset;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final now = DateTime.now();
     final groupId = ref.watch(currentGroupIdProvider);
+
+    // Calculate date params based on period and offset
+    final (year, month) = _calculateDateParams(period, offset);
 
     final budgetState = ref.watch(
       categoryBudgetProvider((
         groupId: groupId,
-        year: now.year,
-        month: now.month,
+        year: year,
+        month: month,
       )),
     );
 
@@ -98,7 +106,7 @@ class CategoryBudgetList extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Budget per categoria',
+                  'Budget per categoria (${period.label})',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -135,7 +143,7 @@ class CategoryBudgetList extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Budget per categoria',
+                  'Budget per categoria (${period.label})',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -164,14 +172,32 @@ class CategoryBudgetList extends ConsumerWidget {
                 categoryName: category.name,
                 budgetAmount: budgetAmount,
                 groupId: groupId,
-                year: now.year,
-                month: now.month,
+                period: period,
+                offset: offset,
               );
             }),
           ],
         ),
       ),
     );
+  }
+
+  /// Calculate date parameters based on period and offset
+  (int year, int month) _calculateDateParams(DashboardPeriod period, int offset) {
+    final now = DateTime.now();
+
+    switch (period) {
+      case DashboardPeriod.week:
+      case DashboardPeriod.month:
+        final targetDate = DateTime(now.year, now.month + offset, 1);
+        return (targetDate.year, targetDate.month);
+
+      case DashboardPeriod.year:
+        // For year view, we use the current month for fetching budget list
+        // (we'll aggregate in the item widget)
+        final targetYear = now.year + offset;
+        return (targetYear, 1); // Use January as reference
+    }
   }
 }
 
@@ -182,16 +208,16 @@ class _CategoryBudgetListItem extends ConsumerWidget {
     required this.categoryName,
     required this.budgetAmount,
     required this.groupId,
-    required this.year,
-    required this.month,
+    required this.period,
+    required this.offset,
   });
 
   final String categoryId;
   final String categoryName;
   final int budgetAmount;
   final String groupId;
-  final int year;
-  final int month;
+  final DashboardPeriod period;
+  final int offset;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -253,6 +279,14 @@ class _CategoryBudgetListItem extends ConsumerWidget {
                   Expanded(
                     child: Row(
                       children: [
+                        Icon(
+                          IconMatchingService.getDefaultIconForCategory(
+                            categoryName,
+                          ),
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 8),
                         Text(
                           categoryName,
                           style: theme.textTheme.bodyMedium?.copyWith(
@@ -271,7 +305,7 @@ class _CategoryBudgetListItem extends ConsumerWidget {
                     ),
                   ),
                   Text(
-                    '${currencyFormat.format(spentAmount / 100)} / ${currencyFormat.format(budgetAmount / 100)}',
+                    '${currencyFormat.format(spentAmount / 100)} / ${currencyFormat.format((period == DashboardPeriod.year ? budgetAmount * 12 : budgetAmount) / 100)}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: isOverBudget
                           ? Colors.red.shade700
@@ -329,14 +363,84 @@ class _CategoryBudgetListItem extends ConsumerWidget {
     );
   }
 
+  /// Calculate date parameters based on period and offset
+  (int year, int? month) _calculateDateParams() {
+    final now = DateTime.now();
+
+    switch (period) {
+      case DashboardPeriod.week:
+      case DashboardPeriod.month:
+        final targetDate = DateTime(now.year, now.month + offset, 1);
+        return (targetDate.year, targetDate.month);
+
+      case DashboardPeriod.year:
+        final targetYear = now.year + offset;
+        return (targetYear, null);
+    }
+  }
+
   Future<Map<String, dynamic>?> _fetchCategoryBudgetStats(WidgetRef ref) async {
     final repository = ref.read(budgetRepositoryProvider);
+    final (year, month) = _calculateDateParams();
 
+    // For annual view, aggregate all 12 months
+    if (period == DashboardPeriod.year) {
+      try {
+        // Fetch stats for all 12 months in parallel
+        final futures = List.generate(12, (index) {
+          final monthNum = index + 1;
+          return repository.getCategoryBudgetStats(
+            groupId: groupId,
+            categoryId: categoryId,
+            year: year,
+            month: monthNum,
+          );
+        });
+
+        final results = await Future.wait(futures);
+
+        // Aggregate the results
+        int totalSpent = 0;
+        bool hasAnyData = false;
+
+        for (final result in results) {
+          result.fold(
+            (failure) => null,
+            (stats) {
+              if (stats != null) {
+                hasAnyData = true;
+                final monthStats = stats as Map<String, dynamic>;
+                totalSpent += (monthStats['spent_amount'] as int?) ?? 0;
+              }
+            },
+          );
+        }
+
+        if (!hasAnyData) return null;
+
+        // For annual budget, multiply monthly budget by 12
+        final annualBudget = budgetAmount * 12;
+        final remaining = annualBudget - totalSpent;
+        final isOverBudget = totalSpent > annualBudget;
+        final percentageUsed = annualBudget > 0 ? (totalSpent / annualBudget) * 100 : 0.0;
+
+        return {
+          'spent_amount': totalSpent,
+          'remaining_amount': remaining,
+          'is_over_budget': isOverBudget,
+          'percentage_used': percentageUsed,
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // For monthly/weekly view, use single month
     final result = await repository.getCategoryBudgetStats(
       groupId: groupId,
       categoryId: categoryId,
       year: year,
-      month: month,
+      month: month!,
     );
 
     return result.fold(

@@ -51,10 +51,12 @@ DerivedData/
 supabase/.branches/
 supabase/.temp/
 
-# Environment
+# Environment (but keep .env.example for docs)
 .env
-.env.*
-*.env
+.env.dev
+.env.prod
+.env.local
+.env.*.local
 
 # IDE
 .vscode/

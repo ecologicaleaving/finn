@@ -72,15 +72,17 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
       // Calculate date range based on period and offset
       final (startDate, endDate) = _calculateDateRange(period, offset);
 
-      // Build query - simple select without joins to avoid RLS issues
+      // Build query - select expenses with category_id (not category)
+      // Filter by paid_by to attribute expenses to correct member
       var query = _supabaseClient
           .from('expenses')
-          .select('id, amount, category, date, paid_by')
+          .select('id, amount, category_id, date, paid_by, is_group_expense')
           .eq('group_id', groupId)
           .gte('date', startDate.toIso8601String().split('T')[0])
           .lte('date', endDate.toIso8601String().split('T')[0]);
 
       if (userId != null) {
+        // Filter by paid_by to show expenses paid by specific user
         query = query.eq('paid_by', userId);
       }
 
@@ -118,7 +120,7 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
 
       for (final expense in expenses) {
         final amount = (expense['amount'] as num).toDouble();
-        final category = expense['category'] as String? ?? 'altro';
+        final categoryId = expense['category_id'] as String? ?? 'altro';
         final date = expense['date'] as String;
         final paidBy = expense['paid_by'] as String? ?? 'unknown';
         final displayName = memberNames[paidBy] ?? 'Utente sconosciuto';
@@ -126,13 +128,13 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
         totalAmount += amount;
 
         // Category breakdown
-        if (!categoryTotals.containsKey(category)) {
-          categoryTotals[category] = {'total': 0.0, 'count': 0};
+        if (!categoryTotals.containsKey(categoryId)) {
+          categoryTotals[categoryId] = {'total': 0.0, 'count': 0};
         }
-        categoryTotals[category]!['total'] =
-            (categoryTotals[category]!['total'] as double) + amount;
-        categoryTotals[category]!['count'] =
-            (categoryTotals[category]!['count'] as int) + 1;
+        categoryTotals[categoryId]!['total'] =
+            (categoryTotals[categoryId]!['total'] as double) + amount;
+        categoryTotals[categoryId]!['count'] =
+            (categoryTotals[categoryId]!['count'] as int) + 1;
 
         // Member breakdown
         if (!memberTotals.containsKey(paidBy)) {

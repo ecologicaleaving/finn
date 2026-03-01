@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
-import '../../../expenses/presentation/screens/expense_list_screen.dart';
+import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import 'settings_screen.dart';
 
@@ -31,7 +31,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
   final List<Widget> _screens = const [
     DashboardScreen(),
-    ExpenseListScreen(),
+    ExpenseTabsScreen(),
     SettingsScreen(),
   ];
 

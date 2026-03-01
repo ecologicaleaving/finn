@@ -18,12 +18,19 @@ abstract class CategoryRemoteDataSource {
   Future<ExpenseCategoryModel> createCategory({
     required String groupId,
     required String name,
+    String? iconName,
   });
 
   /// Update a category name.
   Future<ExpenseCategoryModel> updateCategory({
     required String categoryId,
     required String name,
+  });
+
+  /// Update a category icon.
+  Future<ExpenseCategoryModel> updateCategoryIcon({
+    required String categoryId,
+    required String iconName,
   });
 
   /// Delete a category.
@@ -38,6 +45,9 @@ abstract class CategoryRemoteDataSource {
 
   /// Get expense count for a category (using RPC function).
   Future<int> getCategoryExpenseCount({required String categoryId});
+
+  /// Feature 013 T066: Get recurring expense count for a category.
+  Future<int> getCategoryRecurringExpenseCount({required String categoryId});
 
   /// Check if category name exists in group.
   Future<bool> categoryNameExists({
@@ -56,6 +66,25 @@ abstract class CategoryRemoteDataSource {
 
   /// Mark a category as used by a user (after first expense).
   Future<void> markCategoryAsUsed({
+    required String userId,
+    required String categoryId,
+  });
+
+  // ========== MRU (Most Recently Used) Tracking (Feature 001) ==========
+
+  /// Get categories ordered by MRU for a user.
+  ///
+  /// Uses LEFT JOIN with user_category_usage to sort by last_used_at.
+  /// Virgin categories (never used) appear last, sorted alphabetically.
+  Future<List<ExpenseCategoryModel>> getCategoriesByMRU({
+    required String groupId,
+    required String userId,
+  });
+
+  /// Update category usage tracking (using RPC function).
+  ///
+  /// Calls upsert_category_usage to increment use_count and update last_used_at.
+  Future<void> updateCategoryUsage({
     required String userId,
     required String categoryId,
   });
@@ -107,7 +136,7 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
     try {
       final response = await supabaseClient
           .from('expense_categories')
-          .select('*, expense_count:get_category_expense_count(category_id)')
+          .select()
           .eq('id', categoryId)
           .single();
 
@@ -123,18 +152,25 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
   Future<ExpenseCategoryModel> createCategory({
     required String groupId,
     required String name,
+    String? iconName,
   }) async {
     try {
       final userId = _currentUserId;
 
+      final insertData = {
+        'group_id': groupId,
+        'name': name,
+        'is_default': false,
+        'created_by': userId,
+      };
+
+      if (iconName != null) {
+        insertData['icon_name'] = iconName;
+      }
+
       final response = await supabaseClient
           .from('expense_categories')
-          .insert({
-            'group_id': groupId,
-            'name': name,
-            'is_default': false,
-            'created_by': userId,
-          })
+          .insert(insertData)
           .select()
           .single();
 
@@ -188,6 +224,36 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
       throw ServerException(e.message, e.code);
     } catch (e) {
       throw ServerException('Failed to update category: $e');
+    }
+  }
+
+  @override
+  Future<ExpenseCategoryModel> updateCategoryIcon({
+    required String categoryId,
+    required String iconName,
+  }) async {
+    try {
+      final response = await supabaseClient
+          .from('expense_categories')
+          .update({
+            'icon_name': iconName,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', categoryId)
+          .select()
+          .single();
+
+      return ExpenseCategoryModel.fromJson(response);
+    } on PostgrestException catch (e) {
+      // Check for permission error
+      if (e.code == '42501' || e.code == 'PGRST301') {
+        throw const PermissionException(
+          'Only administrators can update category icons',
+        );
+      }
+      throw ServerException(e.message, e.code);
+    } catch (e) {
+      throw ServerException('Failed to update category icon: $e');
     }
   }
 
@@ -259,6 +325,28 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
     }
   }
 
+  /// Feature 013 T066: Get count of recurring expenses using this category
+  Future<int> getCategoryRecurringExpenseCount({
+    required String categoryId,
+  }) async {
+    try {
+      // Query recurring_expenses table directly
+      final response = await supabaseClient
+          .from('recurring_expenses')
+          .select('id')
+          .eq('category_id', categoryId)
+          .count(CountOption.exact);
+
+      return response.count;
+    } on PostgrestException catch (e) {
+      throw ServerException(e.message, e.code);
+    } catch (e) {
+      throw ServerException(
+        'Failed to get category recurring expense count: $e',
+      );
+    }
+  }
+
   @override
   Future<bool> categoryNameExists({
     required String groupId,
@@ -325,6 +413,64 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
       }
     } catch (e) {
       throw ServerException('Failed to mark category as used: $e');
+    }
+  }
+
+  // ========== MRU (Most Recently Used) Tracking (Feature 001) ==========
+
+  @override
+  Future<List<ExpenseCategoryModel>> getCategoriesByMRU({
+    required String groupId,
+    required String userId,
+  }) async {
+    try {
+      // Query categories with LEFT JOIN to user_category_usage
+      // This allows us to get MRU data while still returning all categories
+      final response = await supabaseClient
+          .from('expense_categories')
+          .select('''
+            *,
+            user_category_usage!left(last_used_at, use_count)
+          ''')
+          .eq('group_id', groupId)
+          .eq('user_category_usage.user_id', userId);
+
+      // Parse response and extract categories
+      final categories = (response as List)
+          .map((json) => ExpenseCategoryModel.fromJson(json))
+          .toList();
+
+      // Sort alphabetically by name
+      categories.sort((a, b) => a.name.compareTo(b.name));
+
+      return categories;
+    } on PostgrestException catch (e) {
+      throw ServerException(e.message, e.code);
+    } catch (e) {
+      throw ServerException('Failed to get categories by MRU: $e');
+    }
+  }
+
+  @override
+  Future<void> updateCategoryUsage({
+    required String userId,
+    required String categoryId,
+  }) async {
+    try {
+      // Call the PostgreSQL RPC function to upsert usage tracking
+      // Note: Function expects UUID types, Supabase handles string->UUID conversion
+      await supabaseClient.rpc(
+        'upsert_category_usage',
+        params: {
+          'p_user_id': userId,
+          'p_category_id': categoryId,
+          'p_last_used_at': DateTime.now().toIso8601String(),
+        },
+      );
+    } on PostgrestException catch (e) {
+      throw ServerException(e.message, e.code);
+    } catch (e) {
+      throw ServerException('Failed to update category usage: $e');
     }
   }
 }

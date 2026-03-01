@@ -12,6 +12,7 @@ import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../providers/budget_composition_provider.dart';
 import '../providers/budget_repository_provider.dart';
+import '../providers/budget_reservation_provider.dart';
 import '../providers/income_sources_provider.dart';
 import '../widgets/budget_overview_card.dart';
 import '../widgets/category_budget_tile.dart';
@@ -20,6 +21,8 @@ import '../widgets/validation_alert_banner.dart';
 import 'group_budget_detail_screen.dart';
 import 'personal_budget_detail_screen.dart';
 import '../../../../app/app_theme.dart';
+import '../../../expenses/presentation/providers/recurring_expense_provider.dart';
+import '../../../expenses/presentation/widgets/budget_reservation_display.dart';
 /// Unified budget management screen
 ///
 /// Replaces the previous 3 separate screens:
@@ -93,6 +96,13 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       error: (_, __) => 0,
     );
 
+    // Feature 013 T038: Get reserved budget for recurring expenses
+    final reservedBudget = ref.watch(currentMonthReservedBudgetProvider);
+
+    // Get recurring expenses for budget reservation display
+    final recurringExpensesState = ref.watch(recurringExpenseListProvider);
+    final recurringExpenses = recurringExpensesState.templates;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -159,6 +169,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                 composition: composition,
                 currentUserId: userId,
                 totalIncome: totalIncome,
+                reservedBudget: reservedBudget, // Feature 013 T038
                 onPersonalTap: () {
                   Navigator.push(
                     context,
@@ -184,6 +195,16 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               ),
 
               const SizedBox(height: 16),
+
+              // Feature 013 T038: Budget reservation breakdown
+              if (reservedBudget > 0)
+                BudgetReservationDisplay(
+                  recurringExpenses: recurringExpenses,
+                  month: _selectedMonth,
+                  year: _selectedYear,
+                ),
+
+              if (reservedBudget > 0) const SizedBox(height: 16),
 
               // Expandable categories section
               Card(

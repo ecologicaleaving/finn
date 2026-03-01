@@ -30,6 +30,7 @@ abstract class CategoryRepository {
   Future<Either<Failure, ExpenseCategoryEntity>> createCategory({
     required String groupId,
     required String name,
+    String? iconName,
   });
 
   /// Update a category name.
@@ -39,6 +40,15 @@ abstract class CategoryRepository {
   Future<Either<Failure, ExpenseCategoryEntity>> updateCategory({
     required String categoryId,
     required String name,
+  });
+
+  /// Update a category's icon.
+  ///
+  /// Only administrators can update category icons.
+  /// Validates that iconName is a valid Material Icons name.
+  Future<Either<Failure, ExpenseCategoryEntity>> updateCategoryIcon({
+    required String categoryId,
+    required String iconName,
   });
 
   /// Delete a category.
@@ -94,6 +104,29 @@ abstract class CategoryRepository {
   ///
   /// Creates user_category_usage record to prevent future prompts.
   Future<Either<Failure, Unit>> markCategoryAsUsed({
+    required String userId,
+    required String categoryId,
+  });
+
+  // ========== MRU (Most Recently Used) Tracking (Feature 001) ==========
+
+  /// Get categories ordered by MRU (Most Recently Used) for a user.
+  ///
+  /// Categories are sorted by:
+  /// 1. Most recently used first (last_used_at DESC)
+  /// 2. Virgin categories (never used) appear last, sorted alphabetically
+  ///
+  /// Used for category dropdown in manual expense entry.
+  Future<Either<Failure, List<ExpenseCategoryEntity>>> getCategoriesByMRU({
+    required String groupId,
+    required String userId,
+  });
+
+  /// Update category usage tracking when an expense is saved.
+  ///
+  /// Increments use_count and updates last_used_at timestamp.
+  /// Called after expense creation/update with a category.
+  Future<Either<Failure, Unit>> updateCategoryUsage({
     required String userId,
     required String categoryId,
   });

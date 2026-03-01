@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,6 +10,7 @@ import '../../../dashboard/domain/repositories/dashboard_repository.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../data/datasources/widget_local_datasource.dart';
 import '../../data/datasources/widget_local_datasource_impl.dart';
+import '../../data/datasources/widget_remote_datasource.dart';
 import '../../data/repositories/widget_repository_impl.dart';
 import '../../domain/entities/widget_config_entity.dart';
 import '../../domain/entities/widget_data_entity.dart';
@@ -23,8 +26,14 @@ final widgetLocalDataSourceProvider = Provider<WidgetLocalDataSource>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
   return WidgetLocalDataSourceImpl(
     sharedPreferences: prefs,
-    platformChannel: null, // TODO: Initialize for iOS
+    platformChannel: const MethodChannel('com.ecologicaleaving.fin/widget'),
   );
+});
+
+/// Provider for widget remote data source (Feature 001: Realtime updates)
+final widgetRemoteDataSourceProvider = Provider<WidgetRemoteDataSource>((ref) {
+  final supabase = Supabase.instance.client;
+  return WidgetRemoteDataSourceImpl(supabase: supabase);
 });
 
 /// Provider for widget repository
@@ -73,11 +82,49 @@ class WidgetUpdateState {
   bool get hasData => data != null;
 }
 
-/// Widget update notifier
+/// Widget update notifier with real-time subscription support (Feature 001)
 class WidgetUpdateNotifier extends StateNotifier<WidgetUpdateState> {
-  WidgetUpdateNotifier(this._widgetRepository) : super(const WidgetUpdateState());
+  WidgetUpdateNotifier(
+    this._widgetRepository,
+    this._remoteDataSource,
+    this._authRepository,
+  ) : super(const WidgetUpdateState());
 
   final WidgetRepository _widgetRepository;
+  final WidgetRemoteDataSource _remoteDataSource;
+  final AuthRepository _authRepository;
+  StreamSubscription? _realtimeSubscription;
+  Timer? _debounceTimer;
+
+  /// Subscribe to real-time expense changes
+  Future<void> subscribeToRealtimeUpdates() async {
+    final userResult = await _authRepository.getCurrentUser();
+    if (userResult.isLeft()) return;
+
+    final user = userResult.getOrElse(() => throw Exception('User not found'));
+
+    // Cancel existing subscription
+    await _realtimeSubscription?.cancel();
+
+    // Subscribe to expense changes
+    _realtimeSubscription = _remoteDataSource
+        .subscribeToExpenseChanges(user.id)
+        .listen((expenses) {
+      // Debounce rapid changes (wait 500ms after last change)
+      _debounceTimer?.cancel();
+      _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+        updateWidget();
+      });
+    });
+  }
+
+  /// Unsubscribe from real-time updates
+  Future<void> unsubscribeFromRealtimeUpdates() async {
+    await _realtimeSubscription?.cancel();
+    _realtimeSubscription = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+  }
 
   /// Update widget with latest data
   Future<void> updateWidget() async {
@@ -131,14 +178,25 @@ class WidgetUpdateNotifier extends StateNotifier<WidgetUpdateState> {
   void reset() {
     state = const WidgetUpdateState();
   }
+
+  @override
+  void dispose() {
+    _realtimeSubscription?.cancel();
+    _debounceTimer?.cancel();
+    super.dispose();
+  }
 }
 
-/// Provider for widget update state
+/// Provider for widget update state (Feature 001: Realtime subscription)
 final widgetUpdateProvider =
     StateNotifierProvider<WidgetUpdateNotifier, WidgetUpdateState>((ref) {
   // Refresh when auth changes
   ref.watch(authProvider);
-  return WidgetUpdateNotifier(ref.watch(widgetRepositoryProvider));
+  return WidgetUpdateNotifier(
+    ref.watch(widgetRepositoryProvider),
+    ref.watch(widgetRemoteDataSourceProvider),
+    ref.watch(authRepositoryProvider),
+  );
 });
 
 /// Widget configuration state status

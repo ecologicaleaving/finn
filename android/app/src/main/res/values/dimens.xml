@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget Dimensions -->
+    <dimen name="widget_padding">16dp</dimen>
+    <dimen name="widget_text_tiny">10sp</dimen>
+    <dimen name="widget_text_small">12sp</dimen>
+    <dimen name="widget_text_medium">14sp</dimen>
+    <dimen name="widget_text_large">24sp</dimen>
+    <dimen name="widget_icon_size">20dp</dimen>
+    <dimen name="widget_icon_size_small">16dp</dimen>
+    <dimen name="widget_button_padding">8dp</dimen>
+    <dimen name="widget_button_spacing">4dp</dimen>
+    <dimen name="widget_button_margin_top">8dp</dimen>
+    <dimen name="widget_button_text">14sp</dimen>
+    <dimen name="widget_progress_height">6dp</dimen>
+</resources>

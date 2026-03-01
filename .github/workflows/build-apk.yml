@@ -1,0 +1,152 @@
+name: Build & Deploy APK
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-deploy:
+    name: Build APK & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate code (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs || true
+
+      - name: Extract version & branch info
+        id: info
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          SLUG=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]' | cut -c1-40)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "slug=$SLUG" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create .env file
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
+
+      - name: Build APK (arm64 only, debug)
+        run: flutter build apk --debug --target-platform android-arm64 || true
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+
+      - name: Find APK
+        id: apk
+        run: |
+          echo "=== Cercando APK nel build folder ==="
+          find build -name "*.apk" 2>/dev/null | grep -v intermediates || echo "Nessun APK trovato"
+          APK_PATH=$(find build -name "*.apk" 2>/dev/null | grep -v "intermediates\|test" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: Nessun APK prodotto dal build"
+            exit 1
+          fi
+          echo "APK found: $APK_PATH"
+          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
+
+      - name: Rename APK
+        run: |
+          PR="${{ steps.info.outputs.pr_number }}"
+          SHA="${{ steps.info.outputs.short_sha }}"
+          if [ -n "$PR" ]; then
+            APK_NAME="finn-pr${PR}-${SHA}.apk"
+          else
+            APK_NAME="finn-v${{ steps.info.outputs.version }}-${SHA}.apk"
+          fi
+          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
+          cp "${{ steps.apk.outputs.path }}" "$APK_NAME"
+
+      - name: Deploy APK to app-hub
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "mkdir -p /var/www/app-hub/downloads/test"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "$APK_NAME" \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/app-hub/downloads/test/
+
+      - name: Update latest symlink (master only)
+        if: github.ref == 'refs/heads/001-family-expense-tracker' || github.ref == 'refs/heads/master'
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd /var/www/app-hub/downloads && ln -sf test/$APK_NAME finn-latest.apk"
+
+      - name: Create GitHub Release (master only)
+        if: (github.ref == 'refs/heads/001-family-expense-tracker' || github.ref == 'refs/heads/master') && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.info.outputs.version }}
+          name: Finn v${{ steps.info.outputs.version }}
+          files: ${{ env.APK_NAME }}
+
+      - name: Comment PR with APK link
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const apkName = process.env.APK_NAME;
+            const url = `https://apps.8020solutions.org/downloads/test/${apkName}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `📲 **APK pronto per il test!**\n\n🔗 [${apkName}](${url})\n\n> Scarica e installa direttamente sul tuo dispositivo Android.`
+            });
+
+
+      - name: Mark deployed-test & move card
+        if: success()
+        run: |
+          BRANCH="${{ steps.info.outputs.branch }}"
+          ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K\d+' || echo "")
+          REPO="${{ github.repository }}"
+          if [ -n "$ISSUE_NUM" ]; then
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no               -o ConnectTimeout=10               ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}               "export PATH=\x24PATH:/root/go/bin &&                gh issue edit $ISSUE_NUM --repo $REPO                  --remove-label review-ready                  --add-label deployed-test 2>/dev/null || true &&                python3 /root/.openclaw/workspace-ciccio/scripts/project_board.py                  $REPO $ISSUE_NUM Test 2>/dev/null || true" || true
+          fi
+      - name: Notify Ciccio
+        if: always()
+        run: |
+          EMOJI=$([ "${{ job.status }}" = "success" ] && echo "✅" || echo "❌")
+          URL="https://apps.8020solutions.org/downloads/test/${APK_NAME:-N/A}"
+          BRANCH="${{ steps.info.outputs.branch }}"
+          SHORT="${{ steps.info.outputs.short_sha }}"
+          MSG="${EMOJI} Finn build ${{ job.status }} (${SHORT})\nBranch: ${BRANCH}\n🔗 ${URL}"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "ciccio-notify '${MSG}'" || true

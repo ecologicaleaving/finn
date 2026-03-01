@@ -38,7 +38,7 @@ class ExpenseDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/expenses'),
+          onPressed: () => context.pop(),
         ),
         title: const Text('Dettaglio spesa'),
         actions: [
@@ -156,6 +156,12 @@ class ExpenseDetailScreen extends ConsumerWidget {
                         ),
                         const Divider(),
                         _DetailRow(
+                          icon: Icons.account_circle,
+                          label: 'Pagato da',
+                          value: expense.paidByName ?? 'Non specificato',
+                        ),
+                        const Divider(),
+                        _DetailRow(
                           icon: expense.isGroupExpense ? Icons.group : Icons.person_outline,
                           label: 'Tipo',
                           value: expense.isGroupExpense ? 'Spesa di gruppo' : 'Spesa personale',
@@ -166,6 +172,18 @@ class ExpenseDetailScreen extends ConsumerWidget {
                             icon: Icons.payment,
                             label: 'Metodo di pagamento',
                             value: expense.paymentMethodName!,
+                          ),
+                        ],
+                        // Recurring expense indicator (T029)
+                        if (expense.isRecurringExpense) ...[
+                          const Divider(),
+                          _DetailRow(
+                            icon: Icons.loop,
+                            label: 'Ricorrenza',
+                            value: expense.isRecurringInstance
+                                ? 'Generata automaticamente'
+                                : 'Spesa ricorrente',
+                            iconColor: theme.colorScheme.tertiary,
                           ),
                         ],
                         if (expense.createdAt != null) ...[
@@ -180,6 +198,55 @@ class ExpenseDetailScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+
+                // T022: Audit trail display (Feature 001-admin-expenses-cash-fix)
+                if (expense.wasModified) ...[
+                  const SizedBox(height: 16),
+                  Card(
+                    color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.edit_note,
+                            size: 20,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Consumer(
+                              builder: (context, ref, _) {
+                                // Get member names for display
+                                final groupMembers = ref.watch(groupMembersProvider);
+                                final memberNames = Map<String, String>.fromEntries(
+                                  groupMembers.map((m) => MapEntry(m.userId, m.displayName)),
+                                );
+
+                                // Get current user ID
+                                final currentUserId = ref.watch(currentUserIdProvider);
+
+                                final modifierName = expense.getLastModifiedByName(
+                                  currentUserId,
+                                  memberNames,
+                                );
+
+                                return Text(
+                                  modifierName.isNotEmpty
+                                      ? 'Modificato da $modifierName'
+                                      : 'Modificato',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
 
                 // Reimbursement status change section (T051)
                 const SizedBox(height: 16),
@@ -316,9 +383,11 @@ class ExpenseDetailScreen extends ConsumerWidget {
         ref.invalidate(recentPersonalExpensesProvider);
         ref.invalidate(personalExpensesByCategoryProvider);
         ref.invalidate(expensesByPeriodProvider);
+        ref.invalidate(groupMembersExpensesProvider);
+        ref.invalidate(groupExpensesByCategoryProvider);
         ref.read(dashboardProvider.notifier).refresh();
 
-        context.go('/expenses');
+        context.pop();
       }
     }
   }
@@ -329,11 +398,13 @@ class _DetailRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.iconColor,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -343,7 +414,11 @@ class _DetailRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          Icon(
+            icon,
+            size: 20,
+            color: iconColor ?? theme.colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 12),
           Expanded(
             flex: 2,

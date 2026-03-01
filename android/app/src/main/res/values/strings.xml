@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget Strings -->
+    <string name="widget_description">Visualizza il budget mensile e aggiungi spese rapidamente</string>
+    <string name="error_loading_data">Errore caricamento dati</string>
+    <string name="scan_receipt">Scansiona scontrino</string>
+    <string name="scan">Scansiona</string>
+    <string name="add_expense">Aggiungi spesa</string>
+    <string name="manual">Manuale</string>
+</resources>

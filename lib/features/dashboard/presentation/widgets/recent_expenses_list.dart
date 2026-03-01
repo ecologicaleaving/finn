@@ -118,7 +118,7 @@ class RecentExpenseItem extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        '${dateFormat.format(expense.date)}${expense.createdByName != null ? ' • ${expense.createdByName}' : ''}',
+        '${dateFormat.format(expense.date)}${expense.paidByName != null ? ' • ${expense.paidByName}' : ''}',
         style: Theme.of(context).textTheme.bodySmall,
       ),
       trailing: Text(

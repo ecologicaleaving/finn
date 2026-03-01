@@ -1,7 +1,7 @@
 name: family_expense_tracker
 description: Family expense tracking app with AI-powered receipt scanning.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -60,6 +60,7 @@ dependencies:
 
   # UI Components
   wolt_modal_sheet: ^0.6.0
+  flutter_iconpicker: ^3.3.3
 
   # Share Intent
   receive_sharing_intent: ^1.8.0

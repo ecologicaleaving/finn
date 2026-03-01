@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/services/icon_matching_service.dart';
 import '../../../../core/utils/currency_utils.dart';
 import '../../domain/entities/category_budget_with_members_entity.dart';
 import '../providers/budget_composition_provider.dart';
@@ -123,7 +124,9 @@ class _CategoryBudgetTileState extends ConsumerState<CategoryBudgetTile> {
             borderRadius: BorderRadius.circular(20),
           ),
           child: Icon(
-            Icons.category,
+            IconMatchingService.getDefaultIconForCategory(
+              widget.categoryBudget.categoryName,
+            ),
             color: _categoryColor,
             size: 20,
           ),

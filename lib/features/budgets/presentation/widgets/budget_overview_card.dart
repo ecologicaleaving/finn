@@ -12,10 +12,16 @@ import '../../../../app/app_theme.dart';
 /// - Overall progress bar
 /// - Quick stats (categories, alerts)
 /// - Personal vs Group budget breakdown
+/// - Budget reservation for recurring expenses (Feature 013 T035-T036)
+/// - Available budget after reservations
 ///
 /// Example:
 /// ```dart
-/// BudgetOverviewCard(composition: budgetComposition, currentUserId: userId)
+/// BudgetOverviewCard(
+///   composition: budgetComposition,
+///   currentUserId: userId,
+///   reservedBudget: 50000, // Optional: cents reserved for recurring expenses
+/// )
 /// ```
 class BudgetOverviewCard extends StatelessWidget {
   const BudgetOverviewCard({
@@ -23,6 +29,7 @@ class BudgetOverviewCard extends StatelessWidget {
     required this.composition,
     required this.currentUserId,
     required this.totalIncome,
+    this.reservedBudget = 0, // Feature 013 T035: Reserved budget in cents
     this.onTap,
     this.onPersonalTap,
     this.onGroupTap,
@@ -31,6 +38,7 @@ class BudgetOverviewCard extends StatelessWidget {
   final BudgetComposition composition;
   final String currentUserId;
   final int totalIncome;
+  final int reservedBudget; // Feature 013 T035
   final VoidCallback? onTap;
   final VoidCallback? onPersonalTap;
   final VoidCallback? onGroupTap;
@@ -291,6 +299,75 @@ class BudgetOverviewCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            // Feature 013 T035: Reserved budget for recurring expenses
+            if (reservedBudget > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.loop,
+                    size: 14,
+                    color: AppColors.inkLight,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Riservato (ricorrenti):',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      color: AppColors.inkLight,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    CurrencyUtils.formatCentsCompact(reservedBudget),
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            const SizedBox(height: 8),
+
+            // Feature 013 T036: Available budget (total - spent - reserved)
+            if (stats.hasBudgets) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.parchment,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      'Disponibile:',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      CurrencyUtils.formatCentsCompact(
+                        stats.totalRemaining - reservedBudget,
+                      ),
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: (stats.totalRemaining - reservedBudget) >= 0
+                            ? AppColors.success
+                            : AppColors.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: 16),
 

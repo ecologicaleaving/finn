@@ -19,10 +19,15 @@ class ExpenseEntity extends Equatable {
     this.notes,
     this.receiptUrl,
     this.createdByName,
+    this.paidBy,
+    this.paidByName,
     this.createdAt,
     this.updatedAt,
     this.reimbursementStatus = ReimbursementStatus.none,
     this.reimbursedAt,
+    this.recurringExpenseId,
+    this.isRecurringInstance = false,
+    this.lastModifiedBy,
   });
 
   /// Unique expense identifier
@@ -67,6 +72,12 @@ class ExpenseEntity extends Equatable {
   /// Display name of who created the expense (for display purposes)
   final String? createdByName;
 
+  /// User ID of who paid for the expense
+  final String? paidBy;
+
+  /// Display name of who paid for the expense (for display purposes)
+  final String? paidByName;
+
   /// When the expense was created
   final DateTime? createdAt;
 
@@ -78,6 +89,15 @@ class ExpenseEntity extends Equatable {
 
   /// Timestamp when expense was marked as reimbursed (for period-based budget calculations)
   final DateTime? reimbursedAt;
+
+  /// Reference to recurring expense template ID (Feature 013-recurring-expenses)
+  final String? recurringExpenseId;
+
+  /// Whether this expense was auto-generated from a recurring expense template
+  final bool isRecurringInstance;
+
+  /// User ID of who last modified the expense (for audit trail - Feature 001-admin-expenses-cash-fix)
+  final String? lastModifiedBy;
 
   /// Check if the user can edit this expense
   bool canEdit(String userId, bool isAdmin) {
@@ -95,6 +115,10 @@ class ExpenseEntity extends Equatable {
   /// Check if this expense has a receipt attached
   bool get hasReceipt => receiptUrl != null && receiptUrl!.isNotEmpty;
 
+  /// Whether this expense is part of a recurring expense (Feature 013-recurring-expenses)
+  bool get isRecurringExpense =>
+      recurringExpenseId != null && recurringExpenseId!.isNotEmpty;
+
   /// Whether this expense is pending reimbursement
   bool get isPendingReimbursement =>
       reimbursementStatus == ReimbursementStatus.reimbursable;
@@ -102,6 +126,21 @@ class ExpenseEntity extends Equatable {
   /// Whether this expense has been reimbursed
   bool get isReimbursed =>
       reimbursementStatus == ReimbursementStatus.reimbursed;
+
+  /// Check if expense was modified after creation (Feature 001-admin-expenses-cash-fix)
+  bool get wasModified => lastModifiedBy != null && lastModifiedBy != createdBy;
+
+  /// Get display name for last modifier (Feature 001-admin-expenses-cash-fix)
+  /// Returns "You" if current user, actual name if available, or "(Removed User)" if user removed/unavailable
+  String getLastModifiedByName(String currentUserId, Map<String, String> memberNames) {
+    if (lastModifiedBy == null || lastModifiedBy == createdBy) {
+      return ''; // Not modified after creation
+    }
+    if (lastModifiedBy == currentUserId) {
+      return 'You';
+    }
+    return memberNames[lastModifiedBy] ?? '(Removed User)';
+  }
 
   /// Human-readable reimbursement status label (Italian)
   String get reimbursementStatusLabel => reimbursementStatus.label;
@@ -188,10 +227,15 @@ class ExpenseEntity extends Equatable {
     String? notes,
     String? receiptUrl,
     String? createdByName,
+    String? paidBy,
+    String? paidByName,
     DateTime? createdAt,
     DateTime? updatedAt,
     ReimbursementStatus? reimbursementStatus,
     DateTime? reimbursedAt,
+    String? recurringExpenseId,
+    bool? isRecurringInstance,
+    String? lastModifiedBy,
   }) {
     return ExpenseEntity(
       id: id ?? this.id,
@@ -208,10 +252,15 @@ class ExpenseEntity extends Equatable {
       notes: notes ?? this.notes,
       receiptUrl: receiptUrl ?? this.receiptUrl,
       createdByName: createdByName ?? this.createdByName,
+      paidBy: paidBy ?? this.paidBy,
+      paidByName: paidByName ?? this.paidByName,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       reimbursementStatus: reimbursementStatus ?? this.reimbursementStatus,
       reimbursedAt: reimbursedAt ?? this.reimbursedAt,
+      recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
+      isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
+      lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
     );
   }
 
@@ -231,10 +280,15 @@ class ExpenseEntity extends Equatable {
         notes,
         receiptUrl,
         createdByName,
+        paidBy,
+        paidByName,
         createdAt,
         updatedAt,
         reimbursementStatus,
         reimbursedAt,
+        recurringExpenseId,
+        isRecurringInstance,
+        lastModifiedBy,
       ];
 
   @override

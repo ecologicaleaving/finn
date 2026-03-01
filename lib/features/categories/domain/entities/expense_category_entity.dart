@@ -1,4 +1,7 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
+import '../../../../core/services/icon_helper.dart';
+import '../../../../core/services/icon_matching_service.dart';
 
 /// Expense category entity representing a customizable expense category.
 ///
@@ -13,6 +16,7 @@ class ExpenseCategoryEntity extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.expenseCount,
+    this.iconName,
   });
 
   /// Unique category identifier
@@ -38,6 +42,19 @@ class ExpenseCategoryEntity extends Equatable {
 
   /// Number of expenses using this category (optional, for display)
   final int? expenseCount;
+
+  /// Material Icons name for category display (e.g., 'shopping_cart', 'restaurant')
+  /// If null, falls back to default icon matching logic
+  final String? iconName;
+
+  /// Get the icon for this category
+  /// Returns stored icon or default based on name matching
+  IconData getIcon() {
+    if (iconName != null) {
+      return IconHelper.getIconFromName(iconName!);
+    }
+    return IconMatchingService.getDefaultIconForCategory(name);
+  }
 
   /// Check if this category can be deleted
   bool get canDelete => !isDefault;
@@ -84,6 +101,7 @@ class ExpenseCategoryEntity extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     int? expenseCount,
+    String? iconName,
   }) {
     return ExpenseCategoryEntity(
       id: id ?? this.id,
@@ -94,6 +112,7 @@ class ExpenseCategoryEntity extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       expenseCount: expenseCount ?? this.expenseCount,
+      iconName: iconName ?? this.iconName,
     );
   }
 
@@ -107,6 +126,7 @@ class ExpenseCategoryEntity extends Equatable {
         createdAt,
         updatedAt,
         expenseCount,
+        iconName,
       ];
 
   @override

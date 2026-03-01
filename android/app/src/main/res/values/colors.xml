@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#2D4A3E</color>
+
+    <!-- Widget Colors (Updated for new design system) -->
+    <color name="widget_background">#FFFFFF</color>
+    <color name="widget_text_primary">#1A1A1A</color>
+    <color name="widget_text_secondary">#666666</color>
+    <color name="widget_text_tertiary">#999999</color>
+    <color name="widget_button_background">#2D4A3E</color>
+    <color name="widget_button_text">#FFFFFF</color>
+    <color name="widget_button_icon">#FFFFFF</color>
+    <color name="widget_error">#D32F2F</color>
+
+    <!-- Progress bar colors -->
+    <color name="widget_progress_normal">#2D7A7A</color>
+    <color name="widget_progress_warning">#C69D3B</color>
+    <color name="widget_progress_critical">#B54726</color>
+    <color name="widget_progress_background">#E0E0E0</color>
 </resources>

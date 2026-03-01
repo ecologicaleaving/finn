@@ -176,6 +176,7 @@ class _DashboardContent extends ConsumerWidget {
                 builder: (context, ref, child) {
                   final group = ref.watch(currentGroupProvider);
                   final userId = ref.watch(currentUserIdProvider);
+                  final dashboardState = ref.watch(dashboardProvider);
 
                   if (group == null) {
                     return Card(
@@ -208,6 +209,8 @@ class _DashboardContent extends ConsumerWidget {
                         onTap: () {
                           context.push('/budget');
                         },
+                        period: dashboardState.period,
+                        offset: dashboardState.offset,
                       ),
                       const SizedBox(height: 16),
 
@@ -217,6 +220,8 @@ class _DashboardContent extends ConsumerWidget {
                         onViewAll: () {
                           context.push('/budget');
                         },
+                        period: dashboardState.period,
+                        offset: dashboardState.offset,
                       ),
                       const SizedBox(height: 16),
                     ],

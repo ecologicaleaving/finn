@@ -54,6 +54,16 @@ class ValidationFailure extends Failure {
   const ValidationFailure(super.message, [super.code]);
 }
 
+/// Failure for concurrent edit conflicts (Feature 001-admin-expenses-cash-fix)
+class ConflictFailure extends Failure {
+  const ConflictFailure(super.message, [super.code]);
+
+  static const expenseModified = ConflictFailure(
+    'Questa spesa è stata modificata da un altro utente. Ricarica per vedere le ultime modifiche.',
+    'EXPENSE_MODIFIED',
+  );
+}
+
 /// Failure for group operations
 class GroupFailure extends Failure {
   const GroupFailure(super.message, [super.code]);

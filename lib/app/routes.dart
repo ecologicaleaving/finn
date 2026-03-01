@@ -17,8 +17,12 @@ import '../features/scanner/presentation/screens/camera_screen.dart';
 import '../features/scanner/presentation/screens/review_scan_screen.dart';
 import '../features/expenses/presentation/screens/manual_expense_screen.dart';
 import '../features/expenses/presentation/screens/expense_list_screen.dart';
+import '../features/expenses/presentation/screens/expense_tabs_screen.dart';
 import '../features/expenses/presentation/screens/expense_detail_screen.dart';
 import '../features/expenses/presentation/screens/edit_expense_screen.dart';
+import '../features/expenses/presentation/screens/recurring_expenses_screen.dart';
+import '../features/expenses/presentation/screens/edit_recurring_expense_screen.dart';
+import '../features/expenses/presentation/screens/reimbursements_screen.dart';
 import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/auth/presentation/screens/main_navigation_screen.dart';
 import '../features/auth/presentation/screens/profile_screen.dart';
@@ -57,6 +61,9 @@ class AppRoutes {
   static const uploadFile = '/upload-file';
   static const expenseDetail = '/expense/:id';
   static const editExpense = '/expense/:id/edit';
+  static const recurringExpenses = '/recurring-expenses'; // Feature 013
+  static const editRecurringExpense = '/recurring-expense/:id/edit'; // Feature 013 T027
+  static const reimbursements = '/reimbursements'; // Feature 013 T056
 
   // Budget routes
   static const budgetDashboard = '/budget'; // New unified dashboard
@@ -168,7 +175,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.expenses,
         name: 'expenses',
-        builder: (context, state) => const ExpenseListScreen(),
+        builder: (context, state) {
+          // Get tab parameter (0 = personal, 1 = group)
+          final tabParam = state.uri.queryParameters['tab'];
+          final initialTab = int.tryParse(tabParam ?? '0') ?? 0;
+          return ExpenseTabsScreen(initialTab: initialTab);
+        },
       ),
       GoRoute(
         path: AppRoutes.addExpense,
@@ -188,8 +200,28 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'editExpense',
         builder: (context, state) {
           final expenseId = state.pathParameters['id']!;
-          return EditExpenseScreen(expenseId: expenseId);
+          // T017: Use ManualExpenseScreen for edit mode (Feature 001)
+          return ManualExpenseScreen(expenseId: expenseId);
         },
+      ),
+      // Feature 013: Recurring expenses management
+      GoRoute(
+        path: AppRoutes.recurringExpenses,
+        name: 'recurringExpenses',
+        builder: (context, state) => const RecurringExpensesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.editRecurringExpense,
+        name: 'editRecurringExpense',
+        builder: (context, state) {
+          final templateId = state.pathParameters['id']!;
+          return EditRecurringExpenseScreen(templateId: templateId);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.reimbursements,
+        name: 'reimbursements',
+        builder: (context, state) => const ReimbursementsScreen(),
       ),
 
       // Scanner routes

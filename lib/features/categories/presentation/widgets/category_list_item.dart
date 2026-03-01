@@ -26,7 +26,7 @@ class CategoryListItem extends ConsumerWidget {
         leading: CircleAvatar(
           backgroundColor: theme.colorScheme.primaryContainer,
           child: Icon(
-            Icons.category,
+            category.getIcon(),
             color: theme.colorScheme.onPrimaryContainer,
             size: 20,
           ),
@@ -45,39 +45,40 @@ class CategoryListItem extends ConsumerWidget {
                 ),
               )
             : null,
-        trailing: category.isDefault
-            ? Chip(
-                label: const Text('Default'),
-                visualDensity: VisualDensity.compact,
-                side: BorderSide.none,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              )
-            : Row(
+        trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (category.isDefault)
+                    Chip(
+                      label: const Text('Default'),
+                      visualDensity: VisualDensity.compact,
+                      side: BorderSide.none,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    ),
                   Semantics(
                     button: true,
                     enabled: true,
-                    label: 'Edit ${category.name} category',
+                    label: 'Edit ${category.name} category icon',
                     child: IconButton(
                       icon: const Icon(Icons.edit_outlined),
                       onPressed: () => _showEditDialog(context, ref),
-                      tooltip: 'Edit category',
+                      tooltip: category.isDefault ? 'Edit icon' : 'Edit category',
                     ),
                   ),
-                  Semantics(
-                    button: true,
-                    enabled: true,
-                    label: 'Delete ${category.name} category',
-                    child: IconButton(
-                      icon: Icon(
-                        Icons.delete_outline,
-                        color: theme.colorScheme.error,
+                  if (!category.isDefault)
+                    Semantics(
+                      button: true,
+                      enabled: true,
+                      label: 'Delete ${category.name} category',
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.delete_outline,
+                          color: theme.colorScheme.error,
+                        ),
+                        onPressed: () => _handleDelete(context, ref),
+                        tooltip: 'Delete category',
                       ),
-                      onPressed: () => _handleDelete(context, ref),
-                      tooltip: 'Delete category',
                     ),
-                  ),
                 ],
               ),
       ),

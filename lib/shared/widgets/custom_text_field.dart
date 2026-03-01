@@ -259,3 +259,74 @@ class AmountTextField extends StatelessWidget {
     );
   }
 }
+
+/// Generic dropdown field with consistent design across the app.
+/// Feature 001 T049: Reusable dropdown component for forms.
+class DropdownField<T> extends StatelessWidget {
+  const DropdownField({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.label,
+    this.hint,
+    this.prefixIcon,
+    this.validator,
+    this.enabled = true,
+    this.errorText,
+    this.helperText,
+    this.itemBuilder,
+    this.displayStringForItem,
+  });
+
+  final T? value;
+  final List<T> items;
+  final void Function(T?)? onChanged;
+  final String? label;
+  final String? hint;
+  final IconData? prefixIcon;
+  final String? Function(T?)? validator;
+  final bool enabled;
+  final String? errorText;
+  final String? helperText;
+
+  /// Optional custom builder for dropdown items.
+  /// If not provided, uses displayStringForItem or toString().
+  final Widget Function(T item)? itemBuilder;
+
+  /// Function to convert item to display string.
+  /// If not provided, uses toString().
+  final String Function(T item)? displayStringForItem;
+
+  String _getDisplayString(T item) {
+    if (displayStringForItem != null) {
+      return displayStringForItem!(item);
+    }
+    return item.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
+        errorText: errorText,
+        helperText: helperText,
+      ),
+      items: items.map((T item) {
+        return DropdownMenuItem<T>(
+          value: item,
+          child: itemBuilder != null
+              ? itemBuilder!(item)
+              : Text(_getDisplayString(item)),
+        );
+      }).toList(),
+      onChanged: enabled ? onChanged : null,
+      validator: validator,
+      isExpanded: true,
+    );
+  }
+}

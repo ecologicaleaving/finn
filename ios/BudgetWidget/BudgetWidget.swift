@@ -1,15 +1,17 @@
 import WidgetKit
 import SwiftUI
 
+// Feature 001: Updated widget to display totalAmount + expenseCount
 struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> BudgetEntry {
         BudgetEntry(
             date: Date(),
-            spent: 450.00,
-            limit: 800.00,
-            month: "Dicembre 2024",
+            totalAmount: 342.50,
+            expenseCount: 12,
+            month: "Gennaio 2026",
             currency: "€",
             isDarkMode: false,
+            hasError: false,
             lastUpdated: Date(),
             groupName: nil
         )
@@ -24,24 +26,26 @@ struct Provider: TimelineProvider {
         let currentDate = Date()
         let entry = loadWidgetData() ?? placeholder(in: context)
 
-        // Update every 30 minutes
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: currentDate)!
+        // Update every 15 minutes (Feature 001: Reduced from 30)
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: currentDate)!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
 
         completion(timeline)
     }
 
     private func loadWidgetData() -> BudgetEntry? {
-        // Load data from App Group UserDefaults
-        guard let userDefaults = UserDefaults(suiteName: "group.com.family.financetracker") else {
+        // Load data from App Group UserDefaults (Feature 001: Updated App Group ID)
+        guard let userDefaults = UserDefaults(suiteName: "group.com.ecologicaleaving.fin") else {
             return nil
         }
 
-        let spent = userDefaults.double(forKey: "flutter.spent")
-        let limit = userDefaults.double(forKey: "flutter.limit")
+        // Feature 001: Load new data format
+        let totalAmount = userDefaults.double(forKey: "flutter.totalAmount")
+        let expenseCount = userDefaults.integer(forKey: "flutter.expenseCount")
         let month = userDefaults.string(forKey: "flutter.month") ?? ""
         let currency = userDefaults.string(forKey: "flutter.currency") ?? "€"
         let isDarkMode = userDefaults.bool(forKey: "flutter.isDarkMode")
+        let hasError = userDefaults.bool(forKey: "flutter.hasError")
         let lastUpdatedTimestamp = userDefaults.double(forKey: "flutter.lastUpdated")
         let groupName = userDefaults.string(forKey: "flutter.groupName")
 
@@ -51,56 +55,55 @@ struct Provider: TimelineProvider {
 
         return BudgetEntry(
             date: Date(),
-            spent: spent,
-            limit: limit,
+            totalAmount: totalAmount,
+            expenseCount: expenseCount,
             month: month,
             currency: currency,
             isDarkMode: isDarkMode,
+            hasError: hasError,
             lastUpdated: lastUpdated,
             groupName: groupName?.isEmpty == false ? groupName : nil
         )
     }
 }
 
+// Feature 001: Updated BudgetEntry with new fields
 struct BudgetEntry: TimelineEntry {
     let date: Date
-    let spent: Double
-    let limit: Double
+    let totalAmount: Double
+    let expenseCount: Int
     let month: String
     let currency: String
     let isDarkMode: Bool
+    let hasError: Bool
     let lastUpdated: Date
     let groupName: String?
 
-    var percentage: Double {
-        guard limit > 0 else { return 0 }
-        return (spent / limit) * 100
+    // Feature 001: New formatted display text
+    var totalFormatted: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = currency
+        formatter.locale = Locale(identifier: "it_IT")
+        return formatter.string(from: NSNumber(value: totalAmount)) ?? "\(currency)0,00"
     }
 
-    var spentFormatted: String {
-        return "\(currency)\(String(format: "%.2f", spent))"
+    var countText: String {
+        return expenseCount == 1 ? "1 spesa" : "\(expenseCount) spese"
     }
 
-    var limitFormatted: String {
-        return "\(currency)\(String(format: "%.0f", limit))"
+    var displayText: String {
+        return "\(totalFormatted) • \(countText)"
     }
 
-    var isWarning: Bool {
-        return percentage >= 80 && percentage < 100
+    // Feature 001: Staleness check (24 hours)
+    var isStale: Bool {
+        let diff = Date().timeIntervalSince(lastUpdated)
+        return diff > (24 * 60 * 60) // 24 hours
     }
 
-    var isCritical: Bool {
-        return percentage >= 100
-    }
-
-    var progressColor: Color {
-        if isCritical {
-            return Color(red: 0.96, green: 0.26, blue: 0.21) // Red
-        } else if isWarning {
-            return Color(red: 1.0, green: 0.76, blue: 0.03) // Amber
-        } else {
-            return Color(red: 0.30, green: 0.69, blue: 0.31) // Green
-        }
+    var showError: Bool {
+        return hasError || isStale
     }
 }
 
@@ -173,13 +176,27 @@ struct SmallWidgetView: View {
     }
 }
 
+// Feature 001: Updated Medium Widget View
 struct MediumWidgetView: View {
     let entry: BudgetEntry
     let colorScheme: ColorScheme
 
+    // Feature 001: Flourishing Finances theme colors
+    var deepForest: Color {
+        Color(red: 0.24, green: 0.35, blue: 0.24) // #3D5A3C
+    }
+
+    var sageGreen: Color {
+        Color(red: 0.48, green: 0.61, blue: 0.46) // #7A9B76
+    }
+
+    var cream: Color {
+        Color(red: 1.0, green: 0.98, blue: 0.96) // #FFFBF5
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Budget display
+            // Expense display (Feature 001: Updated format)
             Link(destination: URL(string: "finapp://dashboard")!) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(entry.month)
@@ -187,26 +204,27 @@ struct MediumWidgetView: View {
                         .foregroundColor(.secondary)
 
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(entry.spentFormatted)
+                        Text(entry.totalFormatted)
                             .font(.title2)
                             .fontWeight(.semibold)
+                            .foregroundColor(deepForest)
 
-                        Text("/")
+                        Text("•")
                             .foregroundColor(.secondary)
 
-                        Text(entry.limitFormatted)
+                        Text(entry.countText)
+                            .font(.body)
                             .foregroundColor(.secondary)
 
                         Spacer()
 
-                        Text("\(Int(entry.percentage))%")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
+                        // Feature 001: Error indicator
+                        if entry.showError {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.body)
+                                .foregroundColor(Color(red: 0.91, green: 0.55, blue: 0.48)) // softCoral
+                        }
                     }
-
-                    ProgressView(value: entry.percentage, total: 100)
-                        .tint(entry.progressColor)
-                        .frame(height: 8)
                 }
             }
 
@@ -222,7 +240,7 @@ struct MediumWidgetView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.blue)
+                    .background(sageGreen)
                     .cornerRadius(8)
                 }
 
@@ -236,7 +254,7 @@ struct MediumWidgetView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.blue)
+                    .background(sageGreen)
                     .cornerRadius(8)
                 }
             }
@@ -251,7 +269,7 @@ struct MediumWidgetView: View {
         }
         .padding()
         .containerBackground(for: .widget) {
-            Color(colorScheme == .dark ? .systemBackground : .white)
+            colorScheme == .dark ? Color(.systemBackground) : cream
         }
     }
 }
@@ -381,16 +399,18 @@ struct BudgetWidget: Widget {
     }
 }
 
+// Feature 001: Updated preview with new data format
 #Preview(as: .systemMedium) {
     BudgetWidget()
 } timeline: {
     BudgetEntry(
         date: Date(),
-        spent: 450.00,
-        limit: 800.00,
-        month: "Dicembre 2024",
+        totalAmount: 342.50,
+        expenseCount: 12,
+        month: "Gennaio 2026",
         currency: "€",
         isDarkMode: false,
+        hasError: false,
         lastUpdated: Date(),
         groupName: "Famiglia"
     )

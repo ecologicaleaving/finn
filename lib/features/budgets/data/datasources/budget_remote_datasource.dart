@@ -1370,7 +1370,7 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
             .eq('created_by', userId)
             .eq('is_group_expense', true)
             .gte('expense_date', '$year-${month.toString().padLeft(2, '0')}-01')
-            .lt('expense_date', year == 12 ? '${year + 1}-01-01' : '$year-${(month + 1).toString().padLeft(2, '0')}-01');
+            .lt('expense_date', month == 12 ? '${year + 1}-01-01' : '$year-${(month + 1).toString().padLeft(2, '0')}-01');
 
         int categorySpent = 0;
         for (final expense in spentResponse) {

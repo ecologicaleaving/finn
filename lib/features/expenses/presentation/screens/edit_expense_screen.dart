@@ -12,15 +12,20 @@ import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../shared/widgets/navigation_guard.dart';
 import '../../../../shared/widgets/primary_button.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../categories/presentation/providers/category_provider.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
 import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../groups/presentation/providers/group_provider.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../providers/expense_provider.dart';
 import '../widgets/category_selector.dart';
 import '../widgets/payment_method_selector.dart';
 import '../widgets/reimbursement_status_change_dialog.dart';
 import '../widgets/reimbursement_toggle.dart';
+import '../widgets/recurring_expense_config_widget.dart';
+import '../providers/recurring_expense_provider.dart';
+import '../../../../core/enums/recurrence_frequency.dart';
 
 /// Screen for editing an existing expense.
 /// Loads the expense by ID and displays an edit form.
@@ -117,6 +122,16 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
   late bool _initialIsGroupExpense;
   late ReimbursementStatus _initialReimbursementStatus; // T036
 
+  // Recurring expense configuration
+  bool _isRecurring = false;
+  RecurrenceFrequency _recurrenceFrequency = RecurrenceFrequency.monthly;
+  bool _budgetReservationEnabled = false;
+
+  // Track initial values for unsaved changes detection
+  late final bool _initialIsRecurring;
+  late final RecurrenceFrequency _initialRecurrenceFrequency;
+  late final bool _initialBudgetReservationEnabled;
+
   @override
   void initState() {
     super.initState();
@@ -144,6 +159,11 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
     _initialPaymentMethodId = _selectedPaymentMethodId;
     _initialIsGroupExpense = _isGroupExpense;
     _initialReimbursementStatus = _selectedReimbursementStatus; // T036
+
+    // Initialize recurring expense state (default: not recurring)
+    _initialIsRecurring = false;
+    _initialRecurrenceFrequency = RecurrenceFrequency.monthly;
+    _initialBudgetReservationEnabled = false;
   }
 
   @override
@@ -163,7 +183,10 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
         _selectedCategoryId != _initialCategoryId ||
         _selectedPaymentMethodId != _initialPaymentMethodId ||
         _isGroupExpense != _initialIsGroupExpense ||
-        _selectedReimbursementStatus != _initialReimbursementStatus; // T036
+        _selectedReimbursementStatus != _initialReimbursementStatus || // T036
+        _isRecurring != _initialIsRecurring ||
+        _recurrenceFrequency != _initialRecurrenceFrequency ||
+        _budgetReservationEnabled != _initialBudgetReservationEnabled;
   }
 
   Future<void> _handleSave() async {
@@ -175,95 +198,29 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
     if (amount == null) {
       return;
     }
-    final formNotifier = ref.read(expenseFormProvider.notifier);
-    final listNotifier = ref.read(expenseListProvider.notifier);
 
-    var updatedExpense = await formNotifier.updateExpense(
-      expenseId: widget.expense.id,
-      amount: amount,
-      date: _selectedDate,
-      categoryId: _selectedCategoryId,
-      paymentMethodId: _selectedPaymentMethodId,
-      merchant: _merchantController.text.trim().isNotEmpty
-          ? _merchantController.text.trim()
-          : null,
-      notes: _notesController.text.trim().isNotEmpty
-          ? _notesController.text.trim()
-          : null,
-      reimbursementStatus: _selectedReimbursementStatus != _initialReimbursementStatus
-          ? _selectedReimbursementStatus
-          : null, // T036
-    );
-
-    if (updatedExpense == null) {
-      // Show error and return - user can try again or discard changes
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ref.read(expenseFormProvider).errorMessage ?? 'Errore durante il salvataggio'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            action: SnackBarAction(
-              label: 'OK',
-              textColor: Colors.white,
-              onPressed: () {},
-            ),
-          ),
-        );
-      }
+    // Validate category and payment method
+    if (_selectedCategoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona una categoria')),
+      );
       return;
     }
 
-    // Update expense classification if changed
-    if (_isGroupExpense != _initialIsGroupExpense) {
-      updatedExpense = await formNotifier.updateExpenseClassification(
-        expenseId: widget.expense.id,
-        isGroupExpense: _isGroupExpense,
+    if (_selectedPaymentMethodId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona un metodo di pagamento')),
       );
-
-      if (updatedExpense == null) {
-        // Classification update failed
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ref.read(expenseFormProvider).errorMessage ?? 'Errore durante il cambio di classificazione'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-        return;
-      }
+      return;
     }
 
-    if (mounted) {
-      listNotifier.updateExpenseInList(updatedExpense);
-
-      // Invalidate providers to force refresh on detail page and dashboard
-      ref.invalidate(expenseProvider(widget.expense.id));
-      ref.invalidate(recentGroupExpensesProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.read(dashboardProvider.notifier).refresh();
-
-      // Reset initial values to match saved values so hasUnsavedChanges becomes false
-      setState(() {
-        _initialAmount = _amountController.text;
-        _initialMerchant = _merchantController.text;
-        _initialNotes = _notesController.text;
-        _initialDate = _selectedDate;
-        _initialCategoryId = _selectedCategoryId;
-        _initialPaymentMethodId = _selectedPaymentMethodId;
-        _initialIsGroupExpense = _isGroupExpense;
-        _initialReimbursementStatus = _selectedReimbursementStatus; // T036
-      });
-
-      // Wait for setState rebuild to complete before navigating back
-      // This ensures PopScope sees the updated hasUnsavedChanges value
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && context.mounted) {
-          context.go('/expense/${widget.expense.id}');
-        }
-      });
+    // Branch based on recurring status
+    if (_isRecurring) {
+      // Convert to recurring expense
+      await _saveAsRecurringExpense(amount);
+    } else {
+      // Update regular expense
+      await _updateRegularExpense(amount);
     }
   }
 
@@ -298,6 +255,169 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
     if (confirmed == true && mounted) {
       setState(() {
         _selectedReimbursementStatus = newStatus;
+      });
+    }
+  }
+
+  /// Convert this expense to a recurring template
+  Future<void> _saveAsRecurringExpense(double amount) async {
+    final recurringFormNotifier = ref.read(recurringExpenseFormProvider.notifier);
+    final expenseListNotifier = ref.read(expenseListProvider.notifier);
+
+    // Get category name
+    final groupId = ref.read(currentGroupIdProvider);
+    final categoriesState = ref.read(categoryProvider(groupId));
+    String categoryName = 'Unknown';
+    try {
+      final category = categoriesState.categories.firstWhere(
+        (cat) => cat.id == _selectedCategoryId,
+      );
+      categoryName = category.name;
+    } catch (_) {}
+
+    // Create recurring template
+    final template = await recurringFormNotifier.createRecurringExpense(
+      amount: amount,
+      categoryId: _selectedCategoryId!,
+      categoryName: categoryName,
+      frequency: _recurrenceFrequency,
+      anchorDate: _selectedDate,
+      merchant: _merchantController.text.trim().isNotEmpty
+          ? _merchantController.text.trim()
+          : null,
+      notes: _notesController.text.trim().isNotEmpty
+          ? _notesController.text.trim()
+          : null,
+      isGroupExpense: _isGroupExpense,
+      budgetReservationEnabled: _budgetReservationEnabled,
+      defaultReimbursementStatus: _selectedReimbursementStatus,
+      paymentMethodId: _selectedPaymentMethodId,
+      templateExpenseId: widget.expense.id,
+    );
+
+    if (template != null && mounted) {
+      // Delete original expense to avoid duplication
+      final deleteResult = await ref.read(expenseRepositoryProvider).deleteExpense(
+        expenseId: widget.expense.id,
+      );
+
+      deleteResult.fold(
+        (failure) {
+          // Deletion failed, show error
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Errore durante la conversione: ${failure.message}'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        },
+        (_) {
+          // Success: update providers
+          expenseListNotifier.removeExpenseFromList(widget.expense.id);
+          ref.invalidate(recentGroupExpensesProvider);
+          ref.invalidate(recentPersonalExpensesProvider);
+          ref.invalidate(personalExpensesByCategoryProvider);
+          ref.invalidate(expensesByPeriodProvider);
+          ref.invalidate(groupMembersExpensesProvider);
+          ref.invalidate(groupExpensesByCategoryProvider);
+          ref.read(dashboardProvider.notifier).refresh();
+
+          // Show success message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Spesa convertita in ricorrente (${_recurrenceFrequency.displayString.toLowerCase()})',
+              ),
+            ),
+          );
+
+          // Navigate home
+          context.go('/');
+        },
+      );
+    }
+  }
+
+  /// Update the expense with current form values
+  Future<void> _updateRegularExpense(double amount) async {
+    final formNotifier = ref.read(expenseFormProvider.notifier);
+    final listNotifier = ref.read(expenseListProvider.notifier);
+
+    var updatedExpense = await formNotifier.updateExpense(
+      expenseId: widget.expense.id,
+      amount: amount,
+      date: _selectedDate,
+      categoryId: _selectedCategoryId,
+      paymentMethodId: _selectedPaymentMethodId,
+      merchant: _merchantController.text.trim().isNotEmpty
+          ? _merchantController.text.trim()
+          : null,
+      notes: _notesController.text.trim().isNotEmpty
+          ? _notesController.text.trim()
+          : null,
+      reimbursementStatus: _selectedReimbursementStatus != _initialReimbursementStatus
+          ? _selectedReimbursementStatus
+          : null,
+    );
+
+    if (updatedExpense == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ref.read(expenseFormProvider).errorMessage ?? 'Errore durante il salvataggio'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Update expense classification if changed
+    if (_isGroupExpense != _initialIsGroupExpense) {
+      updatedExpense = await formNotifier.updateExpenseClassification(
+        expenseId: widget.expense.id,
+        isGroupExpense: _isGroupExpense,
+      );
+
+      if (updatedExpense == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(ref.read(expenseFormProvider).errorMessage ?? 'Errore durante il salvataggio'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // Update list and navigate
+    listNotifier.updateExpenseInList(updatedExpense);
+    ref.invalidate(expenseProvider(widget.expense.id));
+    ref.invalidate(recentGroupExpensesProvider);
+    ref.invalidate(recentPersonalExpensesProvider);
+    ref.invalidate(personalExpensesByCategoryProvider);
+    ref.invalidate(expensesByPeriodProvider);
+    ref.invalidate(groupMembersExpensesProvider);
+    ref.invalidate(groupExpensesByCategoryProvider);
+    ref.read(dashboardProvider.notifier).refresh();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Spesa aggiornata')),
+      );
+
+      // Wait for setState rebuild to complete before navigating back
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && context.mounted) {
+          context.go('/expense/${widget.expense.id}');
+        }
       });
     }
   }
@@ -371,8 +491,8 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
                 ),
                 const SizedBox(height: 16),
 
-                // Category selector
-                CategorySelector(
+                // Category dropdown (more compact)
+                CategoryDropdown(
                   selectedCategoryId: _selectedCategoryId,
                   onCategorySelected: (categoryId) {
                     setState(() {
@@ -403,6 +523,32 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
                   enabled: !formState.isSubmitting,
                 ),
                 const SizedBox(height: 16),
+
+                // Recurring expense configuration (only for non-recurring instances)
+                if (!widget.expense.isRecurringInstance) ...[
+                  RecurringExpenseConfigWidget(
+                    isRecurring: _isRecurring,
+                    onRecurringChanged: (value) {
+                      setState(() {
+                        _isRecurring = value;
+                      });
+                    },
+                    frequency: _recurrenceFrequency,
+                    onFrequencyChanged: (freq) {
+                      setState(() {
+                        _recurrenceFrequency = freq;
+                      });
+                    },
+                    budgetReservationEnabled: _budgetReservationEnabled,
+                    onBudgetReservationChanged: (value) {
+                      setState(() {
+                        _budgetReservationEnabled = value;
+                      });
+                    },
+                    enabled: !formState.isSubmitting,
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Group/Personal toggle
                 SwitchListTile(

@@ -43,7 +43,7 @@ class BudgetWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        private const val SHARED_PREFS = "FlutterSharedPreferences"
+        private const val SHARED_PREFS = "HomeWidgetPreferences"
 
         internal fun updateAppWidget(
             context: Context,
@@ -51,10 +51,27 @@ class BudgetWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int
         ) {
             // Get widget data from shared preferences
+            println("BudgetWidgetProvider: Looking for SharedPreferences files...")
+
+            // List all available SharedPreferences files
+            val prefsDir = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
+            if (prefsDir.exists()) {
+                println("BudgetWidgetProvider: Available SharedPreferences files:")
+                prefsDir.listFiles()?.forEach { file ->
+                    println("  - ${file.name}")
+                }
+            }
+
             val prefs = context.getSharedPreferences(SHARED_PREFS, Context.MODE_PRIVATE)
 
-            // Check if widget data exists - now looking for JSON object
-            val widgetDataJson = prefs.getString("flutter.widget_data", null)
+            // Debug: Print all keys in SharedPreferences
+            println("BudgetWidgetProvider: All keys in '$SHARED_PREFS':")
+            prefs.all.keys.forEach { key ->
+                println("  - $key = ${prefs.all[key]}")
+            }
+
+            // Check if widget data exists - HomeWidget saves without "flutter." prefix
+            val widgetDataJson = prefs.getString("widgetDataJson", null)
 
             if (widgetDataJson == null) {
                 // Show error state: no data configured
@@ -64,15 +81,21 @@ class BudgetWidgetProvider : AppWidgetProvider() {
             }
 
             try {
-                // Parse JSON widget data
+                // Parse JSON widget data (group/personal/total)
+                println("BudgetWidgetProvider: Raw JSON = $widgetDataJson")
                 val widgetData = JSONObject(widgetDataJson)
 
-                val spent = widgetData.optDouble("spent", 0.0)
-                val limit = widgetData.optDouble("limit", 800.0)
+                val groupAmount = widgetData.optDouble("groupAmount", 0.0)
+                val personalAmount = widgetData.optDouble("personalAmount", 0.0)
+                val totalAmount = widgetData.optDouble("totalAmount", 0.0)
+                val expenseCount = widgetData.optInt("expenseCount", 0)
                 val month = widgetData.optString("month", "")
                 val currency = widgetData.optString("currency", "€")
                 val isDarkMode = widgetData.optBoolean("isDarkMode", false)
+                val hasError = widgetData.optBoolean("hasError", false)
                 val groupName = widgetData.optString("groupName", null)
+
+                println("BudgetWidgetProvider: Parsed - group=$groupAmount, personal=$personalAmount, total=$totalAmount, count=$expenseCount")
 
                 // Parse lastUpdated from ISO8601 string to timestamp
                 val lastUpdatedString = widgetData.optString("lastUpdated", "")
@@ -87,22 +110,12 @@ class BudgetWidgetProvider : AppWidgetProvider() {
                     0L
                 }
 
-                // Calculate percentage
-                val percentage = if (limit > 0) (spent / limit * 100) else 0.0
-
                 // Check if data is stale (>24 hours old)
                 val now = System.currentTimeMillis()
                 val dataAge = now - lastUpdated
                 val isStale = dataAge > (24 * 60 * 60 * 1000) // 24 hours
 
-                if (isStale && lastUpdated > 0) {
-                    // Show error state: stale data
-                    println("BudgetWidgetProvider: Data is stale (${dataAge / 1000}s old)")
-                    showErrorState(context, appWidgetManager, appWidgetId, "Dati non aggiornati")
-                    return
-                }
-
-                println("BudgetWidgetProvider: Widget data loaded - spent: $spent, limit: $limit, month: $month")
+                println("BudgetWidgetProvider: Widget data loaded - totalAmount: $totalAmount, count: $expenseCount, month: $month")
 
                 // Use unified responsive layout
                 val views = RemoteViews(context.packageName, R.layout.budget_widget)
@@ -111,12 +124,14 @@ class BudgetWidgetProvider : AppWidgetProvider() {
                 updateWidgetContent(
                     context,
                     views,
-                    spent,
-                    limit,
+                    groupAmount,
+                    personalAmount,
+                    totalAmount,
+                    expenseCount,
                     month,
-                    percentage,
                     currency,
                     lastUpdated,
+                    hasError || isStale,
                     groupName
                 )
 
@@ -140,11 +155,13 @@ class BudgetWidgetProvider : AppWidgetProvider() {
         ) {
             val views = RemoteViews(context.packageName, R.layout.budget_widget)
 
-            // Hide normal content and show error message
+            // Show error message
             views.setTextViewText(R.id.month_text, "Errore")
-            views.setTextViewText(R.id.spent_text, errorMessage)
-            views.setTextViewText(R.id.percentage_text, "")
-            views.setProgressBar(R.id.budget_progress, 100, 0, false)
+            views.setTextViewText(R.id.group_amount_text, "Gruppo: €0,00")
+            views.setTextViewText(R.id.personal_amount_text, "Personali: €0,00")
+            views.setTextViewText(R.id.total_amount_text, "Totale: $errorMessage")
+            views.setTextViewText(R.id.expense_count_text, "")
+            views.setViewVisibility(R.id.error_indicator, android.view.View.VISIBLE)
 
             // Add tap to open app
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
@@ -165,30 +182,34 @@ class BudgetWidgetProvider : AppWidgetProvider() {
         private fun updateWidgetContent(
             context: Context,
             views: RemoteViews,
-            spent: Double,
-            limit: Double,
+            groupAmount: Double,
+            personalAmount: Double,
+            totalAmount: Double,
+            expenseCount: Int,
             month: String,
-            percentage: Double,
             currency: String,
             lastUpdated: Long,
+            hasError: Boolean,
             groupName: String?
         ) {
-            // Format amounts
-            val spentFormatted = "$currency%.2f".format(spent)
-            val limitFormatted = "$currency%.0f".format(limit)
-            val percentageInt = percentage.toInt()
+            // Format amounts (Italian number format)
+            val groupFormatted = String.format(Locale.ITALIAN, "Gruppo: %s%.2f", currency, groupAmount)
+            val personalFormatted = String.format(Locale.ITALIAN, "Personali: %s%.2f", currency, personalAmount)
+            val totalFormatted = String.format(Locale.ITALIAN, "Totale: %s%.2f", currency, totalAmount)
+
+            // Format expense count text
+            val countText = if (expenseCount == 1) "1 spesa" else "$expenseCount spese"
 
             // Update text views
             views.setTextViewText(R.id.month_text, month)
-            views.setTextViewText(R.id.percentage_text, "$percentageInt%")
-            views.setTextViewText(R.id.spent_text, spentFormatted)
-            views.setTextViewText(R.id.limit_text, limitFormatted)
+            views.setTextViewText(R.id.group_amount_text, groupFormatted)
+            views.setTextViewText(R.id.personal_amount_text, personalFormatted)
+            views.setTextViewText(R.id.total_amount_text, totalFormatted)
+            views.setTextViewText(R.id.expense_count_text, countText)
 
-            // Update progress bar
-            views.setProgressBar(R.id.budget_progress, 100, percentageInt, false)
-
-            // Note: Cannot dynamically change progress bar color with RemoteViews
-            // The color is set statically in the layout XML
+            // Show/hide error indicator
+            val errorVisibility = if (hasError) android.view.View.VISIBLE else android.view.View.GONE
+            views.setViewVisibility(R.id.error_indicator, errorVisibility)
 
             // Update last updated text
             val lastUpdatedText = formatLastUpdated(lastUpdated)

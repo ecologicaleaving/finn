@@ -120,6 +120,16 @@ class ValidationException extends AppException {
   );
 }
 
+/// Exception thrown when concurrent edit conflicts occur (Feature 001-admin-expenses-cash-fix)
+class ConflictException extends AppException {
+  const ConflictException(super.message, [super.code]);
+
+  static const expenseModified = ConflictException(
+    'Questa spesa è stata modificata da un altro utente. Ricarica per vedere le ultime modifiche.',
+    'EXPENSE_MODIFIED',
+  );
+}
+
 /// Exception thrown when group operations fail
 class GroupException extends AppException {
   const GroupException(super.message, [super.code]);

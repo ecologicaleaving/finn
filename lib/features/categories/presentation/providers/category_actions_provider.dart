@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/services/icon_matching_service.dart';
 import '../../domain/entities/expense_category_entity.dart';
 import '../../domain/repositories/category_repository.dart';
 import 'category_provider.dart';
@@ -15,12 +16,18 @@ class CategoryActions {
   Future<ExpenseCategoryEntity?> createCategory({
     required String groupId,
     required String name,
+    String? iconName,
   }) async {
     final repository = _ref.read(categoryRepositoryProvider);
+
+    // Auto-set icon based on name if not provided
+    final finalIconName = iconName ??
+        IconMatchingService.getDefaultIconNameForCategory(name);
 
     final result = await repository.createCategory(
       groupId: groupId,
       name: name,
+      iconName: finalIconName,
     );
 
     return result.fold(
@@ -42,11 +49,45 @@ class CategoryActions {
     required String categoryId,
     required String name,
   }) async {
+    print('🎯 [CategoryActions] updateCategory called');
+    print('   groupId: $groupId');
+    print('   categoryId: $categoryId');
+    print('   name: $name');
+
     final repository = _ref.read(categoryRepositoryProvider);
 
     final result = await repository.updateCategory(
       categoryId: categoryId,
       name: name,
+    );
+
+    return result.fold(
+      (failure) {
+        print('   ❌ [CategoryActions] Repository returned failure: $failure');
+        print('   Failure type: ${failure.runtimeType}');
+        // Handle error
+        return null;
+      },
+      (category) {
+        print('   ✅ [CategoryActions] Repository returned success: ${category.name}');
+        // Refresh category state
+        _ref.read(categoryProvider(groupId).notifier).loadCategories();
+        return category;
+      },
+    );
+  }
+
+  /// Update category icon
+  Future<ExpenseCategoryEntity?> updateCategoryIcon({
+    required String groupId,
+    required String categoryId,
+    required String iconName,
+  }) async {
+    final repository = _ref.read(categoryRepositoryProvider);
+
+    final result = await repository.updateCategoryIcon(
+      categoryId: categoryId,
+      iconName: iconName,
     );
 
     return result.fold(
