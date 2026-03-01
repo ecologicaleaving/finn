@@ -28,9 +28,10 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
       break;
     case ChartPeriod.month:
       // Mese corrente + offset
-      final targetMonth = now.month + params.offset;
-      final targetYear = now.year + (targetMonth - 1) ~/ 12;
-      final normalizedMonth = ((targetMonth - 1) % 12) + 1;
+      // Use DateTime overflow handling to correctly handle month/year boundaries
+      final targetDate = DateTime(now.year, now.month + params.offset, 1);
+      final targetYear = targetDate.year;
+      final normalizedMonth = targetDate.month;
       startDate = DateTime(targetYear, normalizedMonth, 1);
       endDate = DateTime(targetYear, normalizedMonth + 1, 0);
       break;
@@ -98,7 +99,7 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
     // Mese: tutti i giorni
     final daysInMonth = endDate.day;
     for (int i = 1; i <= daysInMonth; i++) {
-      final date = DateTime(now.year, now.month, i);
+      final date = DateTime(startDate.year, startDate.month, i);
       final key = DateFormat('yyyy-MM-dd').format(date);
       result.add({
         'label': i.toString(),
@@ -109,7 +110,7 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
   } else {
     // Anno: 12 mesi
     for (int i = 1; i <= 12; i++) {
-      final date = DateTime(now.year, i, 1);
+      final date = DateTime(startDate.year, i, 1);
       final key = DateFormat('yyyy-MM').format(date);
       result.add({
         'label': DateFormat('MMM', 'it').format(date), // Gen, Feb, ...
@@ -192,10 +193,8 @@ class _ExpensesChartWidgetState extends ConsumerState<ExpensesChartWidget> {
         final targetWeekEnd = targetWeekStart.add(const Duration(days: 6));
         return '${DateFormat('d MMM', 'it').format(targetWeekStart)} - ${DateFormat('d MMM', 'it').format(targetWeekEnd)}';
       case ChartPeriod.month:
-        final targetMonth = now.month + _offset;
-        final targetYear = now.year + (targetMonth - 1) ~/ 12;
-        final normalizedMonth = ((targetMonth - 1) % 12) + 1;
-        final date = DateTime(targetYear, normalizedMonth);
+        final targetLabelDate = DateTime(now.year, now.month + _offset, 1);
+        final date = DateTime(targetLabelDate.year, targetLabelDate.month);
         return DateFormat('MMMM yyyy', 'it').format(date);
       case ChartPeriod.year:
         return (now.year + _offset).toString();

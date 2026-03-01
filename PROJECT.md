@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.1.0
+- **Version**: v1.1.1
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese AI-powered
@@ -33,7 +33,7 @@
 
 ## Repository
 - **Main Branch**: main
-- **Development Branch**: feature/issue-7-bug-totale-dashboard-non-si-aggiorna-aut
+- **Development Branch**: feature/issue-11
 - **GitHub**: https://github.com/ecologicaleaving/finn
 
 ## Tech Stack
@@ -87,7 +87,9 @@
 - **DONE**: Receipt scanning AI integration
 - **DONE**: Bug #6 — Default category not saved on add expense (moved auto-selection from CategorySelector.build() side-effect to ManualExpenseScreen ref.listen + initState)
 - **DONE**: Bug #7 — Dashboard totale gruppo non si aggiornava dopo aggiunta spesa (groupMembersExpensesProvider/groupExpensesByCategoryProvider ora invalidati correttamente)
+- **DONE**: Bug #11 � Dashboard visualizzazione per mese mostrava tutti zero (fix calcolo date range mensile in expensesByPeriodProvider: uso DateTime overflow handling al posto di formula manuale, e uso startDate.year/month nel loop di building dei risultati)
 - **DONE**: UX — Rimosso campo "Negozio" da schermata aggiunta/modifica spesa
+- **DONE**: Bug #11 � Dashboard visualizzazione per mese mostrava tutti zero (fix calcolo date range mensile in expensesByPeriodProvider: uso DateTime overflow handling al posto di formula manuale, e uso startDate.year/month nel loop di building dei risultati)
 - **DONE**: UX — Fix navigazione: dopo eliminazione spesa si torna all'elenco corretto con bottom menu (context.push + context.pop invece di context.go)
 - **IN PROGRESS**: Advanced analytics e spending insights
 - **TODO**: Subscription management e recurring expense alerts
