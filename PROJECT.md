@@ -59,6 +59,21 @@
 - **Alerts**: enabled (budget violations, failed syncs)
 - **Auto Deploy**: manual (flutter build + testing)
 
+
+## Build Flavors
+
+| Flavor | App Name | App ID | Uso |
+|--------|----------|--------|-----|
+| prod | **Fin** | com.ecologicaleaving.fin | Master / produzione |
+| dev | **Fin Dev** | com.ecologicaleaving.fin.dev | Branch / test |
+
+**Comandi build:**
+- Test (branch PR): lutter build apk --debug --flavor dev --target-platform android-arm64
+- Produzione (master): lutter build apk --release --flavor prod --target-platform android-arm64
+
+**Regola CI:**
+- Branch -> debug + flavor dev -> APK nella cartella /test/
+- Master -> release + flavor prod -> symlink finn-latest.apk
 ## Development
 - **Local Setup**: 
   1. `flutter pub get` (dependencies)
