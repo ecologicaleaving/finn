@@ -94,6 +94,25 @@
   3. `flutter build web --release` (Web PWA)
   4. `flutter build windows/macos/linux` (Desktop)
 
+## Build Flavors
+
+| Flavor | App Name | App ID | Uso |
+|--------|----------|--------|-----|
+| `production` | **Fin** | `com.ecologicaleaving.fin` | Master / produzione |
+| `dev` | **Fin Dev** | `com.ecologicaleaving.fin.dev` | Branch / test |
+
+**Comandi build:**
+- Branch/PR (test): `flutter build apk --debug --flavor dev --target-platform android-arm64`
+- Master (produzione): `flutter build apk --release --flavor production --target-platform android-arm64`
+
+**APK paths:**
+- dev/debug: `build/app/outputs/apk/dev/debug/app-dev-debug.apk`
+- production/release: `build/app/outputs/apk/production/release/app-production-release.apk`
+
+**Regola CI:**
+- Branch → flavor `dev` + `--debug` → APK in `/downloads/test/`
+- Master → flavor `production` + `--release` → APK in `/downloads/test/` + symlink `finn-latest.apk`
+
 ## Testing
 
 ### Strumenti
