@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.1.0
+- **Version**: v1.1.1
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -41,7 +41,7 @@
 - **Pipeline**: github-actions (unit tests)
 - **Trigger**: push to main
 - **CI Status**: passing
-- **Last Deploy**: 2026-02-14T20:47:00Z
+- **Last Deploy**: 2026-03-02T11:30:00Z
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -138,6 +138,7 @@
 - **Sync**: verifica autenticazione utente + connettività
 
 ## Backlog
+- **DONE**: Fix #15 — CI usa flavor prod+release su master, dev+debug su branch
 - **DONE**: Core expense tracking + multi-user family support
 - **DONE**: Receipt scanning AI integration
 - **DONE**: Bug #6 — Default category not saved on add expense
@@ -154,4 +155,4 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-03-01T03:17:00Z*
+*Last Updated: 2026-03-02T11:30:00Z*
