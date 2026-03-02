@@ -12,6 +12,7 @@ abstract class DashboardLocalDataSource {
     required String groupId,
     required DashboardPeriod period,
     String? userId,
+    int offset = 0,
   });
 
   /// Caches dashboard stats locally.
@@ -19,6 +20,7 @@ abstract class DashboardLocalDataSource {
     DashboardStatsModel stats, {
     required String groupId,
     String? userId,
+    int offset = 0,
   });
 
   /// Clears all cached dashboard statistics.
@@ -35,9 +37,14 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
 
   static const _cacheExpiryMinutes = 5; // Cache expires after 5 minutes
 
-  String _getCacheKey(String groupId, DashboardPeriod period, String? userId) {
+  String _getCacheKey(
+    String groupId,
+    DashboardPeriod period,
+    String? userId,
+    int offset,
+  ) {
     final userPart = userId ?? 'all';
-    return 'dashboard_${groupId}_${period.apiValue}_$userPart';
+    return 'dashboard_${groupId}_${period.apiValue}_${offset}_$userPart';
   }
 
   String _getTimestampKey(String cacheKey) => '${cacheKey}_timestamp';
@@ -47,9 +54,10 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
     required String groupId,
     required DashboardPeriod period,
     String? userId,
+    int offset = 0,
   }) async {
     try {
-      final cacheKey = _getCacheKey(groupId, period, userId);
+      final cacheKey = _getCacheKey(groupId, period, userId, offset);
       final timestampKey = _getTimestampKey(cacheKey);
 
       final cachedData = _cacheBox.get(cacheKey);
@@ -82,9 +90,10 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
     DashboardStatsModel stats, {
     required String groupId,
     String? userId,
+    int offset = 0,
   }) async {
     try {
-      final cacheKey = _getCacheKey(groupId, stats.period, userId);
+      final cacheKey = _getCacheKey(groupId, stats.period, userId, offset);
       final timestampKey = _getTimestampKey(cacheKey);
 
       final json = stats.toJson();
