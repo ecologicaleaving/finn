@@ -39,6 +39,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
       stats,
       groupId: groupId,
       userId: userId,
+      offset: offset,
     );
 
     return stats;
@@ -55,6 +56,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
       groupId: groupId,
       period: period,
       userId: userId,
+      offset: offset,
     );
   }
 
