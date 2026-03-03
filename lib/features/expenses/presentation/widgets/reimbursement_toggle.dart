@@ -172,7 +172,7 @@ class ReimbursementToggle extends StatelessWidget {
       case ReimbursementStatus.none:
         return 'Spesa normale (nessun rimborso previsto)';
       case ReimbursementStatus.reimbursable:
-        return 'In attesa di rimborso';
+        return 'In attesa di rimborso da altri';
       case ReimbursementStatus.reimbursed:
         return 'Rimborso già ricevuto';
     }

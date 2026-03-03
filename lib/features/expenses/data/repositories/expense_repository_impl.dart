@@ -79,6 +79,10 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
   }) async {
     try {
       // Create the expense first
@@ -94,6 +98,10 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         createdBy: createdBy, // T014
         paidBy: paidBy, // For admin creating expense for specific member
         lastModifiedBy: lastModifiedBy, // T014
+        reimbursableToLabel: reimbursableToLabel, // Issue #19
+        reimbursableToUserId: reimbursableToUserId, // Issue #19
+        reimbursableAmount: reimbursableAmount, // Issue #19
+        reimbursementNote: reimbursementNote, // Issue #19
       );
 
       // Upload receipt if provided
@@ -118,6 +126,20 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   }
 
   @override
+  Future<Either<Failure, List<ExpenseEntity>>> getMyDebts() async {
+    try {
+      final expenses = await remoteDataSource.getMyDebts();
+      return Right(expenses.map((e) => e.toEntity()).toList());
+    } on AppAuthException catch (e) {
+      return Left(AuthFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
   Future<Either<Failure, ExpenseEntity>> updateExpense({
     required String expenseId,
     double? amount,
@@ -127,6 +149,11 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus, // T048
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
+    String? reimbursementConfirmedBy, // Issue #19
   }) async {
     try {
       final expense = await remoteDataSource.updateExpense(
@@ -138,6 +165,11 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         merchant: merchant,
         notes: notes,
         reimbursementStatus: reimbursementStatus, // T048
+        reimbursableToLabel: reimbursableToLabel, // Issue #19
+        reimbursableToUserId: reimbursableToUserId, // Issue #19
+        reimbursableAmount: reimbursableAmount, // Issue #19
+        reimbursementNote: reimbursementNote, // Issue #19
+        reimbursementConfirmedBy: reimbursementConfirmedBy, // Issue #19
       );
       return Right(expense.toEntity());
     } on ServerException catch (e) {

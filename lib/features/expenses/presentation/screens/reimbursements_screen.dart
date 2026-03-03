@@ -6,6 +6,7 @@ import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../providers/reimbursements_provider.dart';
 
 /// Screen for managing reimbursements
@@ -168,7 +169,7 @@ class _ReimbursementsScreenState extends ConsumerState<ReimbursementsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Da rimborsare',
+                  'Mi devono',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -227,7 +228,7 @@ class _ReimbursementsScreenState extends ConsumerState<ReimbursementsScreen> {
     }
 
     // Empty state (T058)
-    if (state.isEmpty) {
+    if (state.isEmpty && state.myDebts.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -267,94 +268,311 @@ class _ReimbursementsScreenState extends ConsumerState<ReimbursementsScreen> {
       return merchant.contains(_searchQuery) || notes.contains(_searchQuery);
     }).toList();
 
-    if (filteredExpenses.isEmpty) {
-      return Center(
-        child: Text(
-          'Nessun risultato per "$_searchQuery"',
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
-      );
-    }
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 32),
+      children: [
+        // Issue #19 — "I miei debiti" section (debts I need to pay)
+        if (state.myDebts.isNotEmpty && _searchQuery.isEmpty) ...[
+          _buildSectionHeader(
+            context,
+            icon: Icons.payment_outlined,
+            title: 'Devo rimborsare',
+            color: Theme.of(context).colorScheme.error,
+          ),
+          ...state.myDebts.map((expense) => _buildDebtCard(expense)),
+          const SizedBox(height: 8),
+        ],
 
-    // List of reimbursements (T052)
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 16),
-      itemCount: filteredExpenses.length,
-      itemBuilder: (context, index) {
-        final expense = filteredExpenses[index];
-        final isReimbursable =
-            expense.reimbursementStatus == ReimbursementStatus.reimbursable;
+        // Issue #19 — Aggregated creditor view
+        if (state.creditorGroups.isNotEmpty && _searchQuery.isEmpty) ...[
+          _buildSectionHeader(
+            context,
+            icon: Icons.people_outline,
+            title: 'Chi mi deve cosa',
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          ...state.creditorGroups.map(_buildCreditorCard),
+          const SizedBox(height: 8),
+        ],
 
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isReimbursable
-                  ? Theme.of(context).colorScheme.errorContainer
-                  : Theme.of(context).colorScheme.tertiaryContainer,
-              child: Icon(
-                isReimbursable ? Icons.pending_outlined : Icons.check_circle,
-                color: isReimbursable
-                    ? Theme.of(context).colorScheme.error
-                    : Theme.of(context).colorScheme.tertiary,
+        // All expenses list header
+        if (filteredExpenses.isNotEmpty) ...[
+          _buildSectionHeader(
+            context,
+            icon: Icons.list_alt_outlined,
+            title: 'Tutte le spese',
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ],
+
+        if (filteredExpenses.isEmpty && _searchQuery.isNotEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(
+                'Nessun risultato per "$_searchQuery"',
+                style: Theme.of(context).textTheme.bodyLarge,
               ),
             ),
-            title: Text(
-              expense.merchant ?? 'Spesa senza negozio',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(DateFormatter.formatFullDate(expense.date)),
-                if (expense.notes != null) ...[
-                  const SizedBox(height: 2),
+          ),
+
+        // List of reimbursements (T052)
+        ...filteredExpenses.map((expense) {
+          final isReimbursable =
+              expense.reimbursementStatus == ReimbursementStatus.reimbursable;
+
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: isReimbursable
+                    ? Theme.of(context).colorScheme.errorContainer
+                    : Theme.of(context).colorScheme.tertiaryContainer,
+                child: Icon(
+                  isReimbursable ? Icons.pending_outlined : Icons.check_circle,
+                  color: isReimbursable
+                      ? Theme.of(context).colorScheme.error
+                      : Theme.of(context).colorScheme.tertiary,
+                ),
+              ),
+              title: Text(
+                expense.merchant ?? 'Spesa senza negozio',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Text(DateFormatter.formatFullDate(expense.date)),
+                  if (expense.reimbursableToLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Deve rimborsarmi: ${expense.reimbursableToLabel}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                  ],
+                  if (expense.notes != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      expense.notes!,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   Text(
-                    expense.notes!,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    '€${expense.effectiveReimbursableAmount.toStringAsFixed(2)}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  // Quick action to mark as reimbursed (T054)
+                  if (isReimbursable)
+                    TextButton(
+                      onPressed: () => _markAsReimbursed(
+                        expense.id,
+                        expense.merchant ?? 'questa spesa',
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 20),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        'Segna rimborsato',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+              onTap: () => context.go('/expense/${expense.id}'),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCreditorCard(CreditorGroup group) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor:
+                  Theme.of(context).colorScheme.primaryContainer,
+              child: Text(
+                group.label.isNotEmpty ? group.label[0].toUpperCase() : '?',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group.label,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  Text(
+                    '${group.expenseCount} ${group.expenseCount == 1 ? 'spesa' : 'spese'}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                        ),
                   ),
                 ],
-              ],
+              ),
             ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '€${expense.amount.toStringAsFixed(2)}',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                // Quick action to mark as reimbursed (T054)
-                if (isReimbursable)
-                  TextButton(
-                    onPressed: () => _markAsReimbursed(
-                      expense.id,
-                      expense.merchant ?? 'questa spesa',
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 20),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text(
-                      'Segna rimborsato',
-                      style: TextStyle(fontSize: 12),
-                    ),
+            Text(
+              '€${group.totalAmount.toStringAsFixed(2)}',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
-              ],
             ),
-            onTap: () {
-              // Navigate to expense detail
-              context.go('/expense/${expense.id}');
-            },
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDebtCard(expense) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      color: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Theme.of(context).colorScheme.errorContainer,
+          child: Icon(
+            Icons.arrow_upward,
+            color: Theme.of(context).colorScheme.error,
+            size: 18,
+          ),
+        ),
+        title: Text(
+          expense.merchant ?? 'Spesa senza negozio',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(DateFormatter.formatFullDate(expense.date)),
+            if (expense.reimbursementNote != null)
+              Text(
+                expense.reimbursementNote!,
+                style: Theme.of(context).textTheme.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '€${expense.effectiveReimbursableAmount.toStringAsFixed(2)}',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+            ),
+            TextButton(
+              onPressed: () => _confirmMyReimbursement(expense.id),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 20),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: Theme.of(context).colorScheme.primary,
+              ),
+              child: const Text(
+                'Ho rimborsato',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        onTap: () => context.go('/expense/${expense.id}'),
+      ),
+    );
+  }
+
+  Future<void> _confirmMyReimbursement(String expenseId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Conferma rimborso'),
+        content:
+            const Text('Confermi di aver rimborsato questa spesa?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Ho rimborsato'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final currentUserId = ref.read(currentUserIdProvider);
+      final success = await ref
+          .read(reimbursementsListProvider.notifier)
+          .confirmReimbursement(expenseId, currentUserId);
+
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rimborso confermato'),
           ),
         );
-      },
-    );
+      }
+    }
   }
 }

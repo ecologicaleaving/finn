@@ -18,6 +18,7 @@ import '../../../categories/presentation/widgets/budget_prompt_dialog.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
 import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../groups/domain/entities/member_entity.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../payment_methods/presentation/providers/payment_method_provider.dart';
 import '../../domain/entities/expense_entity.dart';
@@ -28,6 +29,7 @@ import '../widgets/expense_type_toggle.dart';
 import '../widgets/member_selector.dart';
 import '../widgets/payment_method_selector.dart';
 import '../widgets/recurring_expense_config_widget.dart';
+import '../widgets/reimbursement_creditor_field.dart';
 import '../widgets/reimbursement_toggle.dart';
 
 /// Screen for manual expense entry.
@@ -55,6 +57,12 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
   String? _selectedPaymentMethodId; // Will be set to default Contanti
   bool _isGroupExpense = true; // Default to group expense
   ReimbursementStatus _selectedReimbursementStatus = ReimbursementStatus.none; // T035
+
+  // Issue #19: Reimbursement v2 fields
+  String? _reimbursableToLabel;
+  String? _reimbursableToUserId;
+  double? _reimbursableAmount;
+  String? _reimbursementNote;
 
   // T013: Member selection for admin creating expenses on behalf of members
   String? _selectedMemberIdForExpense; // null = current user, non-null = admin creating for member
@@ -176,6 +184,11 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
             _isGroupExpense = expense.isGroupExpense;
             _selectedReimbursementStatus = expense.reimbursementStatus;
             _selectedMemberIdForExpense = expense.createdBy; // Show who the expense is for
+            // Issue #19: Load reimbursement v2 fields
+            _reimbursableToLabel = expense.reimbursableToLabel;
+            _reimbursableToUserId = expense.reimbursableToUserId;
+            _reimbursableAmount = expense.reimbursableAmount;
+            _reimbursementNote = expense.reimbursementNote;
           });
         }
       },
@@ -340,6 +353,19 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       // If admin selected "Me stesso" (null), use current user ID; otherwise use selected member ID
       paidBy: _selectedMemberIdForExpense ?? currentUserId,
       lastModifiedBy: currentUserId,
+      // Issue #19: Reimbursement v2 fields (only pass if status is reimbursable)
+      reimbursableToLabel: _selectedReimbursementStatus == ReimbursementStatus.reimbursable
+          ? _reimbursableToLabel
+          : null,
+      reimbursableToUserId: _selectedReimbursementStatus == ReimbursementStatus.reimbursable
+          ? _reimbursableToUserId
+          : null,
+      reimbursableAmount: _selectedReimbursementStatus == ReimbursementStatus.reimbursable
+          ? _reimbursableAmount
+          : null,
+      reimbursementNote: _selectedReimbursementStatus == ReimbursementStatus.reimbursable
+          ? _reimbursementNote
+          : null,
     );
 
     if (expense != null && mounted) {
@@ -687,11 +713,50 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
                 onChanged: (status) {
                   setState(() {
                     _selectedReimbursementStatus = status;
+                    // Clear creditor fields when switching away from reimbursable
+                    if (status != ReimbursementStatus.reimbursable) {
+                      _reimbursableToLabel = null;
+                      _reimbursableToUserId = null;
+                      _reimbursableAmount = null;
+                      _reimbursementNote = null;
+                    }
                   });
                 },
                 enabled: !formState.isSubmitting,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
+
+              // Issue #19: Creditor field — shown only when status is reimbursable
+              if (_selectedReimbursementStatus == ReimbursementStatus.reimbursable) ...[
+                Consumer(
+                  builder: (context, ref, _) {
+                    final authState = ref.watch(authProvider);
+                    final groupState = ref.watch(groupProvider);
+                    final currentUserId = authState.user?.id ?? '';
+                    final members = groupState.members
+                        .cast<MemberEntity>()
+                        .toList();
+                    return ReimbursementCreditorField(
+                      familyMembers: members,
+                      currentUserId: currentUserId,
+                      selectedLabel: _reimbursableToLabel,
+                      selectedUserId: _reimbursableToUserId,
+                      partialAmount: _reimbursableAmount,
+                      note: _reimbursementNote,
+                      enabled: !formState.isSubmitting,
+                      onLabelChanged: (label) =>
+                          setState(() => _reimbursableToLabel = label),
+                      onUserIdChanged: (userId) =>
+                          setState(() => _reimbursableToUserId = userId),
+                      onPartialAmountChanged: (amount) =>
+                          setState(() => _reimbursableAmount = amount),
+                      onNoteChanged: (note) =>
+                          setState(() => _reimbursementNote = note),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
 
               // Recurring expense configuration (T025)
               RecurringExpenseConfigWidget(

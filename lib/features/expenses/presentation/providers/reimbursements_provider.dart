@@ -6,11 +6,36 @@ import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
 import 'expense_provider.dart';
 
+/// Aggregated data for a single creditor (Issue #19)
+class CreditorGroup {
+  const CreditorGroup({
+    required this.label,
+    this.userId,
+    required this.expenses,
+  });
+
+  /// Display label (member name or free text)
+  final String label;
+
+  /// Family member user ID (null for external creditors like "Lavoro")
+  final String? userId;
+
+  /// All pending reimbursable expenses for this creditor
+  final List<ExpenseEntity> expenses;
+
+  /// Total amount to reimburse (uses reimbursableAmount if set, otherwise full amount)
+  double get totalAmount =>
+      expenses.fold(0, (sum, e) => sum + e.effectiveReimbursableAmount);
+
+  int get expenseCount => expenses.length;
+}
+
 /// Reimbursements list state
 class ReimbursementsListState {
   const ReimbursementsListState({
     this.reimbursableExpenses = const [],
     this.reimbursedExpenses = const [],
+    this.myDebts = const [],
     this.isLoading = false,
     this.errorMessage,
     this.filter = ReimbursementFilter.all,
@@ -18,6 +43,10 @@ class ReimbursementsListState {
 
   final List<ExpenseEntity> reimbursableExpenses;
   final List<ExpenseEntity> reimbursedExpenses;
+
+  /// Expenses where I am the designated debtor (Issue #19)
+  final List<ExpenseEntity> myDebts;
+
   final bool isLoading;
   final String? errorMessage;
   final ReimbursementFilter filter;
@@ -25,6 +54,26 @@ class ReimbursementsListState {
   bool get hasError => errorMessage != null;
   bool get isEmpty =>
       reimbursableExpenses.isEmpty && reimbursedExpenses.isEmpty;
+
+  /// Expenses grouped by creditor label (Issue #19)
+  List<CreditorGroup> get creditorGroups {
+    final Map<String, List<ExpenseEntity>> byLabel = {};
+    for (final expense in reimbursableExpenses) {
+      final label = expense.reimbursableToLabel;
+      if (label != null && label.isNotEmpty) {
+        byLabel.putIfAbsent(label, () => []).add(expense);
+      }
+    }
+    return byLabel.entries.map((entry) {
+      final first = entry.value.first;
+      return CreditorGroup(
+        label: entry.key,
+        userId: first.reimbursableToUserId,
+        expenses: entry.value,
+      );
+    }).toList()
+      ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+  }
 
   /// Get total pending reimbursements amount in cents
   int get totalPendingAmount {
@@ -58,6 +107,7 @@ class ReimbursementsListState {
   ReimbursementsListState copyWith({
     List<ExpenseEntity>? reimbursableExpenses,
     List<ExpenseEntity>? reimbursedExpenses,
+    List<ExpenseEntity>? myDebts,
     bool? isLoading,
     String? errorMessage,
     bool clearError = false,
@@ -66,6 +116,7 @@ class ReimbursementsListState {
     return ReimbursementsListState(
       reimbursableExpenses: reimbursableExpenses ?? this.reimbursableExpenses,
       reimbursedExpenses: reimbursedExpenses ?? this.reimbursedExpenses,
+      myDebts: myDebts ?? this.myDebts,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       filter: filter ?? this.filter,
@@ -102,6 +153,8 @@ class ReimbursementsListNotifier
     try {
       // Get all expenses with reimbursement status
       final result = await _expenseRepository.getExpenses();
+      // Get expenses where I am the debtor (Issue #19)
+      final myDebtsResult = await _expenseRepository.getMyDebts();
 
       result.fold(
         (failure) {
@@ -124,9 +177,15 @@ class ReimbursementsListNotifier
               .toList()
             ..sort((a, b) => b.date.compareTo(a.date));
 
+          final myDebts = myDebtsResult.fold(
+            (_) => <ExpenseEntity>[],
+            (debts) => debts,
+          );
+
           state = state.copyWith(
             reimbursableExpenses: reimbursable,
             reimbursedExpenses: reimbursed,
+            myDebts: myDebts,
             isLoading: false,
           );
         },
@@ -180,6 +239,48 @@ class ReimbursementsListNotifier
   /// Refresh list
   Future<void> refresh() async {
     await loadReimbursements(refresh: true);
+  }
+
+  /// Confirm reimbursement — called by the debtor (Issue #19).
+  ///
+  /// Sets status to `reimbursed` and records `reimbursement_confirmed_by`.
+  Future<bool> confirmReimbursement(
+    String expenseId,
+    String currentUserId,
+  ) async {
+    final result = await _expenseRepository.updateExpense(
+      expenseId: expenseId,
+      reimbursementStatus: ReimbursementStatus.reimbursed,
+      reimbursementConfirmedBy: currentUserId,
+    );
+
+    return result.fold(
+      (failure) {
+        state = state.copyWith(errorMessage: failure.message);
+        return false;
+      },
+      (updatedExpense) {
+        // Remove from myDebts list
+        final updatedDebts =
+            state.myDebts.where((e) => e.id != expenseId).toList();
+        // Add to reimbursedExpenses list
+        final updatedReimbursed = <ExpenseEntity>[
+          updatedExpense,
+          ...state.reimbursedExpenses
+        ]..sort((a, b) => b.date.compareTo(a.date));
+        // Remove from reimbursableExpenses list
+        final updatedReimbursable = state.reimbursableExpenses
+            .where((e) => e.id != expenseId)
+            .toList();
+
+        state = state.copyWith(
+          myDebts: updatedDebts,
+          reimbursedExpenses: updatedReimbursed,
+          reimbursableExpenses: updatedReimbursable,
+        );
+        return true;
+      },
+    );
   }
 }
 

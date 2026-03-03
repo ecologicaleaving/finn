@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.1.1
+- **Version**: v1.2.0
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -56,7 +56,7 @@
 
 ## Repository
 - **Main Branch**: main
-- **Development Branch**: feature/issue-7-bug-totale-dashboard-non-si-aggiorna-aut
+- **Development Branch**: feature/issue-19-reimbursements-v2
 - **GitHub**: https://github.com/ecologicaleaving/finn
 
 ## Tech Stack
@@ -82,6 +82,21 @@
 - **Alerts**: enabled (budget violations, failed syncs)
 - **Auto Deploy**: false (build manuale)
 
+
+## Build Flavors
+
+| Flavor | App Name | App ID | Uso |
+|--------|----------|--------|-----|
+| prod | **Fin** | com.ecologicaleaving.fin | Master / produzione |
+| dev | **Fin Dev** | com.ecologicaleaving.fin.dev | Branch / test |
+
+**Comandi build:**
+- Test (branch PR): lutter build apk --debug --flavor dev --target-platform android-arm64
+- Produzione (master): lutter build apk --release --flavor prod --target-platform android-arm64
+
+**Regola CI:**
+- Branch -> debug + flavor dev -> APK nella cartella /test/
+- Master -> release + flavor prod -> symlink finn-latest.apk
 ## Development
 - **Local Setup**:
   1. `flutter pub get`
@@ -138,6 +153,7 @@
 - **Sync**: verifica autenticazione utente + connettività
 
 ## Backlog
+- **DONE**: Feature #19 — Sistema rimborsi v2: tracking per creditore, vista aggregata, flusso confirm bidirezionale, integrazione budget
 - **DONE**: Fix #15 — CI usa flavor prod+release su master, dev+debug su branch
 - **DONE**: Core expense tracking + multi-user family support
 - **DONE**: Receipt scanning AI integration
@@ -155,4 +171,4 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-03-02T11:30:00Z*
+*Last Updated: 2026-03-12T10:00:00Z*
