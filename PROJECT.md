@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.1.1
+- **Version**: v1.2.0
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -56,7 +56,7 @@
 
 ## Repository
 - **Main Branch**: main
-- **Development Branch**: feature/issue-7-bug-totale-dashboard-non-si-aggiorna-aut
+- **Development Branch**: feature/issue-19-reimbursements-v2
 - **GitHub**: https://github.com/ecologicaleaving/finn
 
 ## Tech Stack
@@ -153,6 +153,7 @@
 - **Sync**: verifica autenticazione utente + connettività
 
 ## Backlog
+- **DONE**: Feature #19 — Sistema rimborsi v2: tracking per creditore, vista aggregata, flusso confirm bidirezionale, integrazione budget
 - **DONE**: Fix #15 — CI usa flavor prod+release su master, dev+debug su branch
 - **DONE**: Core expense tracking + multi-user family support
 - **DONE**: Receipt scanning AI integration
@@ -170,4 +171,4 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-03-02T11:30:00Z*
+*Last Updated: 2026-03-10T12:00:00Z*

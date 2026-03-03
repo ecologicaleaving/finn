@@ -43,6 +43,10 @@ abstract class ExpenseRemoteDataSource {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
   });
 
   /// Update an existing expense.
@@ -55,6 +59,11 @@ abstract class ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus, // T048
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
+    String? reimbursementConfirmedBy, // Issue #19
   });
 
   /// Update an existing expense with optimistic locking (Feature 001-admin-expenses-cash-fix).
@@ -73,6 +82,9 @@ abstract class ExpenseRemoteDataSource {
     String? notes,
     ReimbursementStatus? reimbursementStatus,
   });
+
+  /// Get expenses where the current user is the designated debtor (Issue #19).
+  Future<List<ExpenseModel>> getMyDebts();
 
   /// Delete an expense.
   Future<void> deleteExpense({required String expenseId});
@@ -224,6 +236,10 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
   }) async {
     try {
       final currentUserId = _currentUserId;
@@ -309,6 +325,10 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'is_group_expense': isGroupExpense,
             'reimbursement_status': reimbursementStatus.value, // T048
             'last_modified_by': lastModifiedBy ?? effectiveCreatedBy, // T014: Set last_modified_by
+            if (reimbursableToLabel != null) 'reimbursable_to_label': reimbursableToLabel,
+            if (reimbursableToUserId != null) 'reimbursable_to_user_id': reimbursableToUserId,
+            if (reimbursableAmount != null) 'reimbursable_amount': reimbursableAmount,
+            if (reimbursementNote != null) 'reimbursement_note': reimbursementNote,
           })
           .select('*, category_name:expense_categories(name)')
           .single();
@@ -346,6 +366,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus, // T048
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
+    String? reimbursementConfirmedBy, // Issue #19
   }) async {
     try {
       final updates = <String, dynamic>{};
@@ -367,6 +392,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       if (merchant != null) updates['merchant'] = merchant;
       if (notes != null) updates['notes'] = notes;
       if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value; // T048
+      if (reimbursableToLabel != null) updates['reimbursable_to_label'] = reimbursableToLabel;
+      if (reimbursableToUserId != null) updates['reimbursable_to_user_id'] = reimbursableToUserId;
+      if (reimbursableAmount != null) updates['reimbursable_amount'] = reimbursableAmount;
+      if (reimbursementNote != null) updates['reimbursement_note'] = reimbursementNote;
+      if (reimbursementConfirmedBy != null) updates['reimbursement_confirmed_by'] = reimbursementConfirmedBy;
 
       if (updates.isEmpty) {
         return await getExpense(expenseId: expenseId);
@@ -454,6 +484,32 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       throw ServerException(e.message, e.code);
     } catch (e) {
       if (e is ConflictException) rethrow;
+      throw ServerException(e.toString());
+    }
+  }
+
+  @override
+  Future<List<ExpenseModel>> getMyDebts() async {
+    try {
+      final currentUserId = _currentUserId;
+
+      final response = await supabaseClient
+          .from('expenses')
+          .select('*, category_name:expense_categories(name)')
+          .eq('reimbursable_to_user_id', currentUserId)
+          .eq('reimbursement_status', 'reimbursable')
+          .order('date', ascending: false);
+
+      return (response as List).map((json) {
+        if (json['category_name'] != null && json['category_name'] is Map) {
+          json['category_name'] = json['category_name']['name'];
+        }
+        return ExpenseModel.fromJson(json);
+      }).toList();
+    } on PostgrestException catch (e) {
+      throw ServerException(e.message, e.code);
+    } catch (e) {
+      if (e is AppAuthException) rethrow;
       throw ServerException(e.toString());
     }
   }

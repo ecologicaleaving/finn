@@ -55,6 +55,10 @@ abstract class ExpenseRepository {
     String? createdBy, // T014: Override for admin creating on behalf of member
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014: Admin user ID when creating on behalf
+    String? reimbursableToLabel, // Issue #19: who to reimburse (free text)
+    String? reimbursableToUserId, // Issue #19: family member user ID
+    double? reimbursableAmount, // Issue #19: partial reimbursement amount
+    String? reimbursementNote, // Issue #19: note for the reimbursement
   });
 
   /// Update an existing expense.
@@ -67,6 +71,11 @@ abstract class ExpenseRepository {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus, // T047
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
+    String? reimbursementConfirmedBy, // Issue #19: debtor confirming payment
   });
 
   /// Update an existing expense with optimistic locking (Feature 001-admin-expenses-cash-fix).
@@ -85,6 +94,12 @@ abstract class ExpenseRepository {
     String? notes,
     ReimbursementStatus? reimbursementStatus,
   });
+
+  /// Get expenses where the current user is the designated debtor (Issue #19).
+  ///
+  /// Returns expenses where `reimbursable_to_user_id = currentUserId` and
+  /// status is still `reimbursable` (not yet confirmed).
+  Future<Either<Failure, List<ExpenseEntity>>> getMyDebts();
 
   /// Delete an expense.
   Future<Either<Failure, Unit>> deleteExpense({

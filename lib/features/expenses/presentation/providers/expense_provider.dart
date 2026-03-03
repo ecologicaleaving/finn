@@ -377,6 +377,10 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    String? reimbursableToLabel, // Issue #19
+    String? reimbursableToUserId, // Issue #19
+    double? reimbursableAmount, // Issue #19
+    String? reimbursementNote, // Issue #19
   }) async {
     state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
 
@@ -393,6 +397,10 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       createdBy: createdBy, // T014
       paidBy: paidBy, // Pass paid_by to repository
       lastModifiedBy: lastModifiedBy, // T014
+      reimbursableToLabel: reimbursableToLabel, // Issue #19
+      reimbursableToUserId: reimbursableToUserId, // Issue #19
+      reimbursableAmount: reimbursableAmount, // Issue #19
+      reimbursementNote: reimbursementNote, // Issue #19
     );
 
     return result.fold(

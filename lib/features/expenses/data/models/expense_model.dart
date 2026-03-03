@@ -1,6 +1,9 @@
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../domain/entities/expense_entity.dart';
 
+// Sentinel object for nullable copyWith parameters
+const Object _sentinel = Object();
+
 /// Expense model for JSON serialization/deserialization.
 ///
 /// Maps to the 'expenses' table in Supabase.
@@ -29,6 +32,11 @@ class ExpenseModel extends ExpenseEntity {
     super.recurringExpenseId,
     super.isRecurringInstance = false,
     super.lastModifiedBy,
+    super.reimbursableToLabel,
+    super.reimbursableToUserId,
+    super.reimbursableAmount,
+    super.reimbursementConfirmedBy,
+    super.reimbursementNote,
   });
 
   /// Create an ExpenseModel from a JSON map (expenses table row).
@@ -66,6 +74,13 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: json['recurring_expense_id'] as String?,
       isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
       lastModifiedBy: json['last_modified_by'] as String?,
+      reimbursableToLabel: json['reimbursable_to_label'] as String?,
+      reimbursableToUserId: json['reimbursable_to_user_id'] as String?,
+      reimbursableAmount: json['reimbursable_amount'] != null
+          ? (json['reimbursable_amount'] as num).toDouble()
+          : null,
+      reimbursementConfirmedBy: json['reimbursement_confirmed_by'] as String?,
+      reimbursementNote: json['reimbursement_note'] as String?,
     );
   }
 
@@ -94,6 +109,11 @@ class ExpenseModel extends ExpenseEntity {
       'reimbursement_status': reimbursementStatus.value,
       'reimbursed_at': reimbursedAt?.toIso8601String(),
       'last_modified_by': lastModifiedBy,
+      'reimbursable_to_label': reimbursableToLabel,
+      'reimbursable_to_user_id': reimbursableToUserId,
+      'reimbursable_amount': reimbursableAmount,
+      'reimbursement_confirmed_by': reimbursementConfirmedBy,
+      'reimbursement_note': reimbursementNote,
     };
   }
 
@@ -123,6 +143,11 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: entity.recurringExpenseId,
       isRecurringInstance: entity.isRecurringInstance,
       lastModifiedBy: entity.lastModifiedBy,
+      reimbursableToLabel: entity.reimbursableToLabel,
+      reimbursableToUserId: entity.reimbursableToUserId,
+      reimbursableAmount: entity.reimbursableAmount,
+      reimbursementConfirmedBy: entity.reimbursementConfirmedBy,
+      reimbursementNote: entity.reimbursementNote,
     );
   }
 
@@ -152,6 +177,11 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId,
       isRecurringInstance: isRecurringInstance,
       lastModifiedBy: lastModifiedBy,
+      reimbursableToLabel: reimbursableToLabel,
+      reimbursableToUserId: reimbursableToUserId,
+      reimbursableAmount: reimbursableAmount,
+      reimbursementConfirmedBy: reimbursementConfirmedBy,
+      reimbursementNote: reimbursementNote,
     );
   }
 
@@ -181,6 +211,11 @@ class ExpenseModel extends ExpenseEntity {
     String? recurringExpenseId,
     bool? isRecurringInstance,
     String? lastModifiedBy,
+    Object? reimbursableToLabel = _sentinel,
+    Object? reimbursableToUserId = _sentinel,
+    Object? reimbursableAmount = _sentinel,
+    Object? reimbursementConfirmedBy = _sentinel,
+    Object? reimbursementNote = _sentinel,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -206,6 +241,21 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
+      reimbursableToLabel: identical(reimbursableToLabel, _sentinel)
+          ? this.reimbursableToLabel
+          : reimbursableToLabel as String?,
+      reimbursableToUserId: identical(reimbursableToUserId, _sentinel)
+          ? this.reimbursableToUserId
+          : reimbursableToUserId as String?,
+      reimbursableAmount: identical(reimbursableAmount, _sentinel)
+          ? this.reimbursableAmount
+          : reimbursableAmount as double?,
+      reimbursementConfirmedBy: identical(reimbursementConfirmedBy, _sentinel)
+          ? this.reimbursementConfirmedBy
+          : reimbursementConfirmedBy as String?,
+      reimbursementNote: identical(reimbursementNote, _sentinel)
+          ? this.reimbursementNote
+          : reimbursementNote as String?,
     );
   }
 }

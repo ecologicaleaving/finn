@@ -28,6 +28,11 @@ class ExpenseEntity extends Equatable {
     this.recurringExpenseId,
     this.isRecurringInstance = false,
     this.lastModifiedBy,
+    this.reimbursableToLabel,
+    this.reimbursableToUserId,
+    this.reimbursableAmount,
+    this.reimbursementConfirmedBy,
+    this.reimbursementNote,
   });
 
   /// Unique expense identifier
@@ -98,6 +103,21 @@ class ExpenseEntity extends Equatable {
 
   /// User ID of who last modified the expense (for audit trail - Feature 001-admin-expenses-cash-fix)
   final String? lastModifiedBy;
+
+  /// Free-text label for who should reimburse (e.g., "Giovanna", "Lavoro") — Issue #19
+  final String? reimbursableToLabel;
+
+  /// User ID of the family member who should reimburse (nullable for external creditors) — Issue #19
+  final String? reimbursableToUserId;
+
+  /// Optional partial reimbursement amount (null = full expense amount) — Issue #19
+  final double? reimbursableAmount;
+
+  /// User ID who confirmed the reimbursement (set when debtor presses "Ho rimborsato") — Issue #19
+  final String? reimbursementConfirmedBy;
+
+  /// Optional note about the reimbursement — Issue #19
+  final String? reimbursementNote;
 
   /// Check if the user can edit this expense
   bool canEdit(String userId, bool isAdmin) {
@@ -236,6 +256,11 @@ class ExpenseEntity extends Equatable {
     String? recurringExpenseId,
     bool? isRecurringInstance,
     String? lastModifiedBy,
+    Object? reimbursableToLabel = _sentinel,
+    Object? reimbursableToUserId = _sentinel,
+    Object? reimbursableAmount = _sentinel,
+    Object? reimbursementConfirmedBy = _sentinel,
+    Object? reimbursementNote = _sentinel,
   }) {
     return ExpenseEntity(
       id: id ?? this.id,
@@ -261,8 +286,28 @@ class ExpenseEntity extends Equatable {
       recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
+      reimbursableToLabel: identical(reimbursableToLabel, _sentinel)
+          ? this.reimbursableToLabel
+          : reimbursableToLabel as String?,
+      reimbursableToUserId: identical(reimbursableToUserId, _sentinel)
+          ? this.reimbursableToUserId
+          : reimbursableToUserId as String?,
+      reimbursableAmount: identical(reimbursableAmount, _sentinel)
+          ? this.reimbursableAmount
+          : reimbursableAmount as double?,
+      reimbursementConfirmedBy: identical(reimbursementConfirmedBy, _sentinel)
+          ? this.reimbursementConfirmedBy
+          : reimbursementConfirmedBy as String?,
+      reimbursementNote: identical(reimbursementNote, _sentinel)
+          ? this.reimbursementNote
+          : reimbursementNote as String?,
     );
   }
+
+  static const Object _sentinel = Object();
+
+  /// Effective amount to reimburse (partial amount if set, otherwise full amount)
+  double get effectiveReimbursableAmount => reimbursableAmount ?? amount;
 
   @override
   List<Object?> get props => [
@@ -289,6 +334,11 @@ class ExpenseEntity extends Equatable {
         recurringExpenseId,
         isRecurringInstance,
         lastModifiedBy,
+        reimbursableToLabel,
+        reimbursableToUserId,
+        reimbursableAmount,
+        reimbursementConfirmedBy,
+        reimbursementNote,
       ];
 
   @override
