@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../../../features/groups/domain/entities/member_entity.dart';
 
-/// Widget for selecting who should reimburse an expense (Issue #19).
+/// Widget for selecting who owes a reimbursement (Issue #19).
 ///
+/// The expense creator is the creditor (owed money); this field captures
+/// the debtor — the person who should reimburse the creator.
 /// Shows an autocomplete field with family members + free text input,
 /// optional partial amount, and optional note.
 /// Only shown when reimbursement status is `reimbursable`.
@@ -116,11 +118,11 @@ class _ReimbursementCreditorFieldState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // "Da rimborsare a" label
+        // "Chi deve rimborsarmi" label (the debtor, not the creditor)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'Da rimborsare a',
+            'Chi deve rimborsarmi',
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w600,
             ),
@@ -150,7 +152,7 @@ class _ReimbursementCreditorFieldState
           const SizedBox(height: 8),
         ],
 
-        // Free text input (for external creditors like "Lavoro")
+        // Free text input (for external debtors like "Lavoro")
         TextField(
           controller: _labelController,
           enabled: widget.enabled,

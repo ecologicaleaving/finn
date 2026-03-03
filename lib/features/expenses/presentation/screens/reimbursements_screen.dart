@@ -169,7 +169,7 @@ class _ReimbursementsScreenState extends ConsumerState<ReimbursementsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Da rimborsare',
+                  'Mi devono',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -347,7 +347,7 @@ class _ReimbursementsScreenState extends ConsumerState<ReimbursementsScreen> {
                   if (expense.reimbursableToLabel != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      '→ ${expense.reimbursableToLabel}',
+                      'Deve rimborsarmi: ${expense.reimbursableToLabel}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context).colorScheme.primary,
                           ),
