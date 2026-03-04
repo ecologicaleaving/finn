@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/enums/recurrence_frequency.dart';
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
@@ -37,9 +38,11 @@ class ManualExpenseScreen extends ConsumerStatefulWidget {
   const ManualExpenseScreen({
     super.key,
     this.expenseId, // T016: Optional expense ID for edit mode
+    this.isIncome = false, // Income mode for one-time income entries
   });
 
   final String? expenseId;
+  final bool isIncome;
 
   @override
   ConsumerState<ManualExpenseScreen> createState() => _ManualExpenseScreenState();
@@ -340,6 +343,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       // If admin selected "Me stesso" (null), use current user ID; otherwise use selected member ID
       paidBy: _selectedMemberIdForExpense ?? currentUserId,
       lastModifiedBy: currentUserId,
+      transactionType: widget.isIncome ? TransactionType.income : TransactionType.expense,
     );
 
     if (expense != null && mounted) {
@@ -569,7 +573,11 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/'),
         ),
-        title: Text(_isEditMode ? 'Modifica spesa' : 'Nuova spesa'), // T016
+        title: Text(_isEditMode
+            ? 'Modifica spesa'
+            : widget.isIncome
+                ? 'Nuova entrata'
+                : 'Nuova spesa'), // T016
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -586,21 +594,24 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
                 ),
 
               // T013: Member selector for admin creating expenses on behalf of members
-              MemberSelector(
-                selectedMemberId: _selectedMemberIdForExpense,
-                onChanged: (memberId) {
-                  setState(() {
-                    _selectedMemberIdForExpense = memberId;
-                    // Force group expense when admin creates for another member
-                    // This ensures the expense is visible to both admin and member
-                    if (memberId != null) {
-                      _isGroupExpense = true;
-                    }
-                  });
-                },
-                enabled: !formState.isSubmitting,
-              ),
-              const SizedBox(height: 16),
+              // Hidden in income mode
+              if (!widget.isIncome) ...[
+                MemberSelector(
+                  selectedMemberId: _selectedMemberIdForExpense,
+                  onChanged: (memberId) {
+                    setState(() {
+                      _selectedMemberIdForExpense = memberId;
+                      // Force group expense when admin creates for another member
+                      // This ensures the expense is visible to both admin and member
+                      if (memberId != null) {
+                        _isGroupExpense = true;
+                      }
+                    });
+                  },
+                  enabled: !formState.isSubmitting,
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Amount field
               AmountTextField(
@@ -624,32 +635,34 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
               ),
               const SizedBox(height: 16),
 
-              // Expense type toggle
-              Text(
-                'Tipo di spesa',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              ExpenseTypeToggle(
-                isGroupExpense: _isGroupExpense,
-                onChanged: (value) {
-                  setState(() {
-                    _isGroupExpense = value;
-                  });
-                },
-                // Disable toggle when admin creates for another member (must be group expense)
-                enabled: !formState.isSubmitting && _selectedMemberIdForExpense == null,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isGroupExpense
-                    ? 'Visibile a tutti i membri del gruppo'
-                    : 'Visibile solo a te',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 16),
+              // Expense type toggle (hidden in income mode)
+              if (!widget.isIncome) ...[
+                Text(
+                  'Tipo di spesa',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                ExpenseTypeToggle(
+                  isGroupExpense: _isGroupExpense,
+                  onChanged: (value) {
+                    setState(() {
+                      _isGroupExpense = value;
+                    });
+                  },
+                  // Disable toggle when admin creates for another member (must be group expense)
+                  enabled: !formState.isSubmitting && _selectedMemberIdForExpense == null,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _isGroupExpense
+                      ? 'Visibile a tutti i membri del gruppo'
+                      : 'Visibile solo a te',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Category selector (compact dropdown)
               CategoryDropdown(
@@ -681,41 +694,44 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
               ),
               const SizedBox(height: 16),
 
-              // Reimbursement status toggle (T035)
-              ReimbursementToggle(
-                value: _selectedReimbursementStatus,
-                onChanged: (status) {
-                  setState(() {
-                    _selectedReimbursementStatus = status;
-                  });
-                },
-                enabled: !formState.isSubmitting,
-              ),
-              const SizedBox(height: 16),
+              // Reimbursement status toggle and recurring config (hidden in income mode)
+              if (!widget.isIncome) ...[
+                // Reimbursement status toggle (T035)
+                ReimbursementToggle(
+                  value: _selectedReimbursementStatus,
+                  onChanged: (status) {
+                    setState(() {
+                      _selectedReimbursementStatus = status;
+                    });
+                  },
+                  enabled: !formState.isSubmitting,
+                ),
+                const SizedBox(height: 16),
 
-              // Recurring expense configuration (T025)
-              RecurringExpenseConfigWidget(
-                isRecurring: _isRecurring,
-                onRecurringChanged: (value) {
-                  setState(() {
-                    _isRecurring = value;
-                  });
-                },
-                frequency: _recurrenceFrequency,
-                onFrequencyChanged: (freq) {
-                  setState(() {
-                    _recurrenceFrequency = freq;
-                  });
-                },
-                budgetReservationEnabled: _budgetReservationEnabled,
-                onBudgetReservationChanged: (value) {
-                  setState(() {
-                    _budgetReservationEnabled = value;
-                  });
-                },
-                enabled: !formState.isSubmitting,
-              ),
-              const SizedBox(height: 16),
+                // Recurring expense configuration (T025)
+                RecurringExpenseConfigWidget(
+                  isRecurring: _isRecurring,
+                  onRecurringChanged: (value) {
+                    setState(() {
+                      _isRecurring = value;
+                    });
+                  },
+                  frequency: _recurrenceFrequency,
+                  onFrequencyChanged: (freq) {
+                    setState(() {
+                      _recurrenceFrequency = freq;
+                    });
+                  },
+                  budgetReservationEnabled: _budgetReservationEnabled,
+                  onBudgetReservationChanged: (value) {
+                    setState(() {
+                      _budgetReservationEnabled = value;
+                    });
+                  },
+                  enabled: !formState.isSubmitting,
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Notes field
               CustomTextField(
@@ -732,20 +748,22 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
               // Save button
               PrimaryButton(
                 onPressed: _handleSave,
-                label: 'Salva spesa',
+                label: widget.isIncome ? 'Salva entrata' : 'Salva spesa',
                 isLoading: formState.isSubmitting,
                 loadingLabel: 'Salvataggio...',
                 icon: Icons.check,
               ),
 
-              const SizedBox(height: 16),
+              if (!widget.isIncome) ...[
+                const SizedBox(height: 16),
 
-              // Or scan button
-              SecondaryButton(
-                onPressed: () => context.go('/scan-receipt'),
-                label: 'Scansiona scontrino',
-                icon: Icons.document_scanner,
-              ),
+                // Or scan button
+                SecondaryButton(
+                  onPressed: () => context.go('/scan-receipt'),
+                  label: 'Scansiona scontrino',
+                  icon: Icons.document_scanner,
+                ),
+              ],
             ],
           ),
         ),

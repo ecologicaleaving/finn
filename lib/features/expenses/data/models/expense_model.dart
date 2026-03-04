@@ -1,4 +1,5 @@
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../domain/entities/expense_entity.dart';
 
 /// Expense model for JSON serialization/deserialization.
@@ -29,6 +30,7 @@ class ExpenseModel extends ExpenseEntity {
     super.recurringExpenseId,
     super.isRecurringInstance = false,
     super.lastModifiedBy,
+    super.transactionType = TransactionType.expense,
   });
 
   /// Create an ExpenseModel from a JSON map (expenses table row).
@@ -66,6 +68,9 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: json['recurring_expense_id'] as String?,
       isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
       lastModifiedBy: json['last_modified_by'] as String?,
+      transactionType: TransactionType.fromString(
+        json['transaction_type'] as String? ?? 'expense',
+      ),
     );
   }
 
@@ -94,6 +99,7 @@ class ExpenseModel extends ExpenseEntity {
       'reimbursement_status': reimbursementStatus.value,
       'reimbursed_at': reimbursedAt?.toIso8601String(),
       'last_modified_by': lastModifiedBy,
+      'transaction_type': transactionType.value,
     };
   }
 
@@ -123,6 +129,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: entity.recurringExpenseId,
       isRecurringInstance: entity.isRecurringInstance,
       lastModifiedBy: entity.lastModifiedBy,
+      transactionType: entity.transactionType,
     );
   }
 
@@ -152,6 +159,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId,
       isRecurringInstance: isRecurringInstance,
       lastModifiedBy: lastModifiedBy,
+      transactionType: transactionType,
     );
   }
 
@@ -181,6 +189,7 @@ class ExpenseModel extends ExpenseEntity {
     String? recurringExpenseId,
     bool? isRecurringInstance,
     String? lastModifiedBy,
+    TransactionType? transactionType,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -206,6 +215,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
+      transactionType: transactionType ?? this.transactionType,
     );
   }
 }

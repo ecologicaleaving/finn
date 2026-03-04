@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/expense_model.dart';
 
@@ -43,6 +44,7 @@ abstract class ExpenseRemoteDataSource {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    TransactionType transactionType = TransactionType.expense,
   });
 
   /// Update an existing expense.
@@ -224,6 +226,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    TransactionType transactionType = TransactionType.expense,
   }) async {
     try {
       final currentUserId = _currentUserId;
@@ -309,6 +312,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'is_group_expense': isGroupExpense,
             'reimbursement_status': reimbursementStatus.value, // T048
             'last_modified_by': lastModifiedBy ?? effectiveCreatedBy, // T014: Set last_modified_by
+            'transaction_type': transactionType.value,
           })
           .select('*, category_name:expense_categories(name)')
           .single();

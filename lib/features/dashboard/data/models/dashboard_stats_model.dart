@@ -123,6 +123,8 @@ class DashboardStatsModel extends DashboardStats {
     required super.byCategory,
     required super.byMember,
     required super.trend,
+    super.totalIncome = 0,
+    super.incomeCount = 0,
   });
 
   factory DashboardStatsModel.fromJson(

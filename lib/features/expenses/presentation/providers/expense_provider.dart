@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../widget/presentation/services/widget_update_service.dart';
 import '../../data/datasources/expense_remote_datasource.dart';
@@ -377,6 +378,7 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    TransactionType transactionType = TransactionType.expense,
   }) async {
     state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
 
@@ -393,6 +395,7 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       createdBy: createdBy, // T014
       paidBy: paidBy, // Pass paid_by to repository
       lastModifiedBy: lastModifiedBy, // T014
+      transactionType: transactionType,
     );
 
     return result.fold(

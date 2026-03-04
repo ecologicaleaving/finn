@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dartz/dartz.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
 import '../../domain/entities/expense_entity.dart';
@@ -79,6 +80,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? createdBy, // T014
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
+    TransactionType transactionType = TransactionType.expense,
   }) async {
     try {
       // Create the expense first
@@ -94,6 +96,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         createdBy: createdBy, // T014
         paidBy: paidBy, // For admin creating expense for specific member
         lastModifiedBy: lastModifiedBy, // T014
+        transactionType: transactionType,
       );
 
       // Upload receipt if provided

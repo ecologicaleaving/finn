@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 
 /// Expense entity representing a household expense.
 class ExpenseEntity extends Equatable {
@@ -28,7 +29,11 @@ class ExpenseEntity extends Equatable {
     this.recurringExpenseId,
     this.isRecurringInstance = false,
     this.lastModifiedBy,
+    this.transactionType = TransactionType.expense,
   });
+
+  /// Transaction type: expense (money out) or income (money in)
+  final TransactionType transactionType;
 
   /// Unique expense identifier
   final String id;
@@ -109,8 +114,13 @@ class ExpenseEntity extends Equatable {
     return createdBy == userId || isAdmin;
   }
 
-  /// Get formatted amount string
-  String get formattedAmount => '€${amount.toStringAsFixed(2)}';
+  /// Whether this is an income transaction
+  bool get isIncome => transactionType == TransactionType.income;
+
+  /// Get formatted amount string (with + prefix for income)
+  String get formattedAmount => isIncome
+      ? '+€${amount.toStringAsFixed(2)}'
+      : '€${amount.toStringAsFixed(2)}';
 
   /// Check if this expense has a receipt attached
   bool get hasReceipt => receiptUrl != null && receiptUrl!.isNotEmpty;
@@ -202,6 +212,7 @@ class ExpenseEntity extends Equatable {
       categoryName: null,
       paymentMethodId: '',
       paymentMethodName: null,
+      transactionType: TransactionType.expense,
     );
   }
 
@@ -236,6 +247,7 @@ class ExpenseEntity extends Equatable {
     String? recurringExpenseId,
     bool? isRecurringInstance,
     String? lastModifiedBy,
+    TransactionType? transactionType,
   }) {
     return ExpenseEntity(
       id: id ?? this.id,
@@ -261,6 +273,7 @@ class ExpenseEntity extends Equatable {
       recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
+      transactionType: transactionType ?? this.transactionType,
     );
   }
 
@@ -289,6 +302,7 @@ class ExpenseEntity extends Equatable {
         recurringExpenseId,
         isRecurringInstance,
         lastModifiedBy,
+        transactionType,
       ];
 
   @override
