@@ -95,7 +95,7 @@ class _ExpenseCategorySummaryState extends State<ExpenseCategorySummary> {
             const Divider(height: 1),
             ListView.separated(
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
+              physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: sortedCategories.length,
               separatorBuilder: (context, index) => const Divider(height: 1, indent: 56),

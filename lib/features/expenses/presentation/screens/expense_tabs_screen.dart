@@ -108,9 +108,11 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             ),
           ),
 
-          // Category summary
+          // Category summary (Flexible to prevent overflow with many categories)
           if (listState.expenses.isNotEmpty)
-            ExpenseCategorySummary(expenses: listState.expenses),
+            Flexible(
+              child: ExpenseCategorySummary(expenses: listState.expenses),
+            ),
 
           // Expense list with month grouping
           const Expanded(
