@@ -76,7 +76,7 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
       // Filter by paid_by to attribute expenses to correct member
       var query = _supabaseClient
           .from('expenses')
-          .select('id, amount, category_id, date, paid_by, is_group_expense, transaction_type')
+          .select('id, amount, category_id, date, paid_by, is_group_expense')
           .eq('group_id', groupId)
           .gte('date', startDate.toIso8601String().split('T')[0])
           .lte('date', endDate.toIso8601String().split('T')[0]);

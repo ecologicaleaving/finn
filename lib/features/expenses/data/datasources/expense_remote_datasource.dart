@@ -312,7 +312,9 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'is_group_expense': isGroupExpense,
             'reimbursement_status': reimbursementStatus.value, // T048
             'last_modified_by': lastModifiedBy ?? effectiveCreatedBy, // T014: Set last_modified_by
-            'transaction_type': transactionType.value,
+            // Only include transaction_type for income (backward compatible: column may not exist yet)
+            if (transactionType != TransactionType.expense)
+              'transaction_type': transactionType.value,
           })
           .select('*, category_name:expense_categories(name)')
           .single();
