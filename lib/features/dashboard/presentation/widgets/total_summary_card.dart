@@ -50,24 +50,46 @@ class TotalSummaryCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _StatItem(
-                    label: 'Totale',
+                    label: 'Spese',
                     value: currencyFormat.format(stats.totalAmount),
-                    valueColor: theme.colorScheme.primary,
+                    valueColor: theme.colorScheme.error,
                     isLarge: true,
                   ),
                 ),
-                Expanded(
-                  child: _StatItem(
-                    label: 'Spese',
-                    value: stats.expenseCount.toString(),
+                if (stats.totalIncome > 0)
+                  Expanded(
+                    child: _StatItem(
+                      label: 'Entrate',
+                      value: currencyFormat.format(stats.totalIncome),
+                      valueColor: const Color(0xFF2E7D32),
+                      isLarge: true,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _StatItem(
-                    label: 'Media',
-                    value: currencyFormat.format(stats.averageExpense),
+                if (stats.totalIncome > 0)
+                  Expanded(
+                    child: _StatItem(
+                      label: 'Saldo',
+                      value: currencyFormat.format(stats.netBalance),
+                      valueColor: stats.netBalance >= 0
+                          ? const Color(0xFF2E7D32)
+                          : theme.colorScheme.error,
+                      isLarge: true,
+                    ),
                   ),
-                ),
+                if (stats.totalIncome == 0) ...[
+                  Expanded(
+                    child: _StatItem(
+                      label: 'N. spese',
+                      value: stats.expenseCount.toString(),
+                    ),
+                  ),
+                  Expanded(
+                    child: _StatItem(
+                      label: 'Media',
+                      value: currencyFormat.format(stats.averageExpense),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 12),

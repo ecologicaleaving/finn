@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/services/icon_matching_service.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../domain/entities/expense_entity.dart';
 
 /// Widget showing expense summary grouped by category
@@ -29,9 +30,10 @@ class _ExpenseCategorySummaryState extends State<ExpenseCategorySummary> {
       decimalDigits: 2,
     );
 
-    // Group expenses by category
+    // Group expenses by category (exclude income)
     final categoryTotals = <String, double>{};
     for (final expense in widget.expenses) {
+      if (expense.transactionType == TransactionType.income) continue;
       final category = expense.categoryName ?? 'Altro';
       categoryTotals[category] = (categoryTotals[category] ?? 0.0) + expense.amount;
     }

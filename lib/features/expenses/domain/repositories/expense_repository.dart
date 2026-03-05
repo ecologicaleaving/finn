@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dartz/dartz.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
+import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/failures.dart';
 import '../entities/expense_entity.dart';
 
@@ -55,6 +56,7 @@ abstract class ExpenseRepository {
     String? createdBy, // T014: Override for admin creating on behalf of member
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014: Admin user ID when creating on behalf
+    TransactionType transactionType = TransactionType.expense,
   });
 
   /// Update an existing expense.

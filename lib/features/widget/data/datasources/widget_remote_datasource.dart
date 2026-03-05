@@ -42,6 +42,7 @@ class WidgetRemoteDataSourceImpl implements WidgetRemoteDataSource {
         .from('expenses')
         .select('id, amount, date')
         .eq('paid_by', userId)
+        .neq('transaction_type', 'income')
         .gte('date', startOfMonth.toIso8601String().split('T')[0])
         .lte('date', endOfMonth.toIso8601String().split('T')[0]);
 

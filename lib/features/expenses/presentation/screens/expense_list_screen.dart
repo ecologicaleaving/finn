@@ -149,7 +149,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
                         ),
                         const Spacer(),
                         Text(
-                          '${monthExpenses.length} ${monthExpenses.length == 1 ? 'spesa' : 'spese'}',
+                          '${monthExpenses.length} ${monthExpenses.length == 1 ? 'transazione' : 'transazioni'}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),

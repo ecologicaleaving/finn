@@ -51,11 +51,12 @@ class WidgetRepositoryImpl implements WidgetRepository {
 
       print('Widget: Querying expenses for userId=$userId, period=${startOfMonth.toIso8601String().split('T')[0]} to ${endOfMonth.toIso8601String().split('T')[0]}');
 
-      // Query all expenses paid by user for current month
+      // Query all expenses paid by user for current month (escluse entrate)
       final allExpensesResult = await supabase
           .from('expenses')
           .select('id, amount, is_group_expense')
           .eq('paid_by', userId)
+          .neq('transaction_type', 'income')
           .gte('date', startOfMonth.toIso8601String().split('T')[0])
           .lte('date', endOfMonth.toIso8601String().split('T')[0]) as List;
 

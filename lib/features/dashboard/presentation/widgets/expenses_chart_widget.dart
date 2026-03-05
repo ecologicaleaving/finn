@@ -42,10 +42,11 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
       break;
   }
 
-  // Query spese nel periodo
+  // Query spese nel periodo (escluse entrate)
   var query = supabase
       .from('expenses')
       .select('amount, date')
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]);
 

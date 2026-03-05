@@ -147,17 +147,26 @@ class DashboardStats {
     required this.byCategory,
     required this.byMember,
     required this.trend,
+    this.totalIncome = 0,
+    this.incomeCount = 0,
   });
 
   final DashboardPeriod period;
   final DateTime startDate;
   final DateTime endDate;
+  /// Total expenses amount (money out)
   final double totalAmount;
   final int expenseCount;
   final double averageExpense;
   final List<CategoryBreakdown> byCategory;
   final List<MemberBreakdown> byMember;
   final List<TrendDataPoint> trend;
+  /// Total income amount (money in)
+  final double totalIncome;
+  final int incomeCount;
+
+  /// Net balance (income - expenses)
+  double get netBalance => totalIncome - totalAmount;
 
   /// Creates an empty dashboard stats object.
   factory DashboardStats.empty(DashboardPeriod period) {
@@ -174,6 +183,8 @@ class DashboardStats {
       byCategory: const [],
       byMember: const [],
       trend: const [],
+      totalIncome: 0,
+      incomeCount: 0,
     );
   }
 
@@ -212,7 +223,9 @@ class DashboardStats {
           averageExpense == other.averageExpense &&
           listEquals(byCategory, other.byCategory) &&
           listEquals(byMember, other.byMember) &&
-          listEquals(trend, other.trend);
+          listEquals(trend, other.trend) &&
+          totalIncome == other.totalIncome &&
+          incomeCount == other.incomeCount;
 
   @override
   int get hashCode =>

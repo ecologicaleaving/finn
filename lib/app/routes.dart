@@ -56,6 +56,7 @@ class AppRoutes {
   // Expense routes
   static const expenses = '/expenses';
   static const addExpense = '/add-expense';
+  static const addIncome = '/add-income';
   static const scanReceipt = '/scan-receipt';
   static const reviewScan = '/review-scan';
   static const uploadFile = '/upload-file';
@@ -186,6 +187,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.addExpense,
         name: 'addExpense',
         builder: (context, state) => const ManualExpenseScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.addIncome,
+        name: 'addIncome',
+        builder: (context, state) => const ManualExpenseScreen(isIncome: true),
       ),
       GoRoute(
         path: '/expense/:id',

@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/utils/date_formatter.dart';
 import '../../../../core/services/icon_matching_service.dart';
 import '../../../../shared/widgets/reimbursement_status_badge.dart';
 import '../../domain/entities/expense_entity.dart';
 
-/// List item widget for displaying expense summary in a list.
+/// List item widget for displaying expense/income summary in a list.
 class ExpenseListItem extends StatelessWidget {
   const ExpenseListItem({
     super.key,
@@ -73,12 +72,27 @@ class ExpenseListItem extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    expense.formattedAmount,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
-                    ),
+                  Row(
+                    children: [
+                      if (expense.isIncome)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Icon(
+                            Icons.arrow_upward,
+                            size: 20,
+                            color: expense.transactionType.getColor(theme.colorScheme),
+                          ),
+                        ),
+                      Text(
+                        expense.formattedAmount,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: expense.isIncome
+                              ? expense.transactionType.getColor(theme.colorScheme)
+                              : theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
                   ),
                   Row(
                     children: [

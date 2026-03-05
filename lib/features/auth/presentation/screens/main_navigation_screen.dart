@@ -76,6 +76,15 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.arrow_upward, color: Color(0xFF2E7D32)),
+              title: const Text('Aggiungi entrata'),
+              subtitle: const Text('Registra un\'entrata una tantum'),
+              onTap: () {
+                Navigator.pop(context);
+                context.push(AppRoutes.addIncome);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.camera_alt_outlined),
               title: const Text('Scansiona scontrino'),
               subtitle: const Text('Usa la fotocamera per scansionare'),

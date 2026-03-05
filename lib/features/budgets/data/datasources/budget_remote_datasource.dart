@@ -379,12 +379,13 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
       final monthStart = TimezoneHandler.getMonthStart(year, month);
       final monthEnd = TimezoneHandler.getMonthEnd(year, month);
 
-      // Get all group expenses for the month
+      // Get all group expenses for the month (escluse entrate)
       final expensesResponse = await supabaseClient
           .from('expenses')
           .select('amount')
           .eq('group_id', groupId)
           .eq('is_group_expense', true)
+          .neq('transaction_type', 'income')
           .gte('date', monthStart.toIso8601String().split('T')[0])
           .lte('date', monthEnd.toIso8601String().split('T')[0]);
 
@@ -512,12 +513,13 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
       final monthStart = TimezoneHandler.getMonthStart(year, month);
       final monthEnd = TimezoneHandler.getMonthEnd(year, month);
 
-      // Get all expenses created by this user for the month
+      // Get all expenses created by this user for the month (escluse entrate)
       // (includes both personal expenses AND user's group expenses)
       final expensesResponse = await supabaseClient
           .from('expenses')
           .select('amount')
           .eq('created_by', userId)
+          .neq('transaction_type', 'income')
           .gte('date', monthStart.toIso8601String().split('T')[0])
           .lte('date', monthEnd.toIso8601String().split('T')[0]);
 
@@ -1086,12 +1088,13 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
         final startOfMonth = DateTime(year, month, 1);
         final endOfMonth = DateTime(year, month + 1, 0, 23, 59, 59);
 
-        // Query expenses for this category (group expenses only for group budget)
+        // Query expenses for this category (group expenses only for group budget, escluse entrate)
         var expensesQuery = supabaseClient
             .from('expenses')
             .select('amount')
             .eq('group_id', groupId)
             .eq('category_id', categoryId)
+            .neq('transaction_type', 'income')
             .gte('date', startOfMonth.toIso8601String().split('T')[0])
             .lte('date', endOfMonth.toIso8601String().split('T')[0]);
 
@@ -1361,7 +1364,7 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
         final userContribution = contributionResponse?['contribution_amount_cents'] as int? ?? 0;
         totalBudget += userContribution;
 
-        // Get user's spending in this category (group expenses only)
+        // Get user's spending in this category (group expenses only, escluse entrate)
         final spentResponse = await supabaseClient
             .from('expenses')
             .select('amount')
@@ -1369,6 +1372,7 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
             .eq('group_id', groupId)
             .eq('created_by', userId)
             .eq('is_group_expense', true)
+            .neq('transaction_type', 'income')
             .gte('expense_date', '$year-${month.toString().padLeft(2, '0')}-01')
             .lt('expense_date', month == 12 ? '${year + 1}-01-01' : '$year-${(month + 1).toString().padLeft(2, '0')}-01');
 

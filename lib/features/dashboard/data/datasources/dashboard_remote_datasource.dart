@@ -76,7 +76,7 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
       // Filter by paid_by to attribute expenses to correct member
       var query = _supabaseClient
           .from('expenses')
-          .select('id, amount, category_id, date, paid_by, is_group_expense')
+          .select('*')
           .eq('group_id', groupId)
           .gte('date', startDate.toIso8601String().split('T')[0])
           .lte('date', endDate.toIso8601String().split('T')[0]);
@@ -112,18 +112,28 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
         }
       }
 
-      // Calculate stats from expenses
+      // Calculate stats from expenses, separating income from expenses
       double totalAmount = 0;
+      double totalIncome = 0;
+      int incomeCount = 0;
       final categoryTotals = <String, Map<String, dynamic>>{};
       final memberTotals = <String, Map<String, dynamic>>{};
       final trendData = <String, Map<String, dynamic>>{};
 
       for (final expense in expenses) {
         final amount = (expense['amount'] as num).toDouble();
+        final transactionType = expense['transaction_type'] as String? ?? 'expense';
         final categoryId = expense['category_id'] as String? ?? 'altro';
         final date = expense['date'] as String;
         final paidBy = expense['paid_by'] as String? ?? 'unknown';
         final displayName = memberNames[paidBy] ?? 'Utente sconosciuto';
+
+        // Separate income from expenses
+        if (transactionType == 'income') {
+          totalIncome += amount;
+          incomeCount++;
+          continue; // Skip income from expense-specific calculations
+        }
 
         totalAmount += amount;
 
@@ -162,7 +172,7 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
             (trendData[trendKey]!['count'] as int) + 1;
       }
 
-      final expenseCount = expenses.length;
+      final expenseCount = expenses.length - incomeCount;
       final averageExpense = expenseCount > 0 ? totalAmount / expenseCount : 0.0;
 
       // Build category breakdown list
@@ -215,6 +225,8 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
         byCategory: byCategory,
         byMember: byMember,
         trend: trend,
+        totalIncome: totalIncome,
+        incomeCount: incomeCount,
       );
     } on PostgrestException catch (e) {
       throw ServerException(e.message);
