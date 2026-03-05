@@ -100,6 +100,7 @@ final unifiedBudgetStatsProvider = FutureProvider.family<
             .select()
             .eq('group_id', params.groupId)
             .eq('category_id', categoryId)
+            .neq('transaction_type', 'income')
             .gte('date', startOfMonth.toIso8601String().split('T')[0])
             .lte('date', endOfMonth.toIso8601String().split('T')[0]);
 

@@ -108,12 +108,13 @@ final groupMembersExpensesProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo raggruppate per paid_by
+  // Query spese di gruppo raggruppate per paid_by (escluse entrate)
   final expenses = await supabase
       .from('expenses')
       .select('paid_by, paid_by_name, amount')
       .eq('group_id', params.groupId)
       .eq('is_group_expense', true)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
@@ -182,13 +183,14 @@ final memberGroupExpensesByCategoryProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo di uno specifico membro
+  // Query spese di gruppo di uno specifico membro (escluse entrate)
   final expenses = await supabase
       .from('expenses')
       .select('category_id, amount, expense_categories(name)')
       .eq('group_id', params.groupId)
       .eq('is_group_expense', true)
       .eq('paid_by', params.memberId)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
@@ -231,12 +233,13 @@ final groupExpensesByCategoryProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo raggruppate per categoria
+  // Query spese di gruppo raggruppate per categoria (escluse entrate)
   final expenses = await supabase
       .from('expenses')
       .select('category_id, amount, expense_categories(name)')
       .eq('group_id', params.groupId)
       .eq('is_group_expense', true)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
@@ -279,12 +282,13 @@ final personalOnlyExpensesByCategoryProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali (non di gruppo) dell'utente
+  // Query spese personali (non di gruppo) dell'utente (escluse entrate)
   final expenses = await supabase
       .from('expenses')
       .select('category_id, amount, expense_categories(name)')
       .eq('paid_by', params.userId)
       .eq('is_group_expense', false)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
@@ -359,13 +363,14 @@ final groupCategoryExpensesProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo per categoria specifica
+  // Query spese di gruppo per categoria specifica (escluse entrate)
   var query = supabase
       .from('expenses')
       .select('*, category_name:expense_categories(name)')
       .eq('group_id', params.groupId)
       .eq('is_group_expense', true)
       .eq('category_id', params.categoryId)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]);
 
@@ -458,13 +463,14 @@ final personalCategoryExpensesProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali per categoria specifica
+  // Query spese personali per categoria specifica (escluse entrate)
   final response = await supabase
       .from('expenses')
       .select('*, category_name:expense_categories(name)')
       .eq('paid_by', params.userId)
       .eq('is_group_expense', false)
       .eq('category_id', params.categoryId)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0])
       .order('date', ascending: false) as List;
@@ -522,23 +528,25 @@ final personalExpensesByCategoryProvider = FutureProvider.autoDispose
   final supabase = Supabase.instance.client;
   final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali (pagate dall'utente)
+  // Query spese personali (pagate dall'utente, escluse entrate)
   // Use paid_by to include expenses created by admin on behalf of user
   final personalExpenses = await supabase
       .from('expenses')
       .select('amount, category_id, expense_categories(name)')
       .eq('paid_by', params.userId)
       .eq('is_group_expense', false)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
-  // Query spese di gruppo (pagate dall'utente)
+  // Query spese di gruppo (pagate dall'utente, escluse entrate)
   // Use paid_by to include expenses created by admin on behalf of user
   final groupExpenses = await supabase
       .from('expenses')
       .select('amount, category_id, expense_categories(name)')
       .eq('paid_by', params.userId)
       .eq('is_group_expense', true)
+      .neq('transaction_type', 'income')
       .gte('date', startDate.toIso8601String().split('T')[0])
       .lte('date', endDate.toIso8601String().split('T')[0]) as List;
 
