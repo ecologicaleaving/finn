@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../categories/presentation/widgets/category_dropdown.dart';
 import '../providers/expense_provider.dart';
 import '../widgets/expense_category_summary.dart';
 import 'expense_list_screen.dart';
@@ -60,7 +58,6 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
   @override
   Widget build(BuildContext context) {
     final listState = ref.watch(expenseListProvider);
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -108,7 +105,7 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             ),
           ),
 
-          // Category summary
+          // Category summary (no Flexible — Column sizes to content, all categories visible)
           if (listState.expenses.isNotEmpty)
             ExpenseCategorySummary(expenses: listState.expenses),
 
