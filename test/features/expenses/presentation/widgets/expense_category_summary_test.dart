@@ -32,7 +32,7 @@ Widget _buildWidget(List<ExpenseEntity> expenses) {
 
 void main() {
   group('ExpenseCategorySummary', () {
-    testWidgets('shows all categories when many are present', (tester) async {
+    testWidgets('all categories reachable by scrolling in panel', (tester) async {
       final expenses = [
         _makeExpense(id: '1', amount: 318.00, categoryName: 'Bollette'),
         _makeExpense(id: '2', amount: 292.00, categoryName: 'Spesa'),
@@ -44,13 +44,24 @@ void main() {
 
       await tester.pumpWidget(_buildWidget(expenses));
 
-      // All 6 categories must be visible — no silent truncation
+      // First categories visible immediately
       expect(find.text('Bollette'), findsOneWidget);
       expect(find.text('Spesa'), findsOneWidget);
-      expect(find.text('Trasporti'), findsOneWidget);
-      expect(find.text('Salute'), findsOneWidget);
-      expect(find.text('Abbigliamento'), findsOneWidget);
-      expect(find.text('Svago'), findsOneWidget);
+
+      // Scroll the internal ListView to reveal all categories
+      final listView = find.descendant(
+        of: find.byType(Card),
+        matching: find.byType(Scrollable),
+      );
+
+      for (final name in ['Trasporti', 'Salute', 'Abbigliamento', 'Svago']) {
+        await tester.scrollUntilVisible(
+          find.text(name),
+          100,
+          scrollable: listView,
+        );
+        expect(find.text(name), findsOneWidget);
+      }
     });
 
     testWidgets('shows correct total amount', (tester) async {
@@ -86,7 +97,7 @@ void main() {
       expect(find.text('Trasporti'), findsOneWidget);
     });
 
-    testWidgets('does not use ListView (no nested scroll)', (tester) async {
+    testWidgets('uses scrollable ListView inside Card for categories', (tester) async {
       final expenses = [
         _makeExpense(id: '1', amount: 100.00, categoryName: 'Bollette'),
         _makeExpense(id: '2', amount: 200.00, categoryName: 'Spesa'),
@@ -94,16 +105,51 @@ void main() {
 
       await tester.pumpWidget(_buildWidget(expenses));
 
-      // The widget should NOT contain any ListView inside the Card
+      // The Card should contain a scrollable ListView for categories
       final card = find.byType(Card);
       expect(card, findsOneWidget);
 
-      // No ListView descendant within the Card
       final listViews = find.descendant(
         of: card,
         matching: find.byType(ListView),
       );
-      expect(listViews, findsNothing);
+      expect(listViews, findsOneWidget);
+    });
+
+    testWidgets('all categories reachable by scrolling', (tester) async {
+      // Create many categories to exceed max height (200px)
+      final expenses = List.generate(
+        10,
+        (i) => _makeExpense(
+          id: '$i',
+          amount: (10 - i) * 50.0,
+          categoryName: 'Categoria $i',
+        ),
+      );
+
+      await tester.pumpWidget(_buildWidget(expenses));
+
+      // First categories should be visible
+      expect(find.text('Categoria 0'), findsOneWidget);
+
+      // Last category may need scrolling — find the ListView and scroll
+      final listView = find.descendant(
+        of: find.byType(Card),
+        matching: find.byType(ListView),
+      );
+      expect(listView, findsOneWidget);
+
+      // Scroll to the bottom of the category list
+      await tester.scrollUntilVisible(
+        find.text('Categoria 9'),
+        100,
+        scrollable: find.descendant(
+          of: listView,
+          matching: find.byType(Scrollable),
+        ),
+      );
+
+      expect(find.text('Categoria 9'), findsOneWidget);
     });
   });
 }

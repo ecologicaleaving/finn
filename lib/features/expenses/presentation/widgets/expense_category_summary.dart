@@ -93,48 +93,47 @@ class _ExpenseCategorySummaryState extends State<ExpenseCategorySummary> {
           ),
           if (_isExpanded) ...[
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                children: [
-                  for (int i = 0; i < sortedCategories.length; i++) ...[
-                    if (i > 0) const Divider(height: 1, indent: 56),
-                    Builder(builder: (context) {
-                      final entry = sortedCategories[i];
-                      final categoryName = entry.key;
-                      final amount = entry.value;
-                      final percentage = totalAmount > 0 ? (amount / totalAmount) * 100 : 0.0;
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: sortedCategories.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, indent: 56),
+                itemBuilder: (context, i) {
+                  final entry = sortedCategories[i];
+                  final categoryName = entry.key;
+                  final amount = entry.value;
+                  final percentage = totalAmount > 0 ? (amount / totalAmount) * 100 : 0.0;
 
-                      return ListTile(
-                        dense: true,
-                        leading: Icon(
-                          IconMatchingService.getDefaultIconForCategory(categoryName),
-                          color: theme.colorScheme.primary,
-                          size: 20,
-                        ),
-                        title: Text(
-                          categoryName,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${percentage.toStringAsFixed(1)}%',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        trailing: Text(
-                          currencyFormat.format(amount),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
-                ],
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      IconMatchingService.getDefaultIconForCategory(categoryName),
+                      color: theme.colorScheme.primary,
+                      size: 20,
+                    ),
+                    title: Text(
+                      categoryName,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${percentage.toStringAsFixed(1)}%',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    trailing: Text(
+                      currencyFormat.format(amount),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ],
