@@ -18,7 +18,7 @@ class MonthlyExpenseCategoryView extends StatefulWidget {
 
   final List<ExpenseEntity> expenses;
   final bool hasMoreExpenses;
-  final VoidCallback? onLoadOlderMonths;
+  final Future<void> Function()? onLoadOlderMonths;
   final ValueChanged<ExpenseEntity>? onExpenseTap;
   final DateTime? initialMonth;
   final DateTime Function()? nowBuilder;
@@ -32,6 +32,7 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
   late final NumberFormat _currencyFormat;
   late final DateFormat _monthFormat;
   late final DateFormat _expenseDateFormat;
+  bool _isEnsuringMonthCoverage = false;
 
   @override
   void initState() {
@@ -45,12 +46,23 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
     );
     _monthFormat = DateFormat('MMMM yyyy', 'it_IT');
     _expenseDateFormat = DateFormat('d MMM', 'it_IT');
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthCoverage());
+  }
+
+  @override
+  void didUpdateWidget(covariant MonthlyExpenseCategoryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expenses != widget.expenses ||
+        oldWidget.hasMoreExpenses != widget.hasMoreExpenses) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthCoverage());
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final monthExpenses = _expensesForMonth(_selectedMonth);
+    final totalForMonth = monthExpenses.fold<double>(0.0, (sum, expense) => sum + expense.amount);
     final grouped = _groupByCategory(monthExpenses);
     final categoryEntries = grouped.entries.toList()
       ..sort((a, b) => b.value.total.compareTo(a.value.total));
@@ -59,6 +71,7 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
       children: [
         _MonthHeader(
           monthLabel: _capitalize(_monthFormat.format(_selectedMonth)),
+          totalLabel: 'Totale personale: ${_currencyFormat.format(totalForMonth)}',
           onPrevious: _goPreviousMonth,
           onNext: _goNextMonth,
         ),
@@ -104,7 +117,7 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
     setState(() {
       _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
     });
-    _maybeLoadOlderMonths();
+    _ensureSelectedMonthCoverage();
   }
 
   void _goNextMonth() {
@@ -113,14 +126,50 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
     });
   }
 
-  void _maybeLoadOlderMonths() {
+  Future<void> _ensureSelectedMonthCoverage() async {
+    if (_isEnsuringMonthCoverage || widget.onLoadOlderMonths == null) return;
     if (!widget.hasMoreExpenses || widget.expenses.isEmpty) return;
-    final oldestLoadedMonth = widget.expenses
-        .map((expense) => _toMonthStart(expense.date))
-        .reduce((a, b) => a.isBefore(b) ? a : b);
-    if (!_selectedMonth.isAfter(oldestLoadedMonth)) {
-      widget.onLoadOlderMonths?.call();
+
+    _isEnsuringMonthCoverage = true;
+    var attempts = 0;
+
+    while (_needsMoreDataForSelectedMonth() && mounted && attempts < 8) {
+      final oldestBefore = _oldestLoadedExpenseDate();
+      await widget.onLoadOlderMonths!.call();
+      attempts++;
+
+      final oldestAfter = _oldestLoadedExpenseDate();
+      if (oldestBefore == oldestAfter) {
+        break;
+      }
     }
+
+    _isEnsuringMonthCoverage = false;
+  }
+
+  bool _needsMoreDataForSelectedMonth() {
+    if (!widget.hasMoreExpenses || widget.expenses.isEmpty) {
+      return false;
+    }
+
+    final oldest = _oldestLoadedExpenseDate();
+    if (oldest == null) return false;
+
+    final selectedMonthStart = _toMonthStart(_selectedMonth);
+    final oldestMonthStart = _toMonthStart(oldest);
+
+    if (oldestMonthStart.isAfter(selectedMonthStart)) {
+      return true;
+    }
+
+    // If the current oldest loaded item is in the same selected month and there are
+    // still more pages, that month may be partial and totals can be incorrect.
+    return oldestMonthStart == selectedMonthStart;
+  }
+
+  DateTime? _oldestLoadedExpenseDate() {
+    if (widget.expenses.isEmpty) return null;
+    return widget.expenses.map((expense) => expense.date).reduce((a, b) => a.isBefore(b) ? a : b);
   }
 
   List<ExpenseEntity> _expensesForMonth(DateTime month) {
@@ -211,11 +260,13 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
 class _MonthHeader extends StatelessWidget {
   const _MonthHeader({
     required this.monthLabel,
+    required this.totalLabel,
     required this.onPrevious,
     required this.onNext,
   });
 
   final String monthLabel;
+  final String totalLabel;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
 
@@ -231,10 +282,23 @@ class _MonthHeader extends StatelessWidget {
             icon: const Icon(Icons.chevron_left),
           ),
           Expanded(
-            child: Text(
-              monthLabel,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            child: Column(
+              children: [
+                Text(
+                  monthLabel,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  totalLabel,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
             ),
           ),
           IconButton(
@@ -255,7 +319,7 @@ class _EmptyMonthState extends StatelessWidget {
   });
 
   final bool hasMoreExpenses;
-  final VoidCallback? onLoadOlderMonths;
+  final Future<void> Function()? onLoadOlderMonths;
 
   @override
   Widget build(BuildContext context) {
@@ -278,7 +342,9 @@ class _EmptyMonthState extends StatelessWidget {
             if (hasMoreExpenses && onLoadOlderMonths != null) ...[
               const SizedBox(height: 12),
               TextButton.icon(
-                onPressed: onLoadOlderMonths,
+                onPressed: () {
+                  onLoadOlderMonths?.call();
+                },
                 icon: const Icon(Icons.download),
                 label: const Text('Carica mesi precedenti'),
               ),

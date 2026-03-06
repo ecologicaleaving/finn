@@ -65,6 +65,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Marzo 2026'), findsOneWidget);
+      expect(find.text('Totale personale: ${format.format(165.0)}'), findsOneWidget);
       expect(find.text('Cibo'), findsOneWidget);
       expect(find.text('Trasporti'), findsOneWidget);
       expect(find.text(format.format(120.0)), findsOneWidget);
