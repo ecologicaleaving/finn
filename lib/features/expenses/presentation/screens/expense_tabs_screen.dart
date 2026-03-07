@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../categories/presentation/widgets/category_dropdown.dart';
+import '../../../../shared/widgets/error_display.dart';
+import '../../../../shared/widgets/loading_indicator.dart';
 import '../providers/expense_provider.dart';
-import '../widgets/expense_category_summary.dart';
+import '../widgets/monthly_expense_category_view.dart';
 import 'expense_list_screen.dart';
 
 enum ExpenseFilter { all, personal, group }
 
-/// Screen showing expenses with category summary and month grouping
+/// Screen showing expenses grouped by category for a selected month
 class ExpenseTabsScreen extends ConsumerStatefulWidget {
   const ExpenseTabsScreen({
     super.key,
@@ -60,7 +61,6 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
   @override
   Widget build(BuildContext context) {
     final listState = ref.watch(expenseListProvider);
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -108,16 +108,31 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             ),
           ),
 
-          // Category summary
-          if (listState.expenses.isNotEmpty)
-            ExpenseCategorySummary(expenses: listState.expenses),
-
-          // Expense list with month grouping
-          const Expanded(
-            child: ExpenseListScreen(showGroupExpensesOnly: null),
+          Expanded(
+            child: _buildMonthlyBody(context, listState),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMonthlyBody(BuildContext context, ExpenseListState listState) {
+    if (listState.isLoading && listState.expenses.isEmpty) {
+      return const LoadingIndicator(message: 'Caricamento spese...');
+    }
+
+    if (listState.hasError && listState.expenses.isEmpty) {
+      return ErrorDisplay(
+        message: listState.errorMessage ?? 'Errore durante il caricamento',
+        onRetry: () => ref.read(expenseListProvider.notifier).refresh(),
+      );
+    }
+
+    return MonthlyExpenseCategoryView(
+      expenses: listState.expenses,
+      hasMoreExpenses: listState.hasMore,
+      onLoadOlderMonths: () => ref.read(expenseListProvider.notifier).loadMore(),
+      onExpenseTap: (expense) => context.push('/expense/${expense.id}'),
     );
   }
 }
