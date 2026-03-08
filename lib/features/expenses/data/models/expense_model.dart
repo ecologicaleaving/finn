@@ -29,6 +29,7 @@ class ExpenseModel extends ExpenseEntity {
     super.recurringExpenseId,
     super.isRecurringInstance = false,
     super.lastModifiedBy,
+    super.syncStatus,
   });
 
   /// Create an ExpenseModel from a JSON map (expenses table row).
@@ -66,6 +67,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: json['recurring_expense_id'] as String?,
       isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
       lastModifiedBy: json['last_modified_by'] as String?,
+      syncStatus: json['sync_status'] as String?,
     );
   }
 
@@ -81,12 +83,14 @@ class ExpenseModel extends ExpenseEntity {
       'amount': amount,
       'date': normalizedDate.toIso8601String().split('T')[0],
       'category_id': categoryId,
+      'category_name': categoryName,
       'payment_method_id': paymentMethodId,
       'payment_method_name': paymentMethodName,
       'is_group_expense': isGroupExpense,
       'merchant': merchant,
       'notes': notes,
       'receipt_url': receiptUrl,
+      'created_by_name': createdByName,
       'paid_by': paidBy,
       'paid_by_name': paidByName,
       'created_at': createdAt?.toIso8601String(),
@@ -94,6 +98,7 @@ class ExpenseModel extends ExpenseEntity {
       'reimbursement_status': reimbursementStatus.value,
       'reimbursed_at': reimbursedAt?.toIso8601String(),
       'last_modified_by': lastModifiedBy,
+      'sync_status': syncStatus,
     };
   }
 
@@ -123,6 +128,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: entity.recurringExpenseId,
       isRecurringInstance: entity.isRecurringInstance,
       lastModifiedBy: entity.lastModifiedBy,
+      syncStatus: entity.syncStatus,
     );
   }
 
@@ -152,6 +158,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId,
       isRecurringInstance: isRecurringInstance,
       lastModifiedBy: lastModifiedBy,
+      syncStatus: syncStatus,
     );
   }
 
@@ -181,6 +188,7 @@ class ExpenseModel extends ExpenseEntity {
     String? recurringExpenseId,
     bool? isRecurringInstance,
     String? lastModifiedBy,
+    String? syncStatus,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -206,6 +214,7 @@ class ExpenseModel extends ExpenseEntity {
       recurringExpenseId: recurringExpenseId ?? this.recurringExpenseId,
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
+      syncStatus: syncStatus ?? this.syncStatus,
     );
   }
 }

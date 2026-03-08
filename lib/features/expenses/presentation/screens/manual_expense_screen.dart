@@ -359,6 +359,13 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       ref.invalidate(groupExpensesByCategoryProvider);
 
       if (mounted) {
+        if (expense.isPendingSync) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Spesa salvata offline. Verrà sincronizzata automaticamente.'),
+            ),
+          );
+        }
         context.pop(); // Return to previous screen
       }
     } else if (expense == null && mounted) {
