@@ -1,10 +1,13 @@
 name: Build & Deploy APK
 
 on:
-  push:
+  pull_request:
     branches: ['**']
+  push:
+    branches:
+      - 'feature/**'
+      - 'fix/**'
   workflow_dispatch:
-
 
 permissions:
   contents: write
@@ -42,11 +45,13 @@ jobs:
           SLUG=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]' | cut -c1-40)
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           PR_NUMBER="${{ github.event.pull_request.number }}"
+          ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K\d+' || echo "")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
           echo "slug=$SLUG" >> $GITHUB_OUTPUT
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "issue_num=$ISSUE_NUM" >> $GITHUB_OUTPUT
 
       - name: Setup SSH
         run: |
@@ -68,14 +73,11 @@ jobs:
       - name: Find APK
         id: apk
         run: |
-          echo "=== Cercando APK nel build folder ==="
-          find build -name "*.apk" 2>/dev/null | grep -v intermediates || echo "Nessun APK trovato"
           APK_PATH=$(find build -name "*.apk" 2>/dev/null | grep -v "intermediates\|test" | head -1)
           if [ -z "$APK_PATH" ]; then
             echo "ERROR: Nessun APK prodotto dal build"
             exit 1
           fi
-          echo "APK found: $APK_PATH"
           echo "path=$APK_PATH" >> $GITHUB_OUTPUT
 
       - name: Rename APK
@@ -99,20 +101,16 @@ jobs:
             "$APK_NAME" \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/app-hub/downloads/test/
 
-      - name: Update latest symlink (master only)
-        if: github.ref == 'refs/heads/001-family-expense-tracker' || github.ref == 'refs/heads/master'
+      - name: Fetch issue title
+        id: issue
+        if: steps.info.outputs.issue_num != ''
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "cd /var/www/app-hub/downloads && ln -sf test/$APK_NAME finn-latest.apk"
-
-      - name: Create GitHub Release (master only)
-        if: (github.ref == 'refs/heads/001-family-expense-tracker' || github.ref == 'refs/heads/master') && github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.info.outputs.version }}
-          name: Finn v${{ steps.info.outputs.version }}
-          files: ${{ env.APK_NAME }}
+          ISSUE_NUM="${{ steps.info.outputs.issue_num }}"
+          REPO="${{ github.repository }}"
+          ISSUE_TITLE=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json title --jq '.title' 2>/dev/null || echo "")
+          echo "title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Comment PR with APK link
         if: github.event_name == 'pull_request'
@@ -121,31 +119,38 @@ jobs:
           script: |
             const apkName = process.env.APK_NAME;
             const url = `https://apps.8020solutions.org/downloads/test/${apkName}`;
+            const issueNum = '${{ steps.info.outputs.issue_num }}';
+            const issueTitle = '${{ steps.issue.outputs.title }}';
+            const issueRef = issueNum ? `\n\n📋 **Issue:** #${issueNum} — ${issueTitle}` : '';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `📲 **APK pronto per il test!**\n\n🔗 [${apkName}](${url})\n\n> Scarica e installa direttamente sul tuo dispositivo Android.`
+              body: `📲 **APK pronto per il test!**\n\n🔗 [${apkName}](${url})${issueRef}\n\n> Scarica e installa direttamente sul tuo dispositivo Android.`
             });
 
-
-      - name: Mark deployed-test & move card
+      - name: Notify Ciccio
         if: success()
         run: |
-          BRANCH="${{ steps.info.outputs.branch }}"
-          ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K\d+' || echo "")
-          REPO="${{ github.repository }}"
-          if [ -n "$ISSUE_NUM" ]; then
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no               -o ConnectTimeout=10               ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}               "export PATH=\x24PATH:/root/go/bin &&                gh issue edit $ISSUE_NUM --repo $REPO                  --remove-label review-ready                  --add-label deployed-test 2>/dev/null || true &&                python3 /root/.openclaw/workspace-ciccio/scripts/project_board.py                  $REPO $ISSUE_NUM Test 2>/dev/null || true" || true
-          fi
-      - name: Notify Ciccio
-        if: always()
-        run: |
-          EMOJI=$([ "${{ job.status }}" = "success" ] && echo "✅" || echo "❌")
-          URL="https://apps.8020solutions.org/downloads/test/${APK_NAME:-N/A}"
-          BRANCH="${{ steps.info.outputs.branch }}"
+          ISSUE_NUM="${{ steps.info.outputs.issue_num }}"
+          PR_NUM="${{ steps.info.outputs.pr_number }}"
           SHORT="${{ steps.info.outputs.short_sha }}"
-          MSG="${EMOJI} Finn build ${{ job.status }} (${SHORT})\nBranch: ${BRANCH}\n🔗 ${URL}"
+          BRANCH="${{ steps.info.outputs.branch }}"
+          REPO="${{ github.repository }}"
+          URL="https://apps.8020solutions.org/downloads/test/${APK_NAME}"
+
+          # Costruisci il riferimento issue/PR
+          if [ -n "$PR_NUM" ] && [ -n "$ISSUE_NUM" ]; then
+            CONTEXT="Issue #${ISSUE_NUM} — PR #${PR_NUM}\nhttps://github.com/${REPO}/issues/${ISSUE_NUM}"
+          elif [ -n "$PR_NUM" ]; then
+            CONTEXT="PR #${PR_NUM}\nhttps://github.com/${REPO}/pull/${PR_NUM}"
+          elif [ -n "$ISSUE_NUM" ]; then
+            CONTEXT="Issue #${ISSUE_NUM}\nhttps://github.com/${REPO}/issues/${ISSUE_NUM}"
+          else
+            CONTEXT="Branch: ${BRANCH}"
+          fi
+
+          MSG="✅ Finn — APK pronto (${SHORT})\n${CONTEXT}\n📲 ${URL}"
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             -o ConnectTimeout=10 \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
