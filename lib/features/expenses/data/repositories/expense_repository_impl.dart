@@ -20,19 +20,19 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     required this.localCacheDataSource,
     required this.offlineLocalDataSource,
     required this.currentUser,
-    required this.networkStatus,
-  });
+    required NetworkStatus? Function() networkStatusGetter,
+  }) : _networkStatusGetter = networkStatusGetter;
 
   final ExpenseRemoteDataSource remoteDataSource;
   final ExpenseLocalCacheDataSource localCacheDataSource;
   final OfflineExpenseLocalDataSource offlineLocalDataSource;
   final UserEntity? currentUser;
-  final NetworkStatus? networkStatus;
+  final NetworkStatus? Function() _networkStatusGetter;
 
   bool get _canUseRemote =>
       currentUser != null &&
       currentUser!.groupId != null &&
-      networkStatus == NetworkStatus.online;
+      _networkStatusGetter() == NetworkStatus.online;
 
   bool _isLikelyNetworkFailure(Object error) {
     final message = error.toString();

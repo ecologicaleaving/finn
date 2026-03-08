@@ -248,7 +248,7 @@ void main() {
         displayName: 'Test User',
         groupId: 'group-1',
       ),
-      networkStatus: null, // Unknown status at startup
+      networkStatusGetter: () => null, // Unknown status at startup
     );
 
     final result = await repository.getExpenses();
@@ -288,7 +288,7 @@ void main() {
         displayName: 'Test User',
         groupId: 'group-1',
       ),
-      networkStatus: NetworkStatus.offline,
+      networkStatusGetter: () => NetworkStatus.offline,
     );
 
     final result = await repository.getExpenses();
@@ -312,7 +312,7 @@ void main() {
         displayName: 'Offline User',
         groupId: 'group-1',
       ),
-      networkStatus: NetworkStatus.offline,
+      networkStatusGetter: () => NetworkStatus.offline,
     );
 
     final result = await repository.createExpense(

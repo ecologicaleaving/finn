@@ -23,13 +23,19 @@ final expenseRemoteDataSourceProvider = Provider<ExpenseRemoteDataSource>((ref) 
 });
 
 /// Provider for expense repository
+///
+/// Network status is read lazily (ref.read) instead of watched (ref.watch)
+/// to prevent provider rebuild cascades when connectivity changes.
+/// This fixes the offline spinner bug: without lazy reading, a network status
+/// change would rebuild the repository → rebuild the expense list notifier →
+/// lose all loaded expenses and filter state.
 final expenseRepositoryProvider = Provider<ExpenseRepository>((ref) {
   return ExpenseRepositoryImpl(
     remoteDataSource: ref.watch(expenseRemoteDataSourceProvider),
     localCacheDataSource: ref.watch(expenseLocalCacheDataSourceProvider),
     offlineLocalDataSource: ref.watch(offlineExpenseLocalDataSourceProvider),
     currentUser: ref.watch(currentUserProvider),
-    networkStatus: ref.watch(currentNetworkStatusProvider),
+    networkStatusGetter: () => ref.read(currentNetworkStatusProvider),
   );
 });
 
@@ -311,11 +317,21 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
 }
 
 /// Provider for expense list state
+///
+/// Auto-loads expenses on creation to handle provider rebuilds (e.g., after
+/// auth state changes). Without this, a rebuilt notifier would start with
+/// empty state and never load because the screen's initState already fired.
 final expenseListProvider =
     StateNotifierProvider<ExpenseListNotifier, ExpenseListState>((ref) {
   // Refresh when auth changes
   ref.watch(authProvider);
-  return ExpenseListNotifier(ref.watch(expenseRepositoryProvider));
+  final notifier = ExpenseListNotifier(ref.watch(expenseRepositoryProvider));
+  Future.microtask(() {
+    if (notifier.mounted) {
+      notifier.loadExpenses();
+    }
+  });
+  return notifier;
 });
 
 /// Expense form state
