@@ -218,6 +218,87 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
 }
 
 void main() {
+  test('networkStatus null (unknown) serves cached data instead of attempting remote', () async {
+    final cache = _FakeExpenseLocalCacheDataSource();
+    // Pre-populate cache with existing expenses
+    final cachedExpense = ExpenseEntity(
+      id: 'cached-1',
+      groupId: 'group-1',
+      createdBy: 'user-1',
+      amount: 15.0,
+      date: DateTime(2026, 3, 7),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+      isGroupExpense: true,
+      paidBy: 'user-1',
+      createdAt: DateTime(2026, 3, 7),
+      updatedAt: DateTime(2026, 3, 7),
+      reimbursementStatus: ReimbursementStatus.none,
+      syncStatus: 'completed',
+    );
+    await cache.upsertExpense('user-1', cachedExpense);
+
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(), // would throw if called
+      localCacheDataSource: cache,
+      offlineLocalDataSource: _FakeOfflineExpenseLocalDataSource(),
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        groupId: 'group-1',
+      ),
+      networkStatus: null, // Unknown status at startup
+    );
+
+    final result = await repository.getExpenses();
+
+    expect(result.isRight(), isTrue);
+    final expenses = result.getOrElse(() => []);
+    expect(expenses.length, 1);
+    expect(expenses.first.id, 'cached-1');
+  });
+
+  test('networkStatus offline serves cached data immediately', () async {
+    final cache = _FakeExpenseLocalCacheDataSource();
+    final cachedExpense = ExpenseEntity(
+      id: 'cached-2',
+      groupId: 'group-1',
+      createdBy: 'user-1',
+      amount: 30.0,
+      date: DateTime(2026, 3, 6),
+      categoryId: 'cat-2',
+      paymentMethodId: 'cash',
+      isGroupExpense: true,
+      paidBy: 'user-1',
+      createdAt: DateTime(2026, 3, 6),
+      updatedAt: DateTime(2026, 3, 6),
+      reimbursementStatus: ReimbursementStatus.none,
+      syncStatus: 'completed',
+    );
+    await cache.upsertExpense('user-1', cachedExpense);
+
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(),
+      localCacheDataSource: cache,
+      offlineLocalDataSource: _FakeOfflineExpenseLocalDataSource(),
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        groupId: 'group-1',
+      ),
+      networkStatus: NetworkStatus.offline,
+    );
+
+    final result = await repository.getExpenses();
+
+    expect(result.isRight(), isTrue);
+    final expenses = result.getOrElse(() => []);
+    expect(expenses.length, 1);
+    expect(expenses.first.id, 'cached-2');
+  });
+
   test('spesa aggiunta offline finisce in pending sync', () async {
     final cache = _FakeExpenseLocalCacheDataSource();
     final offlineDataSource = _FakeOfflineExpenseLocalDataSource();

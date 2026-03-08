@@ -32,7 +32,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   bool get _canUseRemote =>
       currentUser != null &&
       currentUser!.groupId != null &&
-      networkStatus != NetworkStatus.offline;
+      networkStatus == NetworkStatus.online;
 
   bool _isLikelyNetworkFailure(Object error) {
     final message = error.toString();
