@@ -5,15 +5,127 @@ import 'package:dartz/dartz.dart';
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
+import '../../../../shared/services/connectivity_service.dart';
+import '../../../auth/domain/entities/user_entity.dart';
+import '../../../offline/data/datasources/offline_expense_local_datasource.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
+import '../datasources/expense_local_cache_datasource.dart';
 import '../datasources/expense_remote_datasource.dart';
 
 /// Implementation of [ExpenseRepository] using remote data source.
 class ExpenseRepositoryImpl implements ExpenseRepository {
-  ExpenseRepositoryImpl({required this.remoteDataSource});
+  ExpenseRepositoryImpl({
+    required this.remoteDataSource,
+    required this.localCacheDataSource,
+    required this.offlineLocalDataSource,
+    required this.currentUser,
+    required this.networkStatus,
+  });
 
   final ExpenseRemoteDataSource remoteDataSource;
+  final ExpenseLocalCacheDataSource localCacheDataSource;
+  final OfflineExpenseLocalDataSource offlineLocalDataSource;
+  final UserEntity? currentUser;
+  final NetworkStatus? networkStatus;
+
+  bool get _canUseRemote =>
+      currentUser != null &&
+      currentUser!.groupId != null &&
+      networkStatus != NetworkStatus.offline;
+
+  bool _isLikelyNetworkFailure(Object error) {
+    final message = error.toString();
+    return message.contains('SocketException') ||
+        message.contains('ClientException') ||
+        message.contains('Failed host lookup') ||
+        message.contains('network') ||
+        message.contains('timed out');
+  }
+
+  Future<List<ExpenseEntity>> _loadCachedExpenses() async {
+    final userId = currentUser?.id;
+    if (userId == null) {
+      return const [];
+    }
+
+    return localCacheDataSource.getCachedExpenses(userId);
+  }
+
+  List<ExpenseEntity> _applyLocalFilters(
+    List<ExpenseEntity> expenses, {
+    DateTime? startDate,
+    DateTime? endDate,
+    String? categoryId,
+    String? createdBy,
+    String? paidBy,
+    bool? isGroupExpense,
+    ReimbursementStatus? reimbursementStatus,
+    int? limit,
+    int? offset,
+  }) {
+    var filtered = expenses.where((expense) {
+      final matchesStart = startDate == null ||
+          !expense.date.isBefore(DateTime(startDate.year, startDate.month, startDate.day));
+      final matchesEnd = endDate == null ||
+          !expense.date.isAfter(DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59));
+      final matchesCategory = categoryId == null || expense.categoryId == categoryId;
+      final matchesCreatedBy = createdBy == null || expense.createdBy == createdBy;
+      final matchesPaidBy = paidBy == null || expense.paidBy == paidBy;
+      final matchesGroup = isGroupExpense == null || expense.isGroupExpense == isGroupExpense;
+      final matchesReimbursement = reimbursementStatus == null ||
+          expense.reimbursementStatus == reimbursementStatus;
+
+      return matchesStart &&
+          matchesEnd &&
+          matchesCategory &&
+          matchesCreatedBy &&
+          matchesPaidBy &&
+          matchesGroup &&
+          matchesReimbursement;
+    }).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final safeOffset = offset ?? 0;
+    if (safeOffset >= filtered.length) {
+      return const [];
+    }
+
+    if (limit == null) {
+      return filtered.skip(safeOffset).toList();
+    }
+
+    return filtered.skip(safeOffset).take(limit).toList();
+  }
+
+  Future<void> _cacheExpenses(List<ExpenseEntity> expenses) async {
+    final userId = currentUser?.id;
+    if (userId == null || expenses.isEmpty) {
+      return;
+    }
+
+    await localCacheDataSource.cacheExpenses(
+      userId,
+      expenses.map((expense) => expense.copyWith(syncStatus: expense.syncStatus ?? 'completed')).toList(),
+    );
+  }
+
+  List<ExpenseEntity> _mergeWithPendingCachedExpenses(
+    List<ExpenseEntity> remoteExpenses,
+    List<ExpenseEntity> cachedExpenses,
+  ) {
+    final merged = <String, ExpenseEntity>{
+      for (final expense in remoteExpenses) expense.id: expense,
+    };
+
+    for (final expense in cachedExpenses) {
+      if (expense.isPendingSync && !merged.containsKey(expense.id)) {
+        merged[expense.id] = expense;
+      }
+    }
+
+    return merged.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+  }
 
   @override
   Future<Either<Failure, List<ExpenseEntity>>> getExpenses({
@@ -27,7 +139,35 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     int? limit,
     int? offset,
   }) async {
+    if (!_canUseRemote) {
+      final cachedExpenses = _applyLocalFilters(
+        await _loadCachedExpenses(),
+        startDate: startDate,
+        endDate: endDate,
+        categoryId: categoryId,
+        createdBy: createdBy,
+        paidBy: paidBy,
+        isGroupExpense: isGroupExpense,
+        reimbursementStatus: reimbursementStatus,
+      );
+      return Right(
+        _applyLocalFilters(
+          cachedExpenses,
+          startDate: startDate,
+          endDate: endDate,
+          categoryId: categoryId,
+          createdBy: createdBy,
+          paidBy: paidBy,
+          isGroupExpense: isGroupExpense,
+          reimbursementStatus: reimbursementStatus,
+          limit: limit,
+          offset: offset,
+        ),
+      );
+    }
+
     try {
+      final cachedExpenses = await _loadCachedExpenses();
       final expenses = await remoteDataSource.getExpenses(
         startDate: startDate,
         endDate: endDate,
@@ -39,14 +179,53 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         limit: limit,
         offset: offset,
       );
-      return Right(expenses.map((e) => e.toEntity()).toList());
+      final entities = expenses
+          .map((e) => e.toEntity().copyWith(syncStatus: 'completed'))
+          .toList();
+      final mergedExpenses = _mergeWithPendingCachedExpenses(entities, cachedExpenses);
+      await _cacheExpenses(mergedExpenses);
+      return Right(mergedExpenses);
     } on AppAuthException catch (e) {
       return Left(AuthFailure(e.message));
     } on GroupException catch (e) {
       return Left(GroupFailure(e.message));
     } on ServerException catch (e) {
+      if (_isLikelyNetworkFailure(e)) {
+        final cachedExpenses = await _loadCachedExpenses();
+        return Right(
+          _applyLocalFilters(
+            cachedExpenses,
+            startDate: startDate,
+            endDate: endDate,
+            categoryId: categoryId,
+            createdBy: createdBy,
+            paidBy: paidBy,
+            isGroupExpense: isGroupExpense,
+            reimbursementStatus: reimbursementStatus,
+            limit: limit,
+            offset: offset,
+          ),
+        );
+      }
       return Left(ServerFailure(e.message));
     } catch (e) {
+      if (_isLikelyNetworkFailure(e)) {
+        final cachedExpenses = await _loadCachedExpenses();
+        return Right(
+          _applyLocalFilters(
+            cachedExpenses,
+            startDate: startDate,
+            endDate: endDate,
+            categoryId: categoryId,
+            createdBy: createdBy,
+            paidBy: paidBy,
+            isGroupExpense: isGroupExpense,
+            reimbursementStatus: reimbursementStatus,
+            limit: limit,
+            offset: offset,
+          ),
+        );
+      }
       return Left(ServerFailure(e.toString()));
     }
   }
@@ -55,12 +234,36 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   Future<Either<Failure, ExpenseEntity>> getExpense({
     required String expenseId,
   }) async {
+    if (!_canUseRemote) {
+      final cachedExpenses = await _loadCachedExpenses();
+      final cachedExpense = cachedExpenses.where((expense) => expense.id == expenseId).toList();
+      if (cachedExpense.isNotEmpty) {
+        return Right(cachedExpense.first);
+      }
+    }
+
     try {
       final expense = await remoteDataSource.getExpense(expenseId: expenseId);
-      return Right(expense.toEntity());
+      final entity = expense.toEntity().copyWith(syncStatus: 'completed');
+      await _cacheExpenses([entity]);
+      return Right(entity);
     } on ServerException catch (e) {
+      if (_isLikelyNetworkFailure(e)) {
+        final cachedExpenses = await _loadCachedExpenses();
+        final cachedExpense = cachedExpenses.where((expense) => expense.id == expenseId).toList();
+        if (cachedExpense.isNotEmpty) {
+          return Right(cachedExpense.first);
+        }
+      }
       return Left(ServerFailure(e.message));
     } catch (e) {
+      if (_isLikelyNetworkFailure(e)) {
+        final cachedExpenses = await _loadCachedExpenses();
+        final cachedExpense = cachedExpenses.where((expense) => expense.id == expenseId).toList();
+        if (cachedExpense.isNotEmpty) {
+          return Right(cachedExpense.first);
+        }
+      }
       return Left(ServerFailure(e.toString()));
     }
   }
@@ -80,6 +283,52 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? paidBy, // For admin creating expense for specific member
     String? lastModifiedBy, // T014
   }) async {
+    final user = currentUser;
+    if (user == null || user.groupId == null) {
+      return const Left(AuthFailure('Nessun utente autenticato'));
+    }
+
+    if (!_canUseRemote) {
+      try {
+        final offlineExpense = await offlineLocalDataSource.createOfflineExpense(
+          userId: user.id,
+          amount: amount,
+          date: date,
+          categoryId: categoryId,
+          merchant: merchant,
+          notes: notes,
+          isGroupExpense: isGroupExpense,
+        );
+
+        final pendingExpense = ExpenseEntity(
+          id: offlineExpense.id,
+          groupId: user.groupId!,
+          createdBy: createdBy ?? user.id,
+          amount: amount,
+          date: date,
+          categoryId: categoryId,
+          paymentMethodId: paymentMethodId ?? '',
+          paymentMethodName: null,
+          isGroupExpense: isGroupExpense,
+          merchant: merchant,
+          notes: notes,
+          createdByName: user.displayName,
+          paidBy: paidBy ?? user.id,
+          paidByName: null,
+          createdAt: offlineExpense.localCreatedAt,
+          updatedAt: offlineExpense.localUpdatedAt,
+          reimbursementStatus: reimbursementStatus,
+          lastModifiedBy: lastModifiedBy ?? createdBy ?? user.id,
+          syncStatus: 'pending',
+        );
+
+        await localCacheDataSource.upsertExpense(user.id, pendingExpense);
+        return Right(pendingExpense);
+      } catch (e) {
+        return Left(ServerFailure(e.toString()));
+      }
+    }
+
     try {
       // Create the expense first
       var expense = await remoteDataSource.createExpense(
@@ -105,12 +354,54 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         expense = expense.copyWith(receiptUrl: receiptPath);
       }
 
-      return Right(expense.toEntity());
+      final entity = expense.toEntity().copyWith(syncStatus: 'completed');
+      await localCacheDataSource.upsertExpense(user.id, entity);
+      return Right(entity);
     } on AppAuthException catch (e) {
       return Left(AuthFailure(e.message));
     } on GroupException catch (e) {
       return Left(GroupFailure(e.message));
     } on ServerException catch (e) {
+      if (_isLikelyNetworkFailure(e)) {
+        try {
+          final offlineExpense = await offlineLocalDataSource.createOfflineExpense(
+            userId: user.id,
+            amount: amount,
+            date: date,
+            categoryId: categoryId,
+            merchant: merchant,
+            notes: notes,
+            isGroupExpense: isGroupExpense,
+          );
+
+          final pendingExpense = ExpenseEntity(
+            id: offlineExpense.id,
+            groupId: user.groupId!,
+            createdBy: createdBy ?? user.id,
+            amount: amount,
+            date: date,
+            categoryId: categoryId,
+            paymentMethodId: paymentMethodId ?? '',
+            paymentMethodName: null,
+            isGroupExpense: isGroupExpense,
+            merchant: merchant,
+            notes: notes,
+            createdByName: user.displayName,
+            paidBy: paidBy ?? user.id,
+            paidByName: null,
+            createdAt: offlineExpense.localCreatedAt,
+            updatedAt: offlineExpense.localUpdatedAt,
+            reimbursementStatus: reimbursementStatus,
+            lastModifiedBy: lastModifiedBy ?? createdBy ?? user.id,
+            syncStatus: 'pending',
+          );
+
+          await localCacheDataSource.upsertExpense(user.id, pendingExpense);
+          return Right(pendingExpense);
+        } catch (cacheError) {
+          return Left(ServerFailure(cacheError.toString()));
+        }
+      }
       return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
@@ -189,6 +480,9 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   }) async {
     try {
       await remoteDataSource.deleteExpense(expenseId: expenseId);
+      if (currentUser != null) {
+        await localCacheDataSource.removeExpense(currentUser!.id, expenseId);
+      }
       return const Right(unit);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));

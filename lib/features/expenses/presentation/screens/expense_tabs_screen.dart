@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../shared/widgets/offline_banner.dart';
 import '../providers/expense_provider.dart';
 import '../widgets/monthly_expense_category_view.dart';
 import 'expense_list_screen.dart';
@@ -107,6 +108,8 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
               ],
             ),
           ),
+
+          const OfflineBanner(),
 
           Expanded(
             child: _buildMonthlyBody(context, listState),

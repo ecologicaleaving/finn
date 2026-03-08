@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.2.0
+- **Version**: v1.3.0
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -40,7 +40,7 @@
 ### ⚙️ CI/CD
 - **Pipeline**: github-actions (unit tests)
 - **Trigger**: push to main
-- **CI Status**: passing
+- **CI Status**: failing (pre-existing repository issues outside issue #28 scope)
 - **Last Deploy**: 2026-02-14T20:47:00Z
 
 ### 🔑 Environment Variables (GitHub Secrets)
@@ -126,6 +126,7 @@
 - **DONE**: UX — Rimosso campo "Negozio" da schermata aggiunta/modifica spesa
 - **DONE**: UX — Fix navigazione dopo eliminazione spesa
 - **DONE**: #26 Feature - Le mie spese divise per mese con navigazione e dettaglio per categoria
+- **DONE**: #28 Feature - Supporto offline con cache locale e sync automatico
 - **IN PROGRESS**: Advanced analytics e spending insights
 - **TODO**: #11 Bug — Visualizzazione per mese nella dashboard mostra tutti zero
 - **TODO**: Machine learning categorization automatica spese ricorrenti
@@ -136,5 +137,5 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-03-05T23:42:40Z*
+*Last Updated: 2026-03-08T21:48:06.8625855Z*
 

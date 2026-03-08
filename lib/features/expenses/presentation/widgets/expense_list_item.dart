@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/utils/date_formatter.dart';
 import '../../../../core/services/icon_matching_service.dart';
 import '../../../../shared/widgets/reimbursement_status_badge.dart';
+import '../../../offline/presentation/widgets/sync_status_banner.dart';
 import '../../domain/entities/expense_entity.dart';
 
 /// List item widget for displaying expense summary in a list.
@@ -97,6 +97,11 @@ class ExpenseListItem extends StatelessWidget {
                             size: 16,
                             color: theme.colorScheme.primary,
                           ),
+                        ),
+                      if (expense.syncStatus != null && expense.syncStatus != 'completed')
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: ExpenseSyncStatusIcon(syncStatus: expense.syncStatus!),
                         ),
                       const SizedBox(width: 8),
                       ReimbursementStatusBadge(
