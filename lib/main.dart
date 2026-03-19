@@ -104,14 +104,19 @@ Future<void> main() async {
         }
       });
 
-      // Perform initial widget update (if widget already exists)
+      // Perform initial widget update (non-blocking — must not delay app startup)
       final container = ProviderContainer(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(sharedPreferences),
         ],
       );
-      await container.read(widgetUpdateServiceProvider).triggerUpdate();
-      container.dispose();
+      container
+          .read(widgetUpdateServiceProvider)
+          .triggerUpdate()
+          .timeout(const Duration(seconds: 3), onTimeout: () {})
+          .catchError((e) {
+        print('Main: Widget update error: $e');
+      }).whenComplete(() => container.dispose());
 
       print('Main: Widget initialization completed');
     } catch (e) {
