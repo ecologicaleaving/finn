@@ -83,13 +83,14 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
     }
 
-    // Try to fetch profile from Supabase
+    // Try to fetch profile from Supabase (with timeout to avoid hang when offline)
     try {
       final response = await supabaseClient
           .from('profiles')
           .select()
           .eq('id', user.id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
       // Cache profile for offline use
       await _cacheUserProfile(response);
