@@ -142,6 +142,15 @@ jobs:
           APK="${{ steps.apk.outputs.name }}"
           URL="https://apps.8020solutions.org/downloads/test/${APK}"
           MSG="${EMOJI} ${{ github.event.repository.name }} build ${{ job.status }}\nBranch: ${{ steps.info.outputs.branch }}\n🔗 ${URL}"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "ciccio-notify '${MSG}'" || true
+          echo "📨 Invio notifica a Ciccio..."
+          for i in 1 2 3; do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "ciccio-notify '${MSG}'"; then
+              echo "✅ Notifica inviata (tentativo $i)"
+              break
+            else
+              echo "❌ Tentativo $i fallito"
+              [ $i -lt 3 ] && sleep 5
+            fi
+          done
