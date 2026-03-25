@@ -156,7 +156,51 @@ class SyncConflicts extends Table {
   DateTimeColumn get detectedAt => dateTime()();
 }
 
-// Table 5: CachedCategories
+// Table 5: CachedExpenses
+// Cache expenses fetched from Supabase for offline read access
+@TableIndex(name: 'cached_expenses_group_date_idx', columns: {#groupId, #date})
+@TableIndex(name: 'cached_expenses_group_category_idx', columns: {#groupId, #categoryId})
+class CachedExpenses extends Table {
+  // Primary Key
+  TextColumn get id => text()(); // Server expense UUID
+
+  // Expense Fields
+  TextColumn get groupId => text()();
+  TextColumn get createdBy => text()();
+  RealColumn get amount => real()();
+  DateTimeColumn get date => dateTime()();
+  TextColumn get categoryId => text()();
+  TextColumn get categoryName => text().nullable()();
+  TextColumn get paymentMethodId => text().nullable()();
+  TextColumn get paymentMethodName => text().nullable()();
+  TextColumn get merchant => text().nullable()();
+  TextColumn get notes => text().nullable()();
+  BoolColumn get isGroupExpense => boolean().withDefault(const Constant(true))();
+  TextColumn get paidBy => text().nullable()();
+  TextColumn get paidByName => text().nullable()();
+  TextColumn get createdByName => text().nullable()();
+  TextColumn get reimbursementStatus => text().withDefault(const Constant('none'))();
+  DateTimeColumn get reimbursedAt => dateTime().nullable()();
+  TextColumn get lastModifiedBy => text().nullable()();
+  TextColumn get reimbursableToLabel => text().nullable()();
+  TextColumn get reimbursableToUserId => text().nullable()();
+  RealColumn get reimbursableAmount => real().nullable()();
+  TextColumn get reimbursementNote => text().nullable()();
+  TextColumn get reimbursementConfirmedBy => text().nullable()();
+  TextColumn get receiptUrl => text().nullable()();
+
+  // Server timestamps
+  DateTimeColumn get createdAt => dateTime().nullable()();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
+  // Cache Metadata
+  DateTimeColumn get cachedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Table 6: CachedCategories
 // Cache expense categories for offline access
 @TableIndex(name: 'cached_categories_group_idx', columns: {#groupId})
 class CachedCategories extends Table {
@@ -184,6 +228,7 @@ class CachedCategories extends Table {
   SyncQueueItems,
   OfflineExpenseImages,
   SyncConflicts,
+  CachedExpenses,
   CachedCategories,
   // Budget management tables
   IncomeSources,
@@ -197,7 +242,7 @@ class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -223,6 +268,10 @@ class OfflineDatabase extends _$OfflineDatabase {
         // Add recurring expense fields to OfflineExpenses
         await m.addColumn(offlineExpenses, offlineExpenses.recurringExpenseId);
         await m.addColumn(offlineExpenses, offlineExpenses.isRecurringInstance);
+      }
+      if (from < 5) {
+        // Add CachedExpenses table for offline read cache (issue #30 fix)
+        await m.createTable(cachedExpenses);
       }
     },
   );

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../offline/data/datasources/expense_cache_datasource.dart';
 import '../../../offline/data/datasources/offline_expense_local_datasource.dart';
 import '../../../offline/domain/entities/offline_expense_entity.dart';
 import '../models/expense_model.dart';
@@ -112,12 +115,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   ExpenseRemoteDataSourceImpl({
     required this.supabaseClient,
     this.offlineLocalDataSource,
+    this.expenseCacheDataSource,
   });
 
   final SupabaseClient supabaseClient;
 
-  /// Optional offline datasource for fallback reads (T4/T8)
+  /// Optional offline datasource for pending expenses created offline (T8)
   final OfflineExpenseLocalDataSource? offlineLocalDataSource;
+
+  /// Cache datasource for read-through caching of online expenses (issue #30 fix)
+  final ExpenseCacheDataSource? expenseCacheDataSource;
 
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
@@ -127,7 +134,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     return userId;
   }
 
-  // T5: _currentUserGroupId with 5s timeout
+  // T5: _currentUserGroupId with 10s timeout
   Future<String?> get _currentUserGroupId async {
     final userId = _currentUserId;
     final response = await supabaseClient
@@ -135,11 +142,22 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         .select('group_id')
         .eq('id', userId)
         .single()
-        .timeout(const Duration(seconds: 5));
+        .timeout(const Duration(seconds: 10));
     return response['group_id'] as String?;
   }
 
-  // T4: getExpenses with 5s timeout + Drift fallback
+  /// Returns true for network-level errors that justify cache fallback.
+  /// Application errors (auth, DB schema, RLS) must be re-thrown.
+  bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is HttpException) return true;
+    // PostgrestException with network-like codes (connection refused, etc.)
+    // We do NOT catch generic PostgrestException — those are app errors (RLS, schema, etc.)
+    return false;
+  }
+
+  // Fix issue #30: getExpenses — 10s timeout + write-through cache + specific catch
   @override
   Future<List<ExpenseModel>> getExpenses({
     DateTime? startDate,
@@ -152,8 +170,10 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     int? limit,
     int? offset,
   }) async {
+    String? groupId;
+
     try {
-      final groupId = await _currentUserGroupId;
+      groupId = await _currentUserGroupId;
       if (groupId == null) {
         throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
       }
@@ -195,30 +215,74 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         orderedQuery = orderedQuery.limit(limit);
       }
 
-      // T4: 5s timeout on Supabase query
-      final response = await orderedQuery.timeout(const Duration(seconds: 5));
-      return (response as List).map((json) {
+      // 10s timeout on Supabase query
+      final response = await orderedQuery.timeout(const Duration(seconds: 10));
+      final expenses = (response as List).map((json) {
         if (json['category_name'] != null && json['category_name'] is Map) {
           json['category_name'] = json['category_name']['name'];
         }
         return ExpenseModel.fromJson(json);
       }).toList();
+
+      // ✅ WRITE-THROUGH CACHE: save to Drift after every successful online fetch
+      // Only cache unfiltered (full group) fetches to keep cache coherent
+      final isUnfiltered = startDate == null &&
+          endDate == null &&
+          categoryId == null &&
+          createdBy == null &&
+          paidBy == null &&
+          reimbursementStatus == null &&
+          offset == null;
+      if (isUnfiltered && expenseCacheDataSource != null) {
+        try {
+          await expenseCacheDataSource!.cacheExpenses(groupId, expenses);
+        } catch (cacheErr) {
+          debugPrint('[CACHE] Failed to cache expenses: $cacheErr');
+        }
+      }
+
+      return expenses;
     } catch (e) {
+      // Re-throw application errors — they must bubble up to the UI
       if (e is AppAuthException) rethrow;
       if (e is GroupException) rethrow;
 
-      // T4: Fallback to offline Drift DB on any network/timeout error
+      // Only fall back to cache on genuine network/timeout errors
+      if (!_isNetworkError(e)) rethrow;
+
+      debugPrint('[OFFLINE] getExpenses network error, falling back to cache: $e');
+
+      // Try read-through cache (online expenses saved when connected)
+      if (expenseCacheDataSource != null && groupId != null) {
+        try {
+          final cached = await expenseCacheDataSource!.getCachedExpenses(
+            groupId,
+            startDate: startDate,
+            endDate: endDate,
+            categoryId: categoryId,
+            createdBy: createdBy,
+            limit: limit,
+            offset: offset,
+          );
+          if (cached.isNotEmpty) {
+            debugPrint('[OFFLINE] Returning ${cached.length} cached expenses');
+            return cached;
+          }
+        } catch (cacheErr) {
+          debugPrint('[OFFLINE] Cache read also failed: $cacheErr');
+        }
+      }
+
+      // Last resort: pending offline expenses created while offline
       final userId = supabaseClient.auth.currentUser?.id;
       if (userId != null && offlineLocalDataSource != null) {
         try {
           final offlineExpenses =
               await offlineLocalDataSource!.getAllOfflineExpenses(userId);
           return _mapOfflineExpensesToModels(offlineExpenses);
-        } catch (_) {
-          // offline fallback also failed — return empty list
-          return [];
-        }
+        } catch (_) {}
       }
+
       return [];
     }
   }

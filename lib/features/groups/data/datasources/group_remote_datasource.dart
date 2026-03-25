@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -115,42 +116,48 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     }
   }
 
-  // T7: getCurrentGroup — 5s timeout + secure storage fallback
+    bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is HttpException) return true;
+    return false;
+  }
+
+  // Fix issue #30: getCurrentGroup — 10s timeout, write-through cache, specific catch
   @override
   Future<FamilyGroupModel?> getCurrentGroup() async {
     try {
       final userId = _currentUserId;
 
-      // Parallelize profile + potential group fetch to avoid sequential timeouts
       final profileResponse = await supabaseClient
           .from('profiles')
           .select('group_id')
           .eq('id', userId)
           .single()
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 10));
 
       final groupId = profileResponse['group_id'] as String?;
       if (groupId == null) {
         return null;
       }
 
-      // Cache the group ID for offline use
+      // ✅ Cache group ID for offline use
       await _cacheGroupId(groupId);
 
-      // Parallelize group fetch + member count
+      // Parallelize group fetch + member count (avoids sequential timeouts)
       final results = await Future.wait([
         supabaseClient
             .from('family_groups')
             .select()
             .eq('id', groupId)
             .single()
-            .timeout(const Duration(seconds: 5)),
+            .timeout(const Duration(seconds: 10)),
         supabaseClient
             .from('profiles')
             .select()
             .eq('group_id', groupId)
             .count(CountOption.exact)
-            .timeout(const Duration(seconds: 5)),
+            .timeout(const Duration(seconds: 10)),
       ]);
 
       final groupResponse = results[0] as Map<String, dynamic>;
@@ -160,22 +167,27 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       final groupWithCount =
           group.copyWith(memberCount: memberCountResponse.count);
 
-      // Cache the group data for offline use
+      // ✅ WRITE-THROUGH CACHE: save group data after every successful fetch
       await _cacheGroupData(groupWithCount);
 
       return groupWithCount;
     } catch (e) {
       if (e is AppAuthException) rethrow;
 
-      // T7: Fallback to secure storage cache on ANY error (timeout, socket, etc.)
-      final cachedGroup = await _getCachedGroupData();
-      if (cachedGroup != null) {
-        return cachedGroup;
+      // Only fall back to cache for network errors
+      if (!_isNetworkError(e)) {
+        // Application error (RLS, schema) — try cache before propagating
+        final cachedGroup = await _getCachedGroupData();
+        if (cachedGroup != null) return cachedGroup;
+
+        if (e is PostgrestException && e.code == 'PGRST116') return null;
+        throw ServerException(e.toString());
       }
 
-      if (e is PostgrestException && e.code == 'PGRST116') {
-        return null;
-      }
+      // Network error — read from secure storage cache
+      print('[OFFLINE] getCurrentGroup network error, falling back to cache: $e');
+      final cachedGroup = await _getCachedGroupData();
+      if (cachedGroup != null) return cachedGroup;
 
       throw ServerException(e.toString());
     }

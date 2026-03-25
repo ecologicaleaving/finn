@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -90,6 +92,13 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   // T2: getCurrentUser() — 5s timeout + Hive fallback
   // ──────────────────────────────────────────────────────────────────────
 
+  bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is HttpException) return true;
+    return false;
+  }
+
   @override
   Future<UserModel> getCurrentUser() async {
     final user = supabaseClient.auth.currentUser;
@@ -104,19 +113,20 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           .select()
           .eq('id', user.id)
           .single()
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 10));
 
       final userModel = UserModel.fromJson(response);
-      // Cache on success
+      // ✅ WRITE-THROUGH CACHE: always save after successful fetch
       await _cacheUserProfile(userModel);
       return userModel;
-    } catch (_) {
-      // Network error, timeout, etc. → try Hive cache
+    } catch (e) {
+      // Only fall back to cache for network errors — app errors bubble up
+      if (!_isNetworkError(e)) rethrow;
+
       final cached = await _getCachedUserProfile();
       if (cached != null) {
         return cached;
       }
-      // No cache — propagate
       rethrow;
     }
   }
@@ -308,13 +318,20 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
             .select()
             .eq('id', user.id)
             .single()
-            .timeout(const Duration(seconds: 5));
+            .timeout(const Duration(seconds: 10));
 
         final userModel = UserModel.fromJson(response);
+        // ✅ WRITE-THROUGH CACHE: save profile on every successful auth event
         await _cacheUserProfile(userModel);
         return userModel;
-      } catch (_) {
-        // Timeout or network error — return cached profile
+      } catch (e) {
+        // Only fall back to cache for network errors
+        if (!_isNetworkError(e)) {
+          // App-level error (RLS, schema) — still try cache to not break auth flow
+          final cached = await _getCachedUserProfile();
+          return cached;
+        }
+        // Network error — return cached profile
         final cached = await _getCachedUserProfile();
         return cached;
       }

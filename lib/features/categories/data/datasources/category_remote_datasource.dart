@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -111,7 +114,14 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
     return userId;
   }
 
-  // T6: getCategories — 5s timeout + Drift cache fallback
+  bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is HttpException) return true;
+    return false;
+  }
+
+  // Fix issue #30: getCategories — 10s timeout, write-through cache, specific catch
   @override
   Future<List<ExpenseCategoryModel>> getCategories({
     required String groupId,
@@ -127,13 +137,13 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
           .order('is_default', ascending: false)
           .order('name', ascending: true);
 
-      final response = await query.timeout(const Duration(seconds: 5));
+      final response = await query.timeout(const Duration(seconds: 10));
 
       final categories = (response as List)
           .map((json) => ExpenseCategoryModel.fromJson(json))
           .toList();
 
-      // Cache on success
+      // ✅ WRITE-THROUGH CACHE: save categories after every successful fetch
       if (categoryCacheDataSource != null) {
         try {
           await categoryCacheDataSource!.cacheCategories(
@@ -144,8 +154,11 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
       }
 
       return categories;
-    } catch (_) {
-      // Fallback to Drift cache
+    } catch (e) {
+      // Only fall back to cache for network errors
+      if (!_isNetworkError(e)) rethrow;
+
+      // Network error — read from Drift cache
       if (categoryCacheDataSource != null) {
         try {
           final cached =
@@ -456,7 +469,7 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
 
   // ========== MRU (Most Recently Used) Tracking (Feature 001) ==========
 
-  // T6: getCategoriesByMRU — 5s timeout + cache fallback
+  // Fix issue #30: getCategoriesByMRU — 10s timeout, write-through cache, specific catch
   @override
   Future<List<ExpenseCategoryModel>> getCategoriesByMRU({
     required String groupId,
@@ -471,7 +484,7 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
           ''')
           .eq('group_id', groupId)
           .eq('user_category_usage.user_id', userId)
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 10));
 
       final categories = (response as List)
           .map((json) => ExpenseCategoryModel.fromJson(json))
@@ -479,7 +492,7 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
 
       categories.sort((a, b) => a.name.compareTo(b.name));
 
-      // Cache on success
+      // ✅ WRITE-THROUGH CACHE: save categories after every successful fetch
       if (categoryCacheDataSource != null) {
         try {
           await categoryCacheDataSource!.cacheCategories(
@@ -490,8 +503,11 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
       }
 
       return categories;
-    } catch (_) {
-      // Fallback to Drift cache
+    } catch (e) {
+      // Only fall back to cache for network errors
+      if (!_isNetworkError(e)) rethrow;
+
+      // Network error — read from Drift cache
       if (categoryCacheDataSource != null) {
         try {
           final cached =
