@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -69,14 +70,11 @@ Future<void> main() async {
       await Supabase.initialize(
         url: Env.supabaseUrl,
         anonKey: Env.supabaseAnonKey,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          // Supabase init timed out (offline) — continue anyway
-          // The client will reconnect automatically when network returns
-          print('[MAIN] Supabase.initialize() timed out — proceeding offline');
-        },
-      );
+      ).timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      // Supabase init timed out (offline) — continue anyway
+      // The client will reconnect automatically when network returns
+      print('[MAIN] Supabase.initialize() timed out — proceeding offline');
     } catch (e) {
       // Network unavailable or any other error — continue anyway
       // App starts offline, data will sync when connectivity is restored

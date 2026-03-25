@@ -154,7 +154,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       ]);
 
       final groupResponse = results[0] as Map<String, dynamic>;
-      final memberCountResponse = results[1] as PostgrestCountResponse;
+      final memberCountResponse = results[1] as PostgrestResponse;
 
       final group = FamilyGroupModel.fromJson(groupResponse);
       final groupWithCount =
