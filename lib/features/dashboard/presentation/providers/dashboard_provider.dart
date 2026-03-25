@@ -14,6 +14,7 @@ final dashboardRemoteDataSourceProvider =
     Provider<DashboardRemoteDataSource>((ref) {
   return DashboardRemoteDataSourceImpl(
     supabaseClient: Supabase.instance.client,
+    localDataSource: ref.watch(dashboardLocalDataSourceProvider),
   );
 });
 

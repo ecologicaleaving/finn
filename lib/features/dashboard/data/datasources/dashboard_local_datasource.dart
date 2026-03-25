@@ -8,11 +8,13 @@ import '../models/dashboard_stats_model.dart';
 /// Local data source for caching dashboard statistics.
 abstract class DashboardLocalDataSource {
   /// Gets cached dashboard stats if available and not expired.
+  /// If [ignoreExpiry] is true, returns stale data — useful for offline fallback.
   Future<DashboardStatsModel?> getCachedStats({
     required String groupId,
     required DashboardPeriod period,
     String? userId,
     int offset = 0,
+    bool ignoreExpiry = false,
   });
 
   /// Caches dashboard stats locally.
@@ -55,6 +57,7 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
     required DashboardPeriod period,
     String? userId,
     int offset = 0,
+    bool ignoreExpiry = false,
   }) async {
     try {
       final cacheKey = _getCacheKey(groupId, period, userId, offset);
@@ -67,14 +70,16 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
         return null;
       }
 
-      // Check if cache has expired
-      final timestamp = DateTime.parse(cachedTimestamp);
-      final now = DateTime.now();
-      if (now.difference(timestamp).inMinutes > _cacheExpiryMinutes) {
-        // Cache expired, remove it
-        await _cacheBox.delete(cacheKey);
-        await _cacheBox.delete(timestampKey);
-        return null;
+      // Check if cache has expired (skip check when offline fallback)
+      if (!ignoreExpiry) {
+        final timestamp = DateTime.parse(cachedTimestamp);
+        final now = DateTime.now();
+        if (now.difference(timestamp).inMinutes > _cacheExpiryMinutes) {
+          // Cache expired, remove it
+          await _cacheBox.delete(cacheKey);
+          await _cacheBox.delete(timestampKey);
+          return null;
+        }
       }
 
       final json = jsonDecode(cachedData) as Map<String, dynamic>;

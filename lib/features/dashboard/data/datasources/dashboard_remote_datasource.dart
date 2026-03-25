@@ -1,8 +1,13 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
 import '../../domain/entities/dashboard_stats_entity.dart';
 import '../models/dashboard_stats_model.dart';
+import 'dashboard_local_datasource.dart';
 
 /// Remote data source for dashboard statistics.
 /// Calculates stats from expenses table.
@@ -17,12 +22,31 @@ abstract class DashboardRemoteDataSource {
 }
 
 /// Implementation of [DashboardRemoteDataSource] using direct Supabase queries.
+/// Supports offline-first: timeout + write-through cache + network-error fallback.
 class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
   DashboardRemoteDataSourceImpl({
     required SupabaseClient supabaseClient,
-  }) : _supabaseClient = supabaseClient;
+    required DashboardLocalDataSource localDataSource,
+  })  : _supabaseClient = supabaseClient,
+        _localDataSource = localDataSource;
 
   final SupabaseClient _supabaseClient;
+  final DashboardLocalDataSource _localDataSource;
+
+  /// Returns true for network-level errors that justify a cache fallback.
+  bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is HttpException) return true;
+    // Supabase wraps network errors — check message as safety net
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('failed host lookup') ||
+        msg.contains('network is unreachable') ||
+        msg.contains('connection refused')) {
+      return true;
+    }
+    return false;
+  }
 
   /// Calculate date range based on period and offset
   (DateTime start, DateTime end) _calculateDateRange(
@@ -86,7 +110,8 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
         query = query.eq('paid_by', userId);
       }
 
-      final expenses = await query;
+      // 10s timeout — avoids hanging forever in airplane mode
+      final expenses = await query.timeout(const Duration(seconds: 10));
 
       // Fetch member names separately
       final memberIds = expenses
@@ -101,7 +126,8 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
           final profiles = await _supabaseClient
               .from('profiles')
               .select('id, display_name')
-              .inFilter('id', memberIds);
+              .inFilter('id', memberIds)
+              .timeout(const Duration(seconds: 5));
 
           for (final profile in profiles) {
             memberNames[profile['id'] as String] =
@@ -205,7 +231,7 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
       }).toList()
         ..sort((a, b) => a.date.compareTo(b.date));
 
-      return DashboardStatsModel(
+      final result = DashboardStatsModel(
         period: period,
         startDate: startDate,
         endDate: endDate,
@@ -216,10 +242,48 @@ class DashboardRemoteDataSourceImpl implements DashboardRemoteDataSource {
         byMember: byMember,
         trend: trend,
       );
+
+      // Write-through: persist to local cache so offline reads are fresh
+      try {
+        await _localDataSource.cacheStats(
+          result,
+          groupId: groupId,
+          userId: userId,
+          offset: offset,
+        );
+      } catch (cacheErr) {
+        debugPrint('[DASHBOARD] Failed to write cache: $cacheErr');
+      }
+
+      return result;
     } on PostgrestException catch (e) {
+      // Supabase application errors (e.g. RLS denied) → not a network issue
       throw ServerException(e.message);
     } catch (e) {
       if (e is ServerException) rethrow;
+
+      // Network/timeout errors → try local cache (stale is fine offline)
+      if (_isNetworkError(e)) {
+        debugPrint('[OFFLINE] Dashboard network error, falling back to cache: $e');
+        try {
+          final cached = await _localDataSource.getCachedStats(
+            groupId: groupId,
+            period: period,
+            userId: userId,
+            offset: offset,
+            ignoreExpiry: true, // stale data is better than no data offline
+          );
+          if (cached != null) {
+            debugPrint('[OFFLINE] Returning cached dashboard stats');
+            return cached;
+          }
+        } catch (cacheErr) {
+          debugPrint('[OFFLINE] Cache read also failed: $cacheErr');
+        }
+        // Cache empty too — propagate as ServerException so UI shows error
+        throw ServerException('Nessun dato disponibile offline');
+      }
+
       throw ServerException('Failed to fetch dashboard stats: $e');
     }
   }
