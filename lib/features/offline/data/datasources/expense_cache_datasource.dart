@@ -48,7 +48,7 @@ class ExpenseCacheDataSourceImpl implements ExpenseCacheDataSource {
         createdBy: expense.createdBy,
         amount: expense.amount,
         date: expense.date,
-        categoryId: expense.categoryId,
+        categoryId: expense.categoryId ?? '',
         categoryName: Value(expense.categoryName),
         paymentMethodId: Value(expense.paymentMethodId),
         paymentMethodName: Value(expense.paymentMethodName),
