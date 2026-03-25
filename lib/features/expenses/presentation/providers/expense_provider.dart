@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../offline/presentation/providers/offline_providers.dart';
 import '../../../widget/presentation/services/widget_update_service.dart';
 import '../../data/datasources/expense_remote_datasource.dart';
 import '../../data/repositories/expense_repository_impl.dart';
@@ -13,10 +14,12 @@ import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
 import '../widgets/reimbursement_status_change_dialog.dart';
 
-/// Provider for expense remote data source
+/// Provider for expense remote data source — wired with offline fallback (T4/T8/T9)
 final expenseRemoteDataSourceProvider = Provider<ExpenseRemoteDataSource>((ref) {
+  final offlineDataSource = ref.watch(offlineExpenseLocalDataSourceProvider);
   return ExpenseRemoteDataSourceImpl(
     supabaseClient: Supabase.instance.client,
+    offlineLocalDataSource: offlineDataSource,
   );
 });
 

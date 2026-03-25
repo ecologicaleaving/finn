@@ -1,9 +1,19 @@
+import 'dart:convert';
+
+import 'package:hive_flutter/hive_flutter.dart';
+import 'dart:convert';
+
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
 import '../models/user_model.dart';
 
-/// Remote data source for authentication operations using Supabase Auth.
+// T2/T3: Hive box key for cached user profile
+const _kUserProfileBox = 'user_profile_cache';
+const _kUserProfileKey = 'cached_user_profile';
+
+/// Remote data source for authentication operations using Supabase.
 abstract class AuthRemoteDataSource {
   /// Get the currently authenticated user's profile.
   Future<UserModel> getCurrentUser();
@@ -46,28 +56,71 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   final SupabaseClient supabaseClient;
 
+  // ──────────────────────────────────────────────────────────────────────
+  // T2/T3: Hive-backed user profile cache helpers
+  // ──────────────────────────────────────────────────────────────────────
+
+  Future<void> _cacheUserProfile(UserModel user) async {
+    try {
+      final box = Hive.box<String>(_kUserProfileBox);
+      await box.put(_kUserProfileKey, jsonEncode(user.toJson()));
+    } catch (_) {
+      // Ignore cache write errors
+    }
+  }
+
+  Future<UserModel?> _getCachedUserProfile() async {
+    try {
+      final box = Hive.box<String>(_kUserProfileBox);
+      final raw = box.get(_kUserProfileKey);
+      if (raw != null) {
+        return UserModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      }
+    } catch (_) {
+      // Ignore cache read errors
+    }
+    return null;
+  }
+
+  Future<void> _clearCachedUserProfile() async {
+    try {
+      final box = Hive.box<String>(_kUserProfileBox);
+      await box.delete(_kUserProfileKey);
+    } catch (_) {}
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // T2: getCurrentUser() — 5s timeout + Hive fallback
+  // ──────────────────────────────────────────────────────────────────────
+
   @override
   Future<UserModel> getCurrentUser() async {
-    try {
-      final user = supabaseClient.auth.currentUser;
-      if (user == null) {
-        throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
-      }
+    final user = supabaseClient.auth.currentUser;
+    if (user == null) {
+      throw const AppAuthException(
+          'Nessun utente autenticato', 'not_authenticated');
+    }
 
-      // Fetch profile data
+    try {
       final response = await supabaseClient
           .from('profiles')
           .select()
           .eq('id', user.id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
-      return UserModel.fromJson(response);
-    } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
-    } on AppAuthException {
+      final userModel = UserModel.fromJson(response);
+      // Cache on success
+      await _cacheUserProfile(userModel);
+      return userModel;
+    } catch (_) {
+      // Network error, timeout, etc. → try Hive cache
+      final cached = await _getCachedUserProfile();
+      if (cached != null) {
+        return cached;
+      }
+      // No cache — propagate
       rethrow;
-    } catch (e) {
-      throw ServerException(e.toString());
     }
   }
 
@@ -87,7 +140,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.user == null) {
         print('[DATASOURCE] User is null!');
-        throw const AppAuthException('Credenziali non valide', 'invalid_credentials');
+        throw const AppAuthException(
+            'Credenziali non valide', 'invalid_credentials');
       }
 
       // Fetch profile data
@@ -97,10 +151,13 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
             .from('profiles')
             .select()
             .eq('id', response.user!.id)
-            .single();
+            .single()
+            .timeout(const Duration(seconds: 5));
         print('[DATASOURCE] Profile fetched successfully');
 
-        return UserModel.fromJson(profileResponse);
+        final userModel = UserModel.fromJson(profileResponse);
+        await _cacheUserProfile(userModel);
+        return userModel;
       } on PostgrestException catch (e) {
         // Profile fetch failed - maybe profile doesn't exist
         print('[DATASOURCE] Profile fetch failed: ${e.message}');
@@ -133,21 +190,23 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       );
 
       if (response.user == null) {
-        throw const AppAuthException('Registrazione fallita', 'signup_failed');
+        throw const AppAuthException(
+            'Registrazione fallita', 'signup_failed');
       }
 
       // The profile is created by a database trigger
-      // Wait a moment for the trigger to complete
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Fetch the created profile
       final profileResponse = await supabaseClient
           .from('profiles')
           .select()
           .eq('id', response.user!.id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
-      return UserModel.fromJson(profileResponse);
+      final userModel = UserModel.fromJson(profileResponse);
+      await _cacheUserProfile(userModel);
+      return userModel;
     } on AuthException catch (e) {
       throw AppAuthException(_mapAuthErrorMessage(e.message), e.statusCode);
     } on PostgrestException catch (e) {
@@ -161,6 +220,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   @override
   Future<void> signOut() async {
     try {
+      await _clearCachedUserProfile();
       await supabaseClient.auth.signOut();
     } on AuthException catch (e) {
       throw AppAuthException(_mapAuthErrorMessage(e.message), e.statusCode);
@@ -185,7 +245,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     try {
       final user = supabaseClient.auth.currentUser;
       if (user == null) {
-        throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+        throw const AppAuthException(
+            'Nessun utente autenticato', 'not_authenticated');
       }
 
       final response = await supabaseClient
@@ -193,9 +254,12 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           .update({'display_name': displayName})
           .eq('id', user.id)
           .select()
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
-      return UserModel.fromJson(response);
+      final userModel = UserModel.fromJson(response);
+      await _cacheUserProfile(userModel);
+      return userModel;
     } on PostgrestException catch (e) {
       throw ServerException(e.message, e.code);
     } catch (e) {
@@ -209,10 +273,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     try {
       final user = supabaseClient.auth.currentUser;
       if (user == null) {
-        throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+        throw const AppAuthException(
+            'Nessun utente autenticato', 'not_authenticated');
       }
 
-      // If anonymizing, update expenses with "Utente eliminato"
       if (anonymizeExpenses) {
         await supabaseClient
             .from('expenses')
@@ -220,10 +284,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
             .eq('created_by', user.id);
       }
 
-      // Delete profile (will cascade or be handled by RLS)
       await supabaseClient.from('profiles').delete().eq('id', user.id);
-
-      // Sign out
+      await _clearCachedUserProfile();
       await supabaseClient.auth.signOut();
     } on PostgrestException catch (e) {
       throw ServerException(e.message, e.code);
@@ -232,6 +294,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       throw ServerException(e.toString());
     }
   }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // T3: authStateChanges — 5s timeout + Hive fallback
+  // ──────────────────────────────────────────────────────────────────────
 
   @override
   Stream<UserModel?> get authStateChanges {
@@ -244,11 +310,16 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
             .from('profiles')
             .select()
             .eq('id', user.id)
-            .single();
+            .single()
+            .timeout(const Duration(seconds: 5));
 
-        return UserModel.fromJson(response);
+        final userModel = UserModel.fromJson(response);
+        await _cacheUserProfile(userModel);
+        return userModel;
       } catch (_) {
-        return null;
+        // Timeout or network error — return cached profile
+        final cached = await _getCachedUserProfile();
+        return cached;
       }
     });
   }

@@ -115,17 +115,19 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     }
   }
 
+  // T7: getCurrentGroup — 5s timeout + secure storage fallback
   @override
   Future<FamilyGroupModel?> getCurrentGroup() async {
     try {
       final userId = _currentUserId;
 
-      // Get user's profile to find group_id
+      // Parallelize profile + potential group fetch to avoid sequential timeouts
       final profileResponse = await supabaseClient
           .from('profiles')
           .select('group_id')
           .eq('id', userId)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
       final groupId = profileResponse['group_id'] as String?;
       if (groupId == null) {
@@ -135,61 +137,46 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       // Cache the group ID for offline use
       await _cacheGroupId(groupId);
 
-      // Get the group
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select()
-          .eq('id', groupId)
-          .single();
+      // Parallelize group fetch + member count
+      final results = await Future.wait([
+        supabaseClient
+            .from('family_groups')
+            .select()
+            .eq('id', groupId)
+            .single()
+            .timeout(const Duration(seconds: 5)),
+        supabaseClient
+            .from('profiles')
+            .select()
+            .eq('group_id', groupId)
+            .count(CountOption.exact)
+            .timeout(const Duration(seconds: 5)),
+      ]);
 
-      // Get member count
-      final memberCount = await supabaseClient
-          .from('profiles')
-          .select()
-          .eq('group_id', groupId)
-          .count(CountOption.exact);
+      final groupResponse = results[0] as Map<String, dynamic>;
+      final memberCountResponse = results[1] as PostgrestCountResponse;
 
       final group = FamilyGroupModel.fromJson(groupResponse);
-      final groupWithCount = group.copyWith(memberCount: memberCount.count);
+      final groupWithCount =
+          group.copyWith(memberCount: memberCountResponse.count);
 
       // Cache the group data for offline use
       await _cacheGroupData(groupWithCount);
 
       return groupWithCount;
-    } on SocketException catch (_) {
-      // Network error - try to load from cache
+    } catch (e) {
+      if (e is AppAuthException) rethrow;
+
+      // T7: Fallback to secure storage cache on ANY error (timeout, socket, etc.)
       final cachedGroup = await _getCachedGroupData();
       if (cachedGroup != null) {
         return cachedGroup;
       }
-      throw const ServerException('Offline: nessun gruppo in cache');
-    } on PostgrestException catch (e) {
-      if (e.code == 'PGRST116') {
-        // No rows returned
+
+      if (e is PostgrestException && e.code == 'PGRST116') {
         return null;
       }
-      // Try cache on network errors
-      if (e.message.contains('Failed host lookup') ||
-          e.message.contains('SocketException')) {
-        final cachedGroup = await _getCachedGroupData();
-        if (cachedGroup != null) {
-          return cachedGroup;
-        }
-      }
-      throw ServerException(e.message, e.code);
-    } catch (e) {
-      if (e is AppAuthException) rethrow;
 
-      // Try cache on any network error
-      if (e is SocketException ||
-          e.toString().contains('Failed host lookup') ||
-          e.toString().contains('SocketException') ||
-          e.toString().contains('ClientException')) {
-        final cachedGroup = await _getCachedGroupData();
-        if (cachedGroup != null) {
-          return cachedGroup;
-        }
-      }
       throw ServerException(e.toString());
     }
   }

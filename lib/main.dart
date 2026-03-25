@@ -46,6 +46,12 @@ Future<void> main() async {
   // Used for temporary wizard draft storage with 24h expiry
   await Hive.openBox<String>('wizard_cache');
 
+  // T2/T3: Open user profile cache box for offline auth fallback
+  await Hive.openBox<String>('user_profile_cache');
+
+  // T6: Open category cache box for offline category fallback
+  await Hive.openBox<String>('category_cache');
+
   // Initialize SharedPreferences for widget data persistence
   final sharedPreferences = await SharedPreferences.getInstance();
 
@@ -58,11 +64,24 @@ Future<void> main() async {
       Env.validate();
     }
 
-    // Initialize Supabase
-    await Supabase.initialize(
-      url: Env.supabaseUrl,
-      anonKey: Env.supabaseAnonKey,
-    );
+    // Initialize Supabase with timeout — T1: startup MAI blocking su rete
+    try {
+      await Supabase.initialize(
+        url: Env.supabaseUrl,
+        anonKey: Env.supabaseAnonKey,
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          // Supabase init timed out (offline) — continue anyway
+          // The client will reconnect automatically when network returns
+          print('[MAIN] Supabase.initialize() timed out — proceeding offline');
+        },
+      );
+    } catch (e) {
+      // Network unavailable or any other error — continue anyway
+      // App starts offline, data will sync when connectivity is restored
+      print('[MAIN] Supabase.initialize() failed: $e — proceeding offline');
+    }
 
     // Monthly budget reset check (Feature: 001-group-budget-wizard, Task: T066)
     // Check if a new month has started and budget reset is needed

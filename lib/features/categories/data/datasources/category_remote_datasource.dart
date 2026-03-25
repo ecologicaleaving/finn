@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
+import '../../../offline/data/datasources/category_cache_datasource.dart';
 import '../models/expense_category_model.dart';
 
 /// Remote data source for category operations using Supabase.
@@ -92,9 +93,15 @@ abstract class CategoryRemoteDataSource {
 
 /// Implementation of [CategoryRemoteDataSource] using Supabase.
 class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
-  CategoryRemoteDataSourceImpl({required this.supabaseClient});
+  CategoryRemoteDataSourceImpl({
+    required this.supabaseClient,
+    this.categoryCacheDataSource,
+  });
 
   final SupabaseClient supabaseClient;
+
+  /// Optional cache datasource for offline fallback (T6)
+  final CategoryCacheDataSource? categoryCacheDataSource;
 
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
@@ -104,6 +111,7 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
     return userId;
   }
 
+  // T6: getCategories — 5s timeout + Drift cache fallback
   @override
   Future<List<ExpenseCategoryModel>> getCategories({
     required String groupId,
@@ -116,18 +124,48 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
               ? '*, expense_count:get_category_expense_count(category_id)'
               : '*')
           .eq('group_id', groupId)
-          .order('is_default', ascending: false) // Default categories first
+          .order('is_default', ascending: false)
           .order('name', ascending: true);
 
-      final response = await query;
+      final response = await query.timeout(const Duration(seconds: 5));
 
-      return (response as List)
+      final categories = (response as List)
           .map((json) => ExpenseCategoryModel.fromJson(json))
           .toList();
-    } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
-    } catch (e) {
-      throw ServerException('Failed to get categories: $e');
+
+      // Cache on success
+      if (categoryCacheDataSource != null) {
+        try {
+          await categoryCacheDataSource!.cacheCategories(
+            groupId,
+            categories.map((c) => c.toEntity()).toList(),
+          );
+        } catch (_) {}
+      }
+
+      return categories;
+    } catch (_) {
+      // Fallback to Drift cache
+      if (categoryCacheDataSource != null) {
+        try {
+          final cached =
+              await categoryCacheDataSource!.getCachedCategories(groupId);
+          if (cached.isNotEmpty) {
+            return cached
+                .map((e) => ExpenseCategoryModel(
+                      id: e.id,
+                      name: e.name,
+                      groupId: e.groupId,
+                      isDefault: e.isDefault,
+                      createdBy: e.createdBy,
+                      createdAt: e.createdAt,
+                      updatedAt: e.updatedAt,
+                    ))
+                .toList();
+          }
+        } catch (_) {}
+      }
+      return [];
     }
   }
 
@@ -418,14 +456,13 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
 
   // ========== MRU (Most Recently Used) Tracking (Feature 001) ==========
 
+  // T6: getCategoriesByMRU — 5s timeout + cache fallback
   @override
   Future<List<ExpenseCategoryModel>> getCategoriesByMRU({
     required String groupId,
     required String userId,
   }) async {
     try {
-      // Query categories with LEFT JOIN to user_category_usage
-      // This allows us to get MRU data while still returning all categories
       final response = await supabaseClient
           .from('expense_categories')
           .select('''
@@ -433,21 +470,48 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
             user_category_usage!left(last_used_at, use_count)
           ''')
           .eq('group_id', groupId)
-          .eq('user_category_usage.user_id', userId);
+          .eq('user_category_usage.user_id', userId)
+          .timeout(const Duration(seconds: 5));
 
-      // Parse response and extract categories
       final categories = (response as List)
           .map((json) => ExpenseCategoryModel.fromJson(json))
           .toList();
 
-      // Sort alphabetically by name
       categories.sort((a, b) => a.name.compareTo(b.name));
 
+      // Cache on success
+      if (categoryCacheDataSource != null) {
+        try {
+          await categoryCacheDataSource!.cacheCategories(
+            groupId,
+            categories.map((c) => c.toEntity()).toList(),
+          );
+        } catch (_) {}
+      }
+
       return categories;
-    } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
-    } catch (e) {
-      throw ServerException('Failed to get categories by MRU: $e');
+    } catch (_) {
+      // Fallback to Drift cache
+      if (categoryCacheDataSource != null) {
+        try {
+          final cached =
+              await categoryCacheDataSource!.getCachedCategories(groupId);
+          if (cached.isNotEmpty) {
+            return cached
+                .map((e) => ExpenseCategoryModel(
+                      id: e.id,
+                      name: e.name,
+                      groupId: e.groupId,
+                      isDefault: e.isDefault,
+                      createdBy: e.createdBy,
+                      createdAt: e.createdAt,
+                      updatedAt: e.updatedAt,
+                    ))
+                .toList();
+          }
+        } catch (_) {}
+      }
+      return [];
     }
   }
 

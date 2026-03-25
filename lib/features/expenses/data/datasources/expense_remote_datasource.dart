@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../offline/data/datasources/offline_expense_local_datasource.dart';
+import '../../../offline/domain/entities/offline_expense_entity.dart';
 import '../models/expense_model.dart';
 
 /// Remote data source for expense operations using Supabase.
@@ -107,9 +109,15 @@ abstract class ExpenseRemoteDataSource {
 
 /// Implementation of [ExpenseRemoteDataSource] using Supabase.
 class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
-  ExpenseRemoteDataSourceImpl({required this.supabaseClient});
+  ExpenseRemoteDataSourceImpl({
+    required this.supabaseClient,
+    this.offlineLocalDataSource,
+  });
 
   final SupabaseClient supabaseClient;
+
+  /// Optional offline datasource for fallback reads (T4/T8)
+  final OfflineExpenseLocalDataSource? offlineLocalDataSource;
 
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
@@ -119,16 +127,19 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     return userId;
   }
 
+  // T5: _currentUserGroupId with 5s timeout
   Future<String?> get _currentUserGroupId async {
     final userId = _currentUserId;
     final response = await supabaseClient
         .from('profiles')
         .select('group_id')
         .eq('id', userId)
-        .single();
+        .single()
+        .timeout(const Duration(seconds: 5));
     return response['group_id'] as String?;
   }
 
+  // T4: getExpenses with 5s timeout + Drift fallback
   @override
   Future<List<ExpenseModel>> getExpenses({
     DateTime? startDate,
@@ -148,7 +159,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       }
 
       // Build the filter query with JOIN to get category name
-      // Use * to select all existing fields (avoids errors if columns don't exist)
       var filterQuery = supabaseClient
           .from('expenses')
           .select('*, category_name:expense_categories(name)')
@@ -172,7 +182,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       if (isGroupExpense != null) {
         filterQuery = filterQuery.eq('is_group_expense', isGroupExpense);
       }
-      if (reimbursementStatus != null) { // T048
+      if (reimbursementStatus != null) {
         filterQuery = filterQuery.eq('reimbursement_status', reimbursementStatus.value);
       }
 
@@ -185,20 +195,55 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         orderedQuery = orderedQuery.limit(limit);
       }
 
-      final response = await orderedQuery;
+      // T4: 5s timeout on Supabase query
+      final response = await orderedQuery.timeout(const Duration(seconds: 5));
       return (response as List).map((json) {
-        // Extract category_name from nested object if present
         if (json['category_name'] != null && json['category_name'] is Map) {
           json['category_name'] = json['category_name']['name'];
         }
         return ExpenseModel.fromJson(json);
       }).toList();
-    } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
-      throw ServerException(e.toString());
+      if (e is AppAuthException) rethrow;
+      if (e is GroupException) rethrow;
+
+      // T4: Fallback to offline Drift DB on any network/timeout error
+      final userId = supabaseClient.auth.currentUser?.id;
+      if (userId != null && offlineLocalDataSource != null) {
+        try {
+          final offlineExpenses =
+              await offlineLocalDataSource!.getAllOfflineExpenses(userId);
+          return _mapOfflineExpensesToModels(offlineExpenses);
+        } catch (_) {
+          // offline fallback also failed — return empty list
+          return [];
+        }
+      }
+      return [];
     }
+  }
+
+  /// Convert offline expenses to ExpenseModel list for UI compatibility
+  List<ExpenseModel> _mapOfflineExpensesToModels(
+      List<OfflineExpenseEntity> offline) {
+    final userId = supabaseClient.auth.currentUser?.id ?? '';
+    return offline.map((e) {
+      return ExpenseModel(
+        id: e.id,
+        groupId: '', // unknown offline
+        createdBy: userId,
+        amount: e.amount,
+        date: e.date,
+        categoryId: e.categoryId,
+        paymentMethodId: '',
+        merchant: e.merchant,
+        notes: e.notes,
+        isGroupExpense: e.isGroupExpense,
+        reimbursementStatus: ReimbursementStatus.none,
+        createdAt: e.localCreatedAt,
+        updatedAt: e.localUpdatedAt,
+      );
+    }).toList();
   }
 
   @override
@@ -257,28 +302,38 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
       debugPrint('🔍 CREATE EXPENSE: effectiveCreatedBy=$effectiveCreatedBy, currentUserId=$currentUserId');
 
-      // Get creator's display name
-      debugPrint('🔍 CREATE EXPENSE: Fetching profile for user $effectiveCreatedBy');
-      final creatorProfileResponse = await supabaseClient
-          .from('profiles')
-          .select('display_name')
-          .eq('id', effectiveCreatedBy)
-          .single();
-      final creatorDisplayName = creatorProfileResponse['display_name'] as String?;
-      debugPrint('🔍 CREATE EXPENSE: Creator profile found, displayName=$creatorDisplayName');
+      // T8: Parallelize profile lookups to avoid sequential timeouts
+      debugPrint('🔍 CREATE EXPENSE: Fetching profiles in parallel');
+      final profileFutures = <Future<Map<String, dynamic>?>>[];
 
-      // Get paid_by user's display name (may be different from creator)
-      String? paidByDisplayName = creatorDisplayName;
-      if (effectivePaidBy != effectiveCreatedBy) {
-        debugPrint('🔍 CREATE EXPENSE: Fetching profile for paid_by user $effectivePaidBy');
-        final paidByProfileResponse = await supabaseClient
-            .from('profiles')
-            .select('display_name')
-            .eq('id', effectivePaidBy)
-            .single();
-        paidByDisplayName = paidByProfileResponse['display_name'] as String?;
-        debugPrint('🔍 CREATE EXPENSE: PaidBy profile found, displayName=$paidByDisplayName');
+      Future<Map<String, dynamic>?> fetchProfile(String uid) async {
+        try {
+          return await supabaseClient
+              .from('profiles')
+              .select('display_name')
+              .eq('id', uid)
+              .single()
+              .timeout(const Duration(seconds: 5));
+        } catch (_) {
+          return null;
+        }
       }
+
+      final creatorProfileFuture = fetchProfile(effectiveCreatedBy);
+      final paidByProfileFuture = effectivePaidBy != effectiveCreatedBy
+          ? fetchProfile(effectivePaidBy)
+          : Future.value(null);
+
+      final profileResults =
+          await Future.wait([creatorProfileFuture, paidByProfileFuture]);
+      final creatorDisplayName =
+          profileResults[0]?['display_name'] as String? ?? 'Utente';
+      debugPrint('🔍 CREATE EXPENSE: Creator profile resolved: $creatorDisplayName');
+
+      final paidByDisplayName = effectivePaidBy != effectiveCreatedBy
+          ? (profileResults[1]?['display_name'] as String? ?? 'Utente')
+          : creatorDisplayName;
+      debugPrint('🔍 CREATE EXPENSE: PaidBy profile resolved: $paidByDisplayName');
 
       // Get payment method ID if not provided (default to "Contanti")
       String finalPaymentMethodId = paymentMethodId ?? '';
@@ -288,7 +343,8 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             .select('id')
             .eq('name', 'Contanti')
             .eq('is_default', true)
-            .single();
+            .single()
+            .timeout(const Duration(seconds: 5));
         finalPaymentMethodId = defaultPaymentMethod['id'] as String;
       }
 
@@ -297,7 +353,8 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           .from('payment_methods')
           .select('name')
           .eq('id', finalPaymentMethodId)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
       final paymentMethodName = paymentMethodResponse['name'] as String;
 
       // Normalize date to UTC date only (no time component)
@@ -331,7 +388,8 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             if (reimbursementNote != null) 'reimbursement_note': reimbursementNote,
           })
           .select('*, category_name:expense_categories(name)')
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5)); // T8
 
       // DEBUG: Log the response from database
       debugPrint('🔍 SAVE EXPENSE: INSERT SUCCESS! Expense ID=${response['id']}');
@@ -348,12 +406,76 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       return expenseModel;
     } on PostgrestException catch (e) {
       debugPrint('❌ CREATE EXPENSE: PostgrestException - ${e.message} (code: ${e.code})');
+      // T8: write-through — if server write fails, save offline
+      final offline = offlineLocalDataSource;
+      if (offline != null) {
+        final userId = supabaseClient.auth.currentUser?.id;
+        if (userId != null) {
+          try {
+            final offlineEntity = await offline.createOfflineExpense(
+              userId: userId,
+              amount: amount,
+              date: date,
+              categoryId: categoryId,
+              merchant: merchant,
+              notes: notes,
+              isGroupExpense: isGroupExpense,
+            );
+            debugPrint('[OFFLINE] Expense saved locally, id=${offlineEntity.id}');
+            return _offlineEntityToModel(offlineEntity, userId);
+          } catch (offlineErr) {
+            debugPrint('❌ CREATE EXPENSE offline fallback failed: $offlineErr');
+          }
+        }
+      }
       throw ServerException(e.message, e.code);
     } catch (e) {
       debugPrint('❌ CREATE EXPENSE: Exception - ${e.toString()}');
       if (e is AppAuthException || e is GroupException) rethrow;
+      // T8: write-through — if server write fails, save offline
+      final offline = offlineLocalDataSource;
+      if (offline != null) {
+        final userId = supabaseClient.auth.currentUser?.id;
+        if (userId != null) {
+          try {
+            final offlineEntity = await offline.createOfflineExpense(
+              userId: userId,
+              amount: amount,
+              date: date,
+              categoryId: categoryId,
+              merchant: merchant,
+              notes: notes,
+              isGroupExpense: isGroupExpense,
+            );
+            debugPrint('[OFFLINE] Expense saved locally, id=${offlineEntity.id}');
+            return _offlineEntityToModel(offlineEntity, userId);
+          } catch (offlineErr) {
+            debugPrint('❌ CREATE EXPENSE offline fallback failed: $offlineErr');
+          }
+        }
+      }
       throw ServerException(e.toString());
     }
+  }
+
+  /// Convert offline entity to ExpenseModel for UI compatibility
+  ExpenseModel _offlineEntityToModel(
+      OfflineExpenseEntity entity, String userId) {
+    return ExpenseModel(
+      id: entity.id,
+      groupId: '',
+      createdBy: userId,
+      amount: entity.amount,
+      date: entity.date,
+      categoryId: entity.categoryId,
+      paymentMethodId: '',
+      merchant: entity.merchant,
+      notes: entity.notes,
+      isGroupExpense: entity.isGroupExpense,
+      reimbursementStatus: ReimbursementStatus.none,
+      createdAt: entity.localCreatedAt,
+      updatedAt: entity.localUpdatedAt,
+    );
   }
 
   @override

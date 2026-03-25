@@ -6,6 +6,8 @@ import '../../../../app/routes.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../../offline/presentation/providers/offline_providers.dart';
+import '../../../offline/presentation/widgets/sync_status_banner.dart';
 import 'settings_screen.dart';
 
 /// Main navigation screen with bottom navigation bar.
@@ -26,6 +28,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // Load group data when the screen is first shown
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(groupProvider.notifier).loadCurrentGroup();
+      // T9: Initialize SyncTrigger to activate auto-sync on connectivity change.
+      // The provider's build() method sets up a listener on connectivityServiceProvider
+      // that triggers sync whenever network is restored.
+      ref.read(syncTriggerProvider.notifier);
     });
   }
 
@@ -102,9 +108,17 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
+      // T10: Sync status banner — shown above content when offline/pending
+      body: Column(
+        children: [
+          const SyncStatusBanner(),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
