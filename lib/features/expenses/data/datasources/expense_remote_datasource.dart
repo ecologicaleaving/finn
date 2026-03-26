@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -142,9 +144,27 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   }
 
   static Future<String?> _getPersistedGroupId() async {
+    // Try Hive first (set by this datasource)
     try {
       final box = Hive.box<String>('dashboard_cache');
-      return box.get(_lastGroupIdHiveKey);
+      final hiveGroupId = box.get(_lastGroupIdHiveKey);
+      if (hiveGroupId != null && hiveGroupId.isNotEmpty) return hiveGroupId;
+    } catch (_) {}
+    // Fallback: try FlutterSecureStorage (set by group datasource)
+    try {
+      const storage = FlutterSecureStorage();
+      final secureGroupId = await storage.read(key: 'cached_group_id');
+      if (secureGroupId != null && secureGroupId.isNotEmpty) return secureGroupId;
+    } catch (_) {}
+    // Fallback: try Hive user profile cache for group_id
+    try {
+      final box = Hive.box<String>('user_profile_cache');
+      final raw = box.get('cached_user_profile');
+      if (raw != null) {
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        final gid = map['group_id'] as String?;
+        if (gid != null && gid.isNotEmpty) return gid;
+      }
     } catch (_) {}
     return null;
   }
@@ -264,8 +284,9 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
       return expenses;
     } catch (e) {
-      // AppAuthException offline → try cache before giving up
-      if (e is AppAuthException) {
+      // AppAuthException / GroupException offline → try cache, then return [] (never crash)
+      if (e is AppAuthException || e is GroupException) {
+        debugPrint('[OFFLINE] getExpenses auth/group error, trying cache: $e');
         final effectiveGroupId = groupId ?? _lastKnownGroupId ?? await _getPersistedGroupId();
         if (expenseCacheDataSource != null && effectiveGroupId != null) {
           try {
@@ -278,28 +299,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
               limit: limit,
               offset: offset,
             );
-            if (cached.isNotEmpty) return cached;
+            if (cached.isNotEmpty) {
+              debugPrint('[OFFLINE] Returning ${cached.length} cached expenses (auth/group fallback)');
+              return cached;
+            }
           } catch (_) {}
         }
-        rethrow;
-      }
-      if (e is GroupException) {
-        final effectiveGroupId = groupId ?? _lastKnownGroupId ?? await _getPersistedGroupId();
-        if (expenseCacheDataSource != null && effectiveGroupId != null) {
-          try {
-            final cached = await expenseCacheDataSource!.getCachedExpenses(
-              effectiveGroupId,
-              startDate: startDate,
-              endDate: endDate,
-              categoryId: categoryId,
-              createdBy: createdBy,
-              limit: limit,
-              offset: offset,
-            );
-            if (cached.isNotEmpty) return cached;
-          } catch (_) {}
-        }
-        rethrow;
+        // No cache available — return empty list instead of crashing
+        debugPrint('[OFFLINE] No cached expenses available, returning empty list');
+        return [];
       }
 
       // Only fall back to cache on genuine network/timeout errors
