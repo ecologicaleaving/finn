@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
+import '../../../categories/presentation/providers/category_provider.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/providers/expense_provider.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../offline/presentation/providers/offline_providers.dart';
 import '../../../offline/presentation/widgets/sync_status_banner.dart';
+import '../../../payment_methods/presentation/providers/payment_method_provider.dart';
+import '../providers/auth_provider.dart';
 import 'settings_screen.dart';
 
 /// Main navigation screen with bottom navigation bar.
@@ -59,6 +62,24 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     try {
       await ref.read(expenseListProvider.notifier).loadExpenses(refresh: true);
     } catch (_) {}
+
+    // Pre-cache payment methods
+    final userId = ref.read(authProvider).user?.id;
+    if (userId != null) {
+      try {
+        await ref
+            .read(paymentMethodProvider(userId).notifier)
+            .loadPaymentMethods();
+      } catch (_) {}
+    }
+
+    // Pre-cache categories
+    final groupId = ref.read(authProvider).user?.groupId;
+    if (groupId != null) {
+      try {
+        ref.read(categoryProvider(groupId).notifier).loadCategories();
+      } catch (_) {}
+    }
 
     // Dashboard stats are auto-loaded by the dashboardProvider listener
     // when groupProvider fires — no extra action needed here.
