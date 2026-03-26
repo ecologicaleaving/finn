@@ -15,6 +15,11 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 # Evita run concorrenti sullo stesso branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
