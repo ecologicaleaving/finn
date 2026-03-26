@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -91,30 +90,21 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
 
       result.fold(
         (failure) async {
-          // Check if this is a network error
-          if (_isNetworkError(failure.message)) {
-            // Try to load from cache first
-            final cachedCategories = await _loadFromCache();
+          // ANY failure → try cache first, then default categories
+          final cachedCategories = await _loadFromCache();
 
-            if (cachedCategories.isNotEmpty) {
-              // Use cached categories (includes custom categories!)
-              state = state.copyWith(
-                categories: cachedCategories,
-                isLoading: false,
-                errorMessage: null,
-              );
-            } else {
-              // No cache, use default Italian categories as last resort
-              state = state.copyWith(
-                categories: _getOfflineFallbackCategories(),
-                isLoading: false,
-                errorMessage: null,
-              );
-            }
-          } else {
+          if (cachedCategories.isNotEmpty) {
             state = state.copyWith(
+              categories: cachedCategories,
               isLoading: false,
-              errorMessage: failure.message,
+              errorMessage: null,
+            );
+          } else {
+            // No cache — use default Italian categories as last resort
+            state = state.copyWith(
+              categories: _getOfflineFallbackCategories(),
+              isLoading: false,
+              errorMessage: null,
             );
           }
         },
@@ -132,33 +122,21 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
         },
       );
     } catch (e) {
-      // Check if this is a network-related exception
-      if (e is SocketException ||
-          e.toString().contains('SocketException') ||
-          e.toString().contains('Failed host lookup') ||
-          e.toString().contains('ClientException')) {
-        // Try to load from cache first
-        final cachedCategories = await _loadFromCache();
+      // ANY exception → try cache, then default categories (never crash)
+      final cachedCategories = await _loadFromCache();
 
-        if (cachedCategories.isNotEmpty) {
-          // Use cached categories (includes custom categories!)
-          state = state.copyWith(
-            categories: cachedCategories,
-            isLoading: false,
-            errorMessage: null,
-          );
-        } else {
-          // No cache, use default Italian categories as last resort
-          state = state.copyWith(
-            categories: _getOfflineFallbackCategories(),
-            isLoading: false,
-            errorMessage: null,
-          );
-        }
-      } else {
+      if (cachedCategories.isNotEmpty) {
         state = state.copyWith(
+          categories: cachedCategories,
           isLoading: false,
-          errorMessage: 'Failed to load categories: $e',
+          errorMessage: null,
+        );
+      } else {
+        // No cache — use default Italian categories as last resort
+        state = state.copyWith(
+          categories: _getOfflineFallbackCategories(),
+          isLoading: false,
+          errorMessage: null,
         );
       }
     }
@@ -174,16 +152,7 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
     }
   }
 
-  /// Check if error message indicates a network error
-  bool _isNetworkError(String? message) {
-    if (message == null) return false;
-    return message.contains('SocketException') ||
-        message.contains('Failed host lookup') ||
-        message.contains('ClientException') ||
-        message.contains('NetworkException');
-  }
-
-  /// Get offline fallback categories using Italian defaults
+    /// Get offline fallback categories using Italian defaults
   List<ExpenseCategoryEntity> _getOfflineFallbackCategories() {
     const uuid = Uuid();
     final now = DateTime.now();

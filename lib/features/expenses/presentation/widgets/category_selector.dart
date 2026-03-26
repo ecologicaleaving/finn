@@ -172,6 +172,20 @@ class CategoryDropdown extends ConsumerWidget {
       return Text(categoryState.errorMessage!);
     }
 
+    // Guard: no categories available (offline, not cached)
+    if (categoryState.categories.isEmpty) {
+      return InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Categoria',
+          prefixIcon: const Icon(Icons.category_outlined),
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+          enabled: false,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: const Text('Categorie non disponibili', style: TextStyle(color: Colors.grey)),
+      );
+    }
+
     final selectedCategory = categoryState.categories.firstWhere(
       (cat) => cat.id == selectedCategoryId,
       orElse: () => categoryState.categories.first,
