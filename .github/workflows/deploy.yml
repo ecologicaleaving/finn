@@ -181,7 +181,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
           channel: 'stable'
           cache: true
 
@@ -191,21 +190,20 @@ jobs:
         run: |
           BRANCH="${{ github.ref_name }}"
           if [[ "$BRANCH" == "master" || "$BRANCH" == "main" ]]; then
-            echo "flavor=prod" >> "$GITHUB_OUTPUT"
-            echo "flavor_suffix=prod" >> "$GITHUB_OUTPUT"
+            echo "flavor=production" >> "$GITHUB_OUTPUT"
           else
             echo "flavor=dev" >> "$GITHUB_OUTPUT"
-            echo "flavor_suffix=dev" >> "$GITHUB_OUTPUT"
           fi
-          echo "🎨 Flavor: ${{ steps.flavor.outputs.flavor }}"
 
       # ── Crea .env con variabili Supabase ───────────────────────────────────
       - name: Create .env file
         run: |
-          cat > .env << EOF
+          cat > .env <<EOF
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           EOF
+          # Remove leading whitespace from heredoc
+          sed -i 's/^[[:space:]]*//' .env
           echo "✅ .env created"
 
       # ── Dipendenze ─────────────────────────────────────────────────────────
@@ -221,7 +219,6 @@ jobs:
           FLAVOR="${{ steps.flavor.outputs.flavor }}"
           flutter build apk \
             --flavor "$FLAVOR" \
-            --target "lib/main_${FLAVOR}.dart" \
             --release
           echo "✅ APK built for flavor: ${FLAVOR}"
 
