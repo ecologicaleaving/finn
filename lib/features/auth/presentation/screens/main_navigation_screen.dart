@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
+import '../../../expenses/presentation/providers/expense_provider.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../offline/presentation/providers/offline_providers.dart';
@@ -34,7 +35,35 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       // Bug #2 fix: use ref.read to initialise; SyncTrigger is keepAlive so it
       // stays alive for the entire app lifetime without needing a watch here.
       ref.read(syncTriggerProvider.notifier);
+
+      // Pre-cache all data for offline use (runs in background, never throws)
+      _startPrecache();
     });
+  }
+
+  /// Pre-cache all data needed for offline use.
+  /// Waits for the group to be available, then triggers all caches in background.
+  /// Never throws — all errors are silently ignored.
+  Future<void> _startPrecache() async {
+    // Wait for group to be loaded (poll every 500ms, max 15s)
+    for (int i = 0; i < 30; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      final groupState = ref.read(groupProvider);
+      if (groupState.group != null) break;
+    }
+
+    final groupState = ref.read(groupProvider);
+    if (groupState.group == null) return; // No group, nothing to cache
+
+    // Trigger expense list load (this caches via write-through to Drift)
+    try {
+      await ref.read(expenseListProvider.notifier).loadExpenses(refresh: true);
+    } catch (_) {}
+
+    // Dashboard stats are auto-loaded by the dashboardProvider listener
+    // when groupProvider fires — no extra action needed here.
+
+    debugPrint('[PRECACHE] Background pre-cache triggered');
   }
 
   final List<Widget> _screens = const [
