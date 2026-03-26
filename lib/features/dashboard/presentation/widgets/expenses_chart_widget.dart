@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,115 +15,124 @@ enum ChartPeriod { week, month, year }
 /// Provider per le spese raggruppate per periodo
 final expensesByPeriodProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, ExpenseChartParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final now = DateTime.now();
+  try {
+    final supabase = Supabase.instance.client;
+    final now = DateTime.now();
 
-  DateTime startDate;
-  DateTime endDate;
+    DateTime startDate;
+    DateTime endDate;
 
-  switch (params.period) {
-    case ChartPeriod.week:
-      // Settimana corrente + offset
-      final weekDay = now.weekday;
-      final currentWeekStart = now.subtract(Duration(days: weekDay - 1));
-      startDate = currentWeekStart.add(Duration(days: params.offset * 7));
-      endDate = startDate.add(const Duration(days: 6));
-      break;
-    case ChartPeriod.month:
-      // Mese corrente + offset
-      // Use DateTime overflow handling to correctly handle month/year boundaries
-      final targetDate = DateTime(now.year, now.month + params.offset, 1);
-      final targetYear = targetDate.year;
-      final normalizedMonth = targetDate.month;
-      startDate = DateTime(targetYear, normalizedMonth, 1);
-      endDate = DateTime(targetYear, normalizedMonth + 1, 0);
-      break;
-    case ChartPeriod.year:
-      // Anno corrente + offset
-      final targetYear = now.year + params.offset;
-      startDate = DateTime(targetYear, 1, 1);
-      endDate = DateTime(targetYear, 12, 31);
-      break;
-  }
-
-  // Query spese nel periodo
-  var query = supabase
-      .from('expenses')
-      .select('amount, date')
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]);
-
-  if (params.isPersonalView) {
-    // Use paid_by instead of created_by to include expenses created by admin on behalf of user
-    query = query.eq('paid_by', params.userId).eq('is_group_expense', false);
-  } else {
-    query = query.eq('group_id', params.groupId).eq('is_group_expense', true);
-  }
-
-  final expenses = await query as List;
-
-  // Raggruppa per data/periodo
-  final Map<String, int> grouped = {};
-
-  for (final expense in expenses) {
-    final date = DateTime.parse(expense['date'] as String);
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
-
-    String key;
     switch (params.period) {
       case ChartPeriod.week:
+        // Settimana corrente + offset
+        final weekDay = now.weekday;
+        final currentWeekStart = now.subtract(Duration(days: weekDay - 1));
+        startDate = currentWeekStart.add(Duration(days: params.offset * 7));
+        endDate = startDate.add(const Duration(days: 6));
+        break;
       case ChartPeriod.month:
-        key = DateFormat('yyyy-MM-dd').format(date);
+        // Mese corrente + offset
+        // Use DateTime overflow handling to correctly handle month/year boundaries
+        final targetDate = DateTime(now.year, now.month + params.offset, 1);
+        final targetYear = targetDate.year;
+        final normalizedMonth = targetDate.month;
+        startDate = DateTime(targetYear, normalizedMonth, 1);
+        endDate = DateTime(targetYear, normalizedMonth + 1, 0);
         break;
       case ChartPeriod.year:
-        key = DateFormat('yyyy-MM').format(date);
+        // Anno corrente + offset
+        final targetYear = now.year + params.offset;
+        startDate = DateTime(targetYear, 1, 1);
+        endDate = DateTime(targetYear, 12, 31);
         break;
     }
 
-    grouped[key] = (grouped[key] ?? 0) + amountCents;
+    // Query spese nel periodo
+    var query = supabase
+        .from('expenses')
+        .select('amount, date')
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0]);
+
+    if (params.isPersonalView) {
+      // Use paid_by instead of created_by to include expenses created by admin on behalf of user
+      query = query.eq('paid_by', params.userId).eq('is_group_expense', false);
+    } else {
+      query = query.eq('group_id', params.groupId).eq('is_group_expense', true);
+    }
+
+    final expenses = await query.timeout(const Duration(seconds: 10)) as List;
+
+    // Raggruppa per data/periodo
+    final Map<String, int> grouped = {};
+
+    for (final expense in expenses) {
+      final date = DateTime.parse(expense['date'] as String);
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
+
+      String key;
+      switch (params.period) {
+        case ChartPeriod.week:
+        case ChartPeriod.month:
+          key = DateFormat('yyyy-MM-dd').format(date);
+          break;
+        case ChartPeriod.year:
+          key = DateFormat('yyyy-MM').format(date);
+          break;
+      }
+
+      grouped[key] = (grouped[key] ?? 0) + amountCents;
+    }
+
+    // Converti in lista ordinata
+    final List<Map<String, dynamic>> result = [];
+
+    if (params.period == ChartPeriod.week) {
+      // Settimana: 7 giorni
+      for (int i = 0; i < 7; i++) {
+        final date = startDate.add(Duration(days: i));
+        final key = DateFormat('yyyy-MM-dd').format(date);
+        result.add({
+          'label': DateFormat('E', 'it').format(date), // Lun, Mar, ...
+          'value': grouped[key] ?? 0,
+          'date': date,
+        });
+      }
+    } else if (params.period == ChartPeriod.month) {
+      // Mese: tutti i giorni
+      final daysInMonth = endDate.day;
+      for (int i = 1; i <= daysInMonth; i++) {
+        final date = DateTime(startDate.year, startDate.month, i);
+        final key = DateFormat('yyyy-MM-dd').format(date);
+        result.add({
+          'label': i.toString(),
+          'value': grouped[key] ?? 0,
+          'date': date,
+        });
+      }
+    } else {
+      // Anno: 12 mesi
+      for (int i = 1; i <= 12; i++) {
+        final date = DateTime(startDate.year, i, 1);
+        final key = DateFormat('yyyy-MM').format(date);
+        result.add({
+          'label': DateFormat('MMM', 'it').format(date), // Gen, Feb, ...
+          'value': grouped[key] ?? 0,
+          'date': date,
+        });
+      }
+    }
+
+    return result;
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
   }
-
-  // Converti in lista ordinata
-  final List<Map<String, dynamic>> result = [];
-
-  if (params.period == ChartPeriod.week) {
-    // Settimana: 7 giorni
-    for (int i = 0; i < 7; i++) {
-      final date = startDate.add(Duration(days: i));
-      final key = DateFormat('yyyy-MM-dd').format(date);
-      result.add({
-        'label': DateFormat('E', 'it').format(date), // Lun, Mar, ...
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
-  } else if (params.period == ChartPeriod.month) {
-    // Mese: tutti i giorni
-    final daysInMonth = endDate.day;
-    for (int i = 1; i <= daysInMonth; i++) {
-      final date = DateTime(startDate.year, startDate.month, i);
-      final key = DateFormat('yyyy-MM-dd').format(date);
-      result.add({
-        'label': i.toString(),
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
-  } else {
-    // Anno: 12 mesi
-    for (int i = 1; i <= 12; i++) {
-      final date = DateTime(startDate.year, i, 1);
-      final key = DateFormat('yyyy-MM').format(date);
-      result.add({
-        'label': DateFormat('MMM', 'it').format(date), // Gen, Feb, ...
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
-  }
-
-  return result;
 });
 
 class ExpenseChartParams {

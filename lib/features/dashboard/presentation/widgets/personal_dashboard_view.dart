@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -105,46 +108,56 @@ class GroupMembersExpensesParams {
 /// Provider per le spese di gruppo di tutti i membri
 final groupMembersExpensesProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, GroupMembersExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo raggruppate per paid_by
-  final expenses = await supabase
-      .from('expenses')
-      .select('paid_by, paid_by_name, amount')
-      .eq('group_id', params.groupId)
-      .eq('is_group_expense', true)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese di gruppo raggruppate per paid_by
+    final expenses = await supabase
+        .from('expenses')
+        .select('paid_by, paid_by_name, amount')
+        .eq('group_id', params.groupId)
+        .eq('is_group_expense', true)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Raggruppa per membro
-  final Map<String, Map<String, dynamic>> memberTotals = {};
+    // Raggruppa per membro
+    final Map<String, Map<String, dynamic>> memberTotals = {};
 
-  for (final expense in expenses) {
-    final paidBy = expense['paid_by'] as String?;
-    final paidByName = expense['paid_by_name'] as String?;
+    for (final expense in expenses) {
+      final paidBy = expense['paid_by'] as String?;
+      final paidByName = expense['paid_by_name'] as String?;
 
-    if (paidBy == null) continue;
+      if (paidBy == null) continue;
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    if (!memberTotals.containsKey(paidBy)) {
-      memberTotals[paidBy] = {
-        'userId': paidBy,
-        'name': paidByName ?? 'Sconosciuto',
-        'total': 0,
-      };
+      if (!memberTotals.containsKey(paidBy)) {
+        memberTotals[paidBy] = {
+          'userId': paidBy,
+          'name': paidByName ?? 'Sconosciuto',
+          'total': 0,
+        };
+      }
+
+      memberTotals[paidBy]!['total'] += amountCents;
     }
 
-    memberTotals[paidBy]!['total'] += amountCents;
+    // Converti in lista e ordina per totale decrescente
+    final result = memberTotals.values.toList();
+    result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    return result;
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
   }
-
-  // Converti in lista e ordina per totale decrescente
-  final result = memberTotals.values.toList();
-  result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-
-  return result;
 });
 
 /// Parameters for member-specific group expenses
@@ -179,146 +192,176 @@ class MemberGroupExpensesParams {
 /// Provider per le categorie delle spese di gruppo di un membro specifico
 final memberGroupExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, MemberGroupExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo di uno specifico membro
-  final expenses = await supabase
-      .from('expenses')
-      .select('category_id, amount, expense_categories(name)')
-      .eq('group_id', params.groupId)
-      .eq('is_group_expense', true)
-      .eq('paid_by', params.memberId)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese di gruppo di uno specifico membro
+    final expenses = await supabase
+        .from('expenses')
+        .select('category_id, amount, expense_categories(name)')
+        .eq('group_id', params.groupId)
+        .eq('is_group_expense', true)
+        .eq('paid_by', params.memberId)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Raggruppa per categoria
-  final Map<String, Map<String, dynamic>> categoryTotals = {};
+    // Raggruppa per categoria
+    final Map<String, Map<String, dynamic>> categoryTotals = {};
 
-  for (final expense in expenses) {
-    final categoryId = expense['category_id'] as String?;
-    if (categoryId == null) continue;
+    for (final expense in expenses) {
+      final categoryId = expense['category_id'] as String?;
+      if (categoryId == null) continue;
 
-    final categoryData = expense['expense_categories'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String? ?? 'Sconosciuta')
-        : 'Sconosciuta';
+      final categoryData = expense['expense_categories'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String? ?? 'Sconosciuta')
+          : 'Sconosciuta';
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    if (!categoryTotals.containsKey(categoryId)) {
-      categoryTotals[categoryId] = {
-        'categoryId': categoryId,
-        'name': categoryName,
-        'total': 0,
-      };
+      if (!categoryTotals.containsKey(categoryId)) {
+        categoryTotals[categoryId] = {
+          'categoryId': categoryId,
+          'name': categoryName,
+          'total': 0,
+        };
+      }
+
+      categoryTotals[categoryId]!['total'] += amountCents;
     }
 
-    categoryTotals[categoryId]!['total'] += amountCents;
+    // Converti in lista e ordina per totale decrescente
+    final result = categoryTotals.values.toList();
+    result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    return result;
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
   }
-
-  // Converti in lista e ordina per totale decrescente
-  final result = categoryTotals.values.toList();
-  result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-
-  return result;
 });
 
 /// Provider per le categorie delle spese di gruppo (tutte)
 final groupExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, GroupMembersExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo raggruppate per categoria
-  final expenses = await supabase
-      .from('expenses')
-      .select('category_id, amount, expense_categories(name)')
-      .eq('group_id', params.groupId)
-      .eq('is_group_expense', true)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese di gruppo raggruppate per categoria
+    final expenses = await supabase
+        .from('expenses')
+        .select('category_id, amount, expense_categories(name)')
+        .eq('group_id', params.groupId)
+        .eq('is_group_expense', true)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Raggruppa per categoria
-  final Map<String, Map<String, dynamic>> categoryTotals = {};
+    // Raggruppa per categoria
+    final Map<String, Map<String, dynamic>> categoryTotals = {};
 
-  for (final expense in expenses) {
-    final categoryId = expense['category_id'] as String?;
-    if (categoryId == null) continue;
+    for (final expense in expenses) {
+      final categoryId = expense['category_id'] as String?;
+      if (categoryId == null) continue;
 
-    final categoryData = expense['expense_categories'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String? ?? 'Sconosciuta')
-        : 'Sconosciuta';
+      final categoryData = expense['expense_categories'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String? ?? 'Sconosciuta')
+          : 'Sconosciuta';
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    if (!categoryTotals.containsKey(categoryId)) {
-      categoryTotals[categoryId] = {
-        'categoryId': categoryId,
-        'name': categoryName,
-        'total': 0,
-      };
+      if (!categoryTotals.containsKey(categoryId)) {
+        categoryTotals[categoryId] = {
+          'categoryId': categoryId,
+          'name': categoryName,
+          'total': 0,
+        };
+      }
+
+      categoryTotals[categoryId]!['total'] += amountCents;
     }
 
-    categoryTotals[categoryId]!['total'] += amountCents;
+    // Converti in lista e ordina per totale decrescente
+    final result = categoryTotals.values.toList();
+    result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    return result;
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
   }
-
-  // Converti in lista e ordina per totale decrescente
-  final result = categoryTotals.values.toList();
-  result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-
-  return result;
 });
 
 /// Provider per le categorie delle spese personali (solo dell'utente)
 final personalOnlyExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, PersonalExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali (non di gruppo) dell'utente
-  final expenses = await supabase
-      .from('expenses')
-      .select('category_id, amount, expense_categories(name)')
-      .eq('paid_by', params.userId)
-      .eq('is_group_expense', false)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese personali (non di gruppo) dell'utente
+    final expenses = await supabase
+        .from('expenses')
+        .select('category_id, amount, expense_categories(name)')
+        .eq('paid_by', params.userId)
+        .eq('is_group_expense', false)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Raggruppa per categoria
-  final Map<String, Map<String, dynamic>> categoryTotals = {};
+    // Raggruppa per categoria
+    final Map<String, Map<String, dynamic>> categoryTotals = {};
 
-  for (final expense in expenses) {
-    final categoryId = expense['category_id'] as String?;
-    if (categoryId == null) continue;
+    for (final expense in expenses) {
+      final categoryId = expense['category_id'] as String?;
+      if (categoryId == null) continue;
 
-    final categoryData = expense['expense_categories'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String? ?? 'Sconosciuta')
-        : 'Sconosciuta';
+      final categoryData = expense['expense_categories'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String? ?? 'Sconosciuta')
+          : 'Sconosciuta';
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    if (!categoryTotals.containsKey(categoryId)) {
-      categoryTotals[categoryId] = {
-        'categoryId': categoryId,
-        'name': categoryName,
-        'total': 0,
-      };
+      if (!categoryTotals.containsKey(categoryId)) {
+        categoryTotals[categoryId] = {
+          'categoryId': categoryId,
+          'name': categoryName,
+          'total': 0,
+        };
+      }
+
+      categoryTotals[categoryId]!['total'] += amountCents;
     }
 
-    categoryTotals[categoryId]!['total'] += amountCents;
+    // Converti in lista e ordina per totale decrescente
+    final result = categoryTotals.values.toList();
+    result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    return result;
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
   }
-
-  // Converti in lista e ordina per totale decrescente
-  final result = categoryTotals.values.toList();
-  result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-
-  return result;
 });
 
 /// Parameters for group category expenses provider
@@ -356,71 +399,80 @@ class GroupCategoryExpensesParams {
 /// Provider per le spese di gruppo filtrate per categoria (e opzionalmente per membro)
 final groupCategoryExpensesProvider = FutureProvider.autoDispose
     .family<List<ExpenseEntity>, GroupCategoryExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese di gruppo per categoria specifica
-  var query = supabase
-      .from('expenses')
-      .select('*, category_name:expense_categories(name)')
-      .eq('group_id', params.groupId)
-      .eq('is_group_expense', true)
-      .eq('category_id', params.categoryId)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]);
+    // Query spese di gruppo per categoria specifica
+    var query = supabase
+        .from('expenses')
+        .select('*, category_name:expense_categories(name)')
+        .eq('group_id', params.groupId)
+        .eq('is_group_expense', true)
+        .eq('category_id', params.categoryId)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0]);
 
-  // Se specificato, filtra per membro
-  if (params.memberId != null) {
-    query = query.eq('paid_by', params.memberId!);
-  }
-
-  final response = await query.order('date', ascending: false) as List;
-
-  return response.map<ExpenseEntity>((json) {
-    final categoryData = json['category_name'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String?)
-        : null;
-
-    // Parse reimbursement status
-    final statusStr = json['reimbursement_status'] as String?;
-    ReimbursementStatus status = ReimbursementStatus.none;
-    if (statusStr != null) {
-      try {
-        status = ReimbursementStatus.values.firstWhere(
-          (e) => e.toString().split('.').last == statusStr,
-          orElse: () => ReimbursementStatus.none,
-        );
-      } catch (_) {
-        status = ReimbursementStatus.none;
-      }
+    // Se specificato, filtra per membro
+    if (params.memberId != null) {
+      query = query.eq('paid_by', params.memberId!);
     }
 
-    return ExpenseEntity(
-      id: json['id'] as String,
-      amount: (json['amount'] as num).toDouble(),
-      date: DateTime.parse(json['date'] as String),
-      categoryId: json['category_id'] as String?,
-      categoryName: categoryName,
-      merchant: json['merchant'] as String?,
-      notes: json['notes'] as String?,
-      receiptUrl: json['receipt_url'] as String?,
-      createdBy: json['created_by'] as String,
-      createdByName: json['created_by_name'] as String?,
-      paidBy: json['paid_by'] as String?,
-      paidByName: json['paid_by_name'] as String?,
-      groupId: json['group_id'] as String,
-      isGroupExpense: json['is_group_expense'] as bool? ?? false,
-      paymentMethodId: json['payment_method_id'] as String,
-      paymentMethodName: json['payment_method_name'] as String?,
-      reimbursementStatus: status,
-      recurringExpenseId: json['recurring_expense_id'] as String?,
-      isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
-      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at'] as String) : null,
-      lastModifiedBy: json['last_modified_by'] as String?,
-    );
-  }).toList();
+    final response = await query.order('date', ascending: false).timeout(const Duration(seconds: 10)) as List;
+
+    return response.map<ExpenseEntity>((json) {
+      final categoryData = json['category_name'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String?)
+          : null;
+
+      // Parse reimbursement status
+      final statusStr = json['reimbursement_status'] as String?;
+      ReimbursementStatus status = ReimbursementStatus.none;
+      if (statusStr != null) {
+        try {
+          status = ReimbursementStatus.values.firstWhere(
+            (e) => e.toString().split('.').last == statusStr,
+            orElse: () => ReimbursementStatus.none,
+          );
+        } catch (_) {
+          status = ReimbursementStatus.none;
+        }
+      }
+
+      return ExpenseEntity(
+        id: json['id'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        date: DateTime.parse(json['date'] as String),
+        categoryId: json['category_id'] as String?,
+        categoryName: categoryName,
+        merchant: json['merchant'] as String?,
+        notes: json['notes'] as String?,
+        receiptUrl: json['receipt_url'] as String?,
+        createdBy: json['created_by'] as String,
+        createdByName: json['created_by_name'] as String?,
+        paidBy: json['paid_by'] as String?,
+        paidByName: json['paid_by_name'] as String?,
+        groupId: json['group_id'] as String,
+        isGroupExpense: json['is_group_expense'] as bool? ?? false,
+        paymentMethodId: json['payment_method_id'] as String,
+        paymentMethodName: json['payment_method_name'] as String?,
+        reimbursementStatus: status,
+        recurringExpenseId: json['recurring_expense_id'] as String?,
+        isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
+        createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
+        updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at'] as String) : null,
+        lastModifiedBy: json['last_modified_by'] as String?,
+      );
+    }).toList();
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
+  }
 });
 
 /// Parameters for personal category expenses provider
@@ -455,145 +507,166 @@ class PersonalCategoryExpensesParams {
 /// Provider per le spese personali filtrate per categoria
 final personalCategoryExpensesProvider = FutureProvider.autoDispose
     .family<List<ExpenseEntity>, PersonalCategoryExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali per categoria specifica
-  final response = await supabase
-      .from('expenses')
-      .select('*, category_name:expense_categories(name)')
-      .eq('paid_by', params.userId)
-      .eq('is_group_expense', false)
-      .eq('category_id', params.categoryId)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0])
-      .order('date', ascending: false) as List;
+    // Query spese personali per categoria specifica
+    final response = await supabase
+        .from('expenses')
+        .select('*, category_name:expense_categories(name)')
+        .eq('paid_by', params.userId)
+        .eq('is_group_expense', false)
+        .eq('category_id', params.categoryId)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .order('date', ascending: false)
+        .timeout(const Duration(seconds: 10)) as List;
 
-  return response.map<ExpenseEntity>((json) {
-    final categoryData = json['category_name'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String?)
-        : null;
+    return response.map<ExpenseEntity>((json) {
+      final categoryData = json['category_name'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String?)
+          : null;
 
-    // Parse reimbursement status
-    final statusStr = json['reimbursement_status'] as String?;
-    ReimbursementStatus status = ReimbursementStatus.none;
-    if (statusStr != null) {
-      try {
-        status = ReimbursementStatus.values.firstWhere(
-          (e) => e.toString().split('.').last == statusStr,
-          orElse: () => ReimbursementStatus.none,
-        );
-      } catch (_) {
-        status = ReimbursementStatus.none;
+      // Parse reimbursement status
+      final statusStr = json['reimbursement_status'] as String?;
+      ReimbursementStatus status = ReimbursementStatus.none;
+      if (statusStr != null) {
+        try {
+          status = ReimbursementStatus.values.firstWhere(
+            (e) => e.toString().split('.').last == statusStr,
+            orElse: () => ReimbursementStatus.none,
+          );
+        } catch (_) {
+          status = ReimbursementStatus.none;
+        }
       }
-    }
 
-    return ExpenseEntity(
-      id: json['id'] as String,
-      amount: (json['amount'] as num).toDouble(),
-      date: DateTime.parse(json['date'] as String),
-      categoryId: json['category_id'] as String?,
-      categoryName: categoryName,
-      merchant: json['merchant'] as String?,
-      notes: json['notes'] as String?,
-      receiptUrl: json['receipt_url'] as String?,
-      createdBy: json['created_by'] as String,
-      createdByName: json['created_by_name'] as String?,
-      paidBy: json['paid_by'] as String?,
-      paidByName: json['paid_by_name'] as String?,
-      groupId: json['group_id'] as String,
-      isGroupExpense: json['is_group_expense'] as bool? ?? false,
-      paymentMethodId: json['payment_method_id'] as String,
-      paymentMethodName: json['payment_method_name'] as String?,
-      reimbursementStatus: status,
-      recurringExpenseId: json['recurring_expense_id'] as String?,
-      isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
-      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at'] as String) : null,
-      lastModifiedBy: json['last_modified_by'] as String?,
-    );
-  }).toList();
+      return ExpenseEntity(
+        id: json['id'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        date: DateTime.parse(json['date'] as String),
+        categoryId: json['category_id'] as String?,
+        categoryName: categoryName,
+        merchant: json['merchant'] as String?,
+        notes: json['notes'] as String?,
+        receiptUrl: json['receipt_url'] as String?,
+        createdBy: json['created_by'] as String,
+        createdByName: json['created_by_name'] as String?,
+        paidBy: json['paid_by'] as String?,
+        paidByName: json['paid_by_name'] as String?,
+        groupId: json['group_id'] as String,
+        isGroupExpense: json['is_group_expense'] as bool? ?? false,
+        paymentMethodId: json['payment_method_id'] as String,
+        paymentMethodName: json['payment_method_name'] as String?,
+        reimbursementStatus: status,
+        recurringExpenseId: json['recurring_expense_id'] as String?,
+        isRecurringInstance: json['is_recurring_instance'] as bool? ?? false,
+        createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
+        updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at'] as String) : null,
+        lastModifiedBy: json['last_modified_by'] as String?,
+      );
+    }).toList();
+  } on TimeoutException {
+    return [];
+  } on SocketException {
+    return [];
+  } catch (e) {
+    if (e is HttpException) return [];
+    rethrow;
+  }
 });
 
 /// Provider per le spese personali e di gruppo raggruppate per categoria
 final personalExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, PersonalExpensesParams>((ref, params) async {
-  final supabase = Supabase.instance.client;
-  final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
+  try {
+    final supabase = Supabase.instance.client;
+    final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
 
-  // Query spese personali (pagate dall'utente)
-  // Use paid_by to include expenses created by admin on behalf of user
-  final personalExpenses = await supabase
-      .from('expenses')
-      .select('amount, category_id, expense_categories(name)')
-      .eq('paid_by', params.userId)
-      .eq('is_group_expense', false)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese personali (pagate dall'utente)
+    // Use paid_by to include expenses created by admin on behalf of user
+    final personalExpenses = await supabase
+        .from('expenses')
+        .select('amount, category_id, expense_categories(name)')
+        .eq('paid_by', params.userId)
+        .eq('is_group_expense', false)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Query spese di gruppo (pagate dall'utente)
-  // Use paid_by to include expenses created by admin on behalf of user
-  final groupExpenses = await supabase
-      .from('expenses')
-      .select('amount, category_id, expense_categories(name)')
-      .eq('paid_by', params.userId)
-      .eq('is_group_expense', true)
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]) as List;
+    // Query spese di gruppo (pagate dall'utente)
+    // Use paid_by to include expenses created by admin on behalf of user
+    final groupExpenses = await supabase
+        .from('expenses')
+        .select('amount, category_id, expense_categories(name)')
+        .eq('paid_by', params.userId)
+        .eq('is_group_expense', true)
+        .gte('date', startDate.toIso8601String().split('T')[0])
+        .lte('date', endDate.toIso8601String().split('T')[0])
+        .timeout(const Duration(seconds: 10)) as List;
 
-  // Raggruppa per categoria
-  final Map<String, dynamic> categoryTotals = {};
+    // Raggruppa per categoria
+    final Map<String, dynamic> categoryTotals = {};
 
-  // Processa spese personali
-  for (final expense in personalExpenses) {
-    final categoryId = expense['category_id'] as String?;
-    if (categoryId == null) continue;
+    // Processa spese personali
+    for (final expense in personalExpenses) {
+      final categoryId = expense['category_id'] as String?;
+      if (categoryId == null) continue;
 
-    final categoryData = expense['expense_categories'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String? ?? 'Sconosciuta')
-        : 'Sconosciuta';
+      final categoryData = expense['expense_categories'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String? ?? 'Sconosciuta')
+          : 'Sconosciuta';
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    if (!categoryTotals.containsKey(categoryId)) {
-      categoryTotals[categoryId] = {
-        'name': categoryName,
-        'personal': 0,
-        'group': 0,
-      };
+      if (!categoryTotals.containsKey(categoryId)) {
+        categoryTotals[categoryId] = {
+          'name': categoryName,
+          'personal': 0,
+          'group': 0,
+        };
+      }
+
+      categoryTotals[categoryId]['personal'] += amountCents;
     }
 
-    categoryTotals[categoryId]['personal'] += amountCents;
-  }
+    // Processa spese di gruppo
+    for (final expense in groupExpenses) {
+      final categoryId = expense['category_id'] as String?;
+      if (categoryId == null) continue;
 
-  // Processa spese di gruppo
-  for (final expense in groupExpenses) {
-    final categoryId = expense['category_id'] as String?;
-    if (categoryId == null) continue;
+      final categoryData = expense['expense_categories'];
+      final categoryName = categoryData is Map<String, dynamic>
+          ? (categoryData['name'] as String? ?? 'Sconosciuta')
+          : 'Sconosciuta';
 
-    final categoryData = expense['expense_categories'];
-    final categoryName = categoryData is Map<String, dynamic>
-        ? (categoryData['name'] as String? ?? 'Sconosciuta')
-        : 'Sconosciuta';
+      final amount = (expense['amount'] as num).toDouble();
+      final amountCents = (amount * 100).round();
 
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
+      if (!categoryTotals.containsKey(categoryId)) {
+        categoryTotals[categoryId] = {
+          'name': categoryName,
+          'personal': 0,
+          'group': 0,
+        };
+      }
 
-    if (!categoryTotals.containsKey(categoryId)) {
-      categoryTotals[categoryId] = {
-        'name': categoryName,
-        'personal': 0,
-        'group': 0,
-      };
+      categoryTotals[categoryId]['group'] += amountCents;
     }
 
-    categoryTotals[categoryId]['group'] += amountCents;
+    return categoryTotals;
+  } on TimeoutException {
+    return {};
+  } on SocketException {
+    return {};
+  } catch (e) {
+    if (e is HttpException) return {};
+    rethrow;
   }
-
-  return categoryTotals;
 });
 
 /// Widget che mostra la vista personale completa della dashboard in una singola card
