@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -46,6 +48,32 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
   static const String _groupIdKey = 'cached_group_id';
   static const String _groupDataKey = 'cached_group_data';
+
+  // Fix #30: async version of _currentUserId that falls back to cache
+  Future<String> _getCurrentUserIdAsync() async {
+    final userId = supabaseClient.auth.currentUser?.id;
+    if (userId != null) return userId;
+
+    // Try Hive user profile cache
+    try {
+      final box = Hive.box<String>('user_profile_cache');
+      final raw = box.get('cached_user_profile');
+      if (raw != null) {
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        final id = map['id'] as String?;
+        if (id != null && id.isNotEmpty) return id;
+      }
+    } catch (_) {}
+
+    // Try cached group ID as last resort for group operations
+    final cachedGroupUserId = await _getCachedGroupId();
+    if (cachedGroupUserId != null && cachedGroupUserId.isNotEmpty) {
+      // We have a cached group but no userId — cannot resolve userId this way
+      // Fall through to exception
+    }
+
+    throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+  }
 
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
@@ -127,7 +155,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   @override
   Future<FamilyGroupModel?> getCurrentGroup() async {
     try {
-      final userId = _currentUserId;
+      final userId = await _getCurrentUserIdAsync();
 
       final profileResponse = await supabaseClient
           .from('profiles')
@@ -172,7 +200,12 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
       return groupWithCount;
     } catch (e) {
-      if (e is AppAuthException) rethrow;
+      // Fix #30: AppAuthException (offline, session null) — try cache first
+      if (e is AppAuthException) {
+        final cachedGroup = await _getCachedGroupData();
+        if (cachedGroup != null) return cachedGroup;
+        rethrow;
+      }
 
       // Only fall back to cache for network errors
       if (!_isNetworkError(e)) {

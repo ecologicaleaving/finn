@@ -103,6 +103,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   Future<UserModel> getCurrentUser() async {
     final user = supabaseClient.auth.currentUser;
     if (user == null) {
+      // Fix #30: offline fallback — try Hive cache before throwing
+      final cached = await _getCachedUserProfile();
+      if (cached != null) return cached;
       throw const AppAuthException(
           'Nessun utente autenticato', 'not_authenticated');
     }

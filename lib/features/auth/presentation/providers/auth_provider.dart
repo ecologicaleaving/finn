@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/datasources/auth_remote_datasource.dart';
+import '../../data/models/user_model.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/user_entity.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -71,19 +75,41 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final AuthRepository _authRepository;
 
+  /// Try to load user from Hive cache directly (used as offline fallback)
+  Future<UserEntity?> _loadCachedUser() async {
+    try {
+      final box = Hive.box<String>('user_profile_cache');
+      final raw = box.get('cached_user_profile');
+      if (raw != null) {
+        final model = UserModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        if (model.id.isNotEmpty) return model.toEntity();
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Initialize auth state
   Future<void> _init() async {
     state = state.copyWith(status: AuthStatus.loading);
 
     final result = await _authRepository.getCurrentUser();
-    result.fold(
-      (failure) {
-        state = state.copyWith(
-          status: AuthStatus.unauthenticated,
-          user: null,
-        );
+    await result.fold(
+      (failure) async {
+        // Fix #30: before giving up, try Hive cache (handles offline/session-null case)
+        final cachedUser = await _loadCachedUser();
+        if (cachedUser != null) {
+          state = state.copyWith(
+            status: AuthStatus.authenticated,
+            user: cachedUser,
+          );
+        } else {
+          state = state.copyWith(
+            status: AuthStatus.unauthenticated,
+            user: null,
+          );
+        }
       },
-      (user) {
+      (user) async {
         state = state.copyWith(
           status: AuthStatus.authenticated,
           user: user,
