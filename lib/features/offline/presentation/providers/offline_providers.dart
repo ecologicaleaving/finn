@@ -103,7 +103,12 @@ Future<DateTime?> lastSyncTime(LastSyncTimeRef ref) async {
 }
 
 /// Provider to trigger manual sync
-@riverpod
+///
+/// Bug #2 fix: keepAlive: true — prevents auto-dispose so the connectivity
+/// listener stays active even when no widget is actively watching this provider.
+/// Without keepAlive the listener was garbage-collected and sync never fired
+/// automatically when coming back online.
+@Riverpod(keepAlive: true)
 class SyncTrigger extends _$SyncTrigger {
   @override
   FutureOr<void> build() async {
@@ -114,8 +119,9 @@ class SyncTrigger extends _$SyncTrigger {
         next.whenData((status) {
           if (status == NetworkStatus.online &&
               previous?.value != NetworkStatus.online) {
-            // Network restored - trigger sync
-            sync();
+            // Network restored - trigger sync, ignoring exponential backoff
+            // so "stuck" pending items are retried immediately (Bug #3 fix).
+            syncNow(ignoreBackoff: true);
           }
         });
       },
@@ -124,9 +130,32 @@ class SyncTrigger extends _$SyncTrigger {
 
   /// Manually trigger sync
   Future<void> sync() async {
+    await syncNow(ignoreBackoff: false);
+  }
+
+  /// Trigger sync.
+  ///
+  /// Bug #3 fix: when [ignoreBackoff] is true, reset the nextRetryAt on all
+  /// failed/pending items before processing so they are not skipped.
+  Future<void> syncNow({bool ignoreBackoff = false}) async {
     state = const AsyncLoading();
 
     try {
+      if (ignoreBackoff) {
+        // Reset backoff on all pending/failed items so isReadyToRetry() returns
+        // true for them — this unblocks expenses stuck due to backoff timers.
+        final dataSource = ref.read(offlineExpenseLocalDataSourceProvider);
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          try {
+            await dataSource.resetBackoffForPendingItems(userId);
+          } catch (e) {
+            // Non-critical — continue with normal sync even if reset fails
+            print('[SYNC] resetBackoff failed (non-critical): $e');
+          }
+        }
+      }
+
       final processor = ref.read(syncQueueProcessorProvider);
       final result = await processor.processQueue();
 

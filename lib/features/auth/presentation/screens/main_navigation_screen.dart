@@ -31,6 +31,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       // T9: Initialize SyncTrigger to activate auto-sync on connectivity change.
       // The provider's build() method sets up a listener on connectivityServiceProvider
       // that triggers sync whenever network is restored.
+      // Bug #2 fix: use ref.read to initialise; SyncTrigger is keepAlive so it
+      // stays alive for the entire app lifetime without needing a watch here.
       ref.read(syncTriggerProvider.notifier);
     });
   }
@@ -109,9 +111,14 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       // T10: Sync status banner — shown above content when offline/pending
+      // Bug #4 fix: wrap banner in SafeArea so it respects the status bar
+      // height and is not clipped behind it.
       body: Column(
         children: [
-          const SyncStatusBanner(),
+          SafeArea(
+            bottom: false,
+            child: const SyncStatusBanner(),
+          ),
           Expanded(
             child: IndexedStack(
               index: _currentIndex,

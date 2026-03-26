@@ -72,6 +72,10 @@ abstract class OfflineExpenseLocalDataSource {
 
   /// Get count of pending sync items
   Future<int> getPendingSyncCount(String userId);
+
+  /// Bug #3 fix: reset nextRetryAt on all pending/failed queue items for this
+  /// user so they are eligible for immediate retry regardless of backoff state.
+  Future<void> resetBackoffForPendingItems(String userId);
 }
 
 class OfflineExpenseLocalDataSourceImpl
@@ -279,6 +283,20 @@ class OfflineExpenseLocalDataSourceImpl
 
     final result = await query.getSingle();
     return result.read(_db.syncQueueItems.id.count()) ?? 0;
+  }
+
+  /// Bug #3 fix: clear nextRetryAt on all pending/failed queue items so that
+  /// isReadyToRetry() returns true and no expense stays blocked by backoff.
+  @override
+  Future<void> resetBackoffForPendingItems(String userId) async {
+    await (_db.update(_db.syncQueueItems)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              (tbl.syncStatus.equals('pending') |
+                  tbl.syncStatus.equals('failed'))))
+        .write(SyncQueueItemsCompanion(
+          nextRetryAt: const Value<DateTime?>(null),
+        ));
   }
 
   // ========================================================================

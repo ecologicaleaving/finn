@@ -126,6 +126,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   /// Cache datasource for read-through caching of online expenses (issue #30 fix)
   final ExpenseCacheDataSource? expenseCacheDataSource;
 
+  /// Fix bug #1 (offline-first): in-memory cache for groupId so we can read
+  /// cached expenses even when the profiles query itself fails due to no network.
+  /// Updated after every successful _currentUserGroupId fetch.
+  static String? _lastKnownGroupId;
+
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
     if (userId == null) {
@@ -135,6 +140,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   }
 
   // T5: _currentUserGroupId with 10s timeout
+  // Stores last known groupId in static field so it is available when offline.
   Future<String?> get _currentUserGroupId async {
     final userId = _currentUserId;
     final response = await supabaseClient
@@ -143,7 +149,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         .eq('id', userId)
         .single()
         .timeout(const Duration(seconds: 10));
-    return response['group_id'] as String?;
+    final groupId = response['group_id'] as String?;
+    if (groupId != null) {
+      _lastKnownGroupId = groupId; // persist for offline fallback
+    }
+    return groupId;
   }
 
   /// Returns true for network-level errors that justify cache fallback.
@@ -252,11 +262,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
       debugPrint('[OFFLINE] getExpenses network error, falling back to cache: $e');
 
+      // Bug #1 fix: groupId may be null when the profiles query itself failed
+      // due to no network — use the last known groupId instead.
+      final effectiveGroupId = groupId ?? _lastKnownGroupId;
+
       // Try read-through cache (online expenses saved when connected)
-      if (expenseCacheDataSource != null && groupId != null) {
+      if (expenseCacheDataSource != null && effectiveGroupId != null) {
         try {
           final cached = await expenseCacheDataSource!.getCachedExpenses(
-            groupId,
+            effectiveGroupId,
             startDate: startDate,
             endDate: endDate,
             categoryId: categoryId,
