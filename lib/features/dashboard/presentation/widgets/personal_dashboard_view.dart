@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +24,32 @@ import '../providers/dashboard_provider.dart';
 import 'expenses_chart_widget.dart';
 
 import '../../../../app/app_theme.dart';
+
+/// Helper per leggere cache dashboard offline
+List<Map<String, dynamic>> _readCacheList(String cacheKey) {
+  try {
+    final box = Hive.box<String>('dashboard_cache');
+    final raw = box.get(cacheKey);
+    if (raw != null) {
+      final decoded = jsonDecode(raw);
+      return (decoded as List).cast<Map<String, dynamic>>();
+    }
+  } catch (_) {}
+  return [];
+}
+
+Map<String, dynamic> _readCacheMap(String cacheKey) {
+  try {
+    final box = Hive.box<String>('dashboard_cache');
+    final raw = box.get(cacheKey);
+    if (raw != null) {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded;
+    }
+  } catch (_) {}
+  return {};
+}
+
 /// Parameters for personal expenses provider
 class PersonalExpensesParams {
   final String userId;
@@ -108,6 +136,7 @@ class GroupMembersExpensesParams {
 /// Provider per le spese di gruppo di tutti i membri
 final groupMembersExpensesProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, GroupMembersExpensesParams>((ref, params) async {
+  final cacheKey = 'groupMembers_${params.groupId}_${params.period.name}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
@@ -149,13 +178,18 @@ final groupMembersExpensesProvider = FutureProvider.autoDispose
     final result = memberTotals.values.toList();
     result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
+    // WRITE-THROUGH: salva in cache
+    try {
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(result));
+    } catch (_) {}
+
     return result;
   } on TimeoutException {
-    return [];
+    return _readCacheList(cacheKey);
   } on SocketException {
-    return [];
+    return _readCacheList(cacheKey);
   } catch (e) {
-    if (e is HttpException) return [];
+    if (e is HttpException) return _readCacheList(cacheKey);
     rethrow;
   }
 });
@@ -192,6 +226,7 @@ class MemberGroupExpensesParams {
 /// Provider per le categorie delle spese di gruppo di un membro specifico
 final memberGroupExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, MemberGroupExpensesParams>((ref, params) async {
+  final cacheKey = 'memberGroupCat_${params.groupId}_${params.memberId}_${params.period.name}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
@@ -237,13 +272,18 @@ final memberGroupExpensesByCategoryProvider = FutureProvider.autoDispose
     final result = categoryTotals.values.toList();
     result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
+    // WRITE-THROUGH: salva in cache
+    try {
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(result));
+    } catch (_) {}
+
     return result;
   } on TimeoutException {
-    return [];
+    return _readCacheList(cacheKey);
   } on SocketException {
-    return [];
+    return _readCacheList(cacheKey);
   } catch (e) {
-    if (e is HttpException) return [];
+    if (e is HttpException) return _readCacheList(cacheKey);
     rethrow;
   }
 });
@@ -251,6 +291,7 @@ final memberGroupExpensesByCategoryProvider = FutureProvider.autoDispose
 /// Provider per le categorie delle spese di gruppo (tutte)
 final groupExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, GroupMembersExpensesParams>((ref, params) async {
+  final cacheKey = 'groupCat_${params.groupId}_${params.period.name}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
@@ -295,13 +336,18 @@ final groupExpensesByCategoryProvider = FutureProvider.autoDispose
     final result = categoryTotals.values.toList();
     result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
+    // WRITE-THROUGH: salva in cache
+    try {
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(result));
+    } catch (_) {}
+
     return result;
   } on TimeoutException {
-    return [];
+    return _readCacheList(cacheKey);
   } on SocketException {
-    return [];
+    return _readCacheList(cacheKey);
   } catch (e) {
-    if (e is HttpException) return [];
+    if (e is HttpException) return _readCacheList(cacheKey);
     rethrow;
   }
 });
@@ -309,6 +355,7 @@ final groupExpensesByCategoryProvider = FutureProvider.autoDispose
 /// Provider per le categorie delle spese personali (solo dell'utente)
 final personalOnlyExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, PersonalExpensesParams>((ref, params) async {
+  final cacheKey = 'personalOnlyCat_${params.userId}_${params.period.name}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
@@ -353,13 +400,18 @@ final personalOnlyExpensesByCategoryProvider = FutureProvider.autoDispose
     final result = categoryTotals.values.toList();
     result.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
+    // WRITE-THROUGH: salva in cache
+    try {
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(result));
+    } catch (_) {}
+
     return result;
   } on TimeoutException {
-    return [];
+    return _readCacheList(cacheKey);
   } on SocketException {
-    return [];
+    return _readCacheList(cacheKey);
   } catch (e) {
-    if (e is HttpException) return [];
+    if (e is HttpException) return _readCacheList(cacheKey);
     rethrow;
   }
 });
@@ -413,6 +465,7 @@ final groupCategoryExpensesProvider = FutureProvider.autoDispose
         .gte('date', startDate.toIso8601String().split('T')[0])
         .lte('date', endDate.toIso8601String().split('T')[0]);
 
+
     // Se specificato, filtra per membro
     if (params.memberId != null) {
       query = query.eq('paid_by', params.memberId!);
@@ -420,7 +473,7 @@ final groupCategoryExpensesProvider = FutureProvider.autoDispose
 
     final response = await query.order('date', ascending: false).timeout(const Duration(seconds: 10)) as List;
 
-    return response.map<ExpenseEntity>((json) {
+    final result = response.map<ExpenseEntity>((json) {
       final categoryData = json['category_name'];
       final categoryName = categoryData is Map<String, dynamic>
           ? (categoryData['name'] as String?)
@@ -465,6 +518,8 @@ final groupCategoryExpensesProvider = FutureProvider.autoDispose
         lastModifiedBy: json['last_modified_by'] as String?,
       );
     }).toList();
+
+    return result;
   } on TimeoutException {
     return [];
   } on SocketException {
@@ -581,6 +636,7 @@ final personalCategoryExpensesProvider = FutureProvider.autoDispose
 /// Provider per le spese personali e di gruppo raggruppate per categoria
 final personalExpensesByCategoryProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, PersonalExpensesParams>((ref, params) async {
+  final cacheKey = 'personalByCat_${params.userId}_${params.period.name}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final (startDate, endDate) = _calculateDateRange(params.period, params.offset);
@@ -658,13 +714,18 @@ final personalExpensesByCategoryProvider = FutureProvider.autoDispose
       categoryTotals[categoryId]['group'] += amountCents;
     }
 
+    // WRITE-THROUGH: salva in cache
+    try {
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(categoryTotals));
+    } catch (_) {}
+
     return categoryTotals;
   } on TimeoutException {
-    return {};
+    return _readCacheMap(cacheKey);
   } on SocketException {
-    return {};
+    return _readCacheMap(cacheKey);
   } catch (e) {
-    if (e is HttpException) return {};
+    if (e is HttpException) return _readCacheMap(cacheKey);
     rethrow;
   }
 });

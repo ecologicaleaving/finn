@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,9 +14,22 @@ import '../../../../core/utils/currency_utils.dart';
 import '../../../../app/app_theme.dart';
 enum ChartPeriod { week, month, year }
 
+List<Map<String, dynamic>> _readChartCacheList(String cacheKey) {
+  try {
+    final box = Hive.box<String>('dashboard_cache');
+    final raw = box.get(cacheKey);
+    if (raw != null) {
+      final decoded = jsonDecode(raw);
+      return (decoded as List).cast<Map<String, dynamic>>();
+    }
+  } catch (_) {}
+  return [];
+}
+
 /// Provider per le spese raggruppate per periodo
 final expensesByPeriodProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, ExpenseChartParams>((ref, params) async {
+  final cacheKey = 'expensesByPeriod_${params.groupId}_${params.userId}_${params.period.name}_${params.isPersonalView}_${params.offset}';
   try {
     final supabase = Supabase.instance.client;
     final now = DateTime.now();
@@ -124,13 +139,34 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
       }
     }
 
+    // WRITE-THROUGH: salva in cache (serializza 'date' come ISO string)
+    try {
+      final serializable = result.map((e) => {
+        'label': e['label'],
+        'value': e['value'],
+        'date': (e['date'] as DateTime).toIso8601String(),
+      }).toList();
+      Hive.box<String>('dashboard_cache').put(cacheKey, jsonEncode(serializable));
+    } catch (_) {}
+
     return result;
   } on TimeoutException {
-    return [];
+    return _readChartCacheList(cacheKey).map((e) => {
+      ...e,
+      'date': e['date'] is String ? DateTime.parse(e['date'] as String) : e['date'],
+    }).toList();
   } on SocketException {
-    return [];
+    return _readChartCacheList(cacheKey).map((e) => {
+      ...e,
+      'date': e['date'] is String ? DateTime.parse(e['date'] as String) : e['date'],
+    }).toList();
   } catch (e) {
-    if (e is HttpException) return [];
+    if (e is HttpException) {
+      return _readChartCacheList(cacheKey).map((e) => {
+        ...e,
+        'date': e['date'] is String ? DateTime.parse(e['date'] as String) : e['date'],
+      }).toList();
+    }
     rethrow;
   }
 });
