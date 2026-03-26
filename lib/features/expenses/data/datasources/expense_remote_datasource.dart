@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
@@ -131,6 +132,23 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   /// Updated after every successful _currentUserGroupId fetch.
   static String? _lastKnownGroupId;
 
+  static const String _lastGroupIdHiveKey = 'expense_last_group_id';
+
+  static Future<void> _persistLastGroupId(String groupId) async {
+    try {
+      final box = Hive.box<String>('dashboard_cache');
+      await box.put(_lastGroupIdHiveKey, groupId);
+    } catch (_) {}
+  }
+
+  static Future<String?> _getPersistedGroupId() async {
+    try {
+      final box = Hive.box<String>('dashboard_cache');
+      return box.get(_lastGroupIdHiveKey);
+    } catch (_) {}
+    return null;
+  }
+
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
     if (userId == null) {
@@ -152,6 +170,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     final groupId = response['group_id'] as String?;
     if (groupId != null) {
       _lastKnownGroupId = groupId; // persist for offline fallback
+      await _persistLastGroupId(groupId);
     }
     return groupId;
   }
@@ -234,16 +253,8 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         return ExpenseModel.fromJson(json);
       }).toList();
 
-      // ✅ WRITE-THROUGH CACHE: save to Drift after every successful online fetch
-      // Only cache unfiltered (full group) fetches to keep cache coherent
-      final isUnfiltered = startDate == null &&
-          endDate == null &&
-          categoryId == null &&
-          createdBy == null &&
-          paidBy == null &&
-          reimbursementStatus == null &&
-          offset == null;
-      if (isUnfiltered && expenseCacheDataSource != null) {
+      // ✅ WRITE-THROUGH CACHE: cache ALL expenses (not just unfiltered)
+      if (expenseCacheDataSource != null) {
         try {
           await expenseCacheDataSource!.cacheExpenses(groupId, expenses);
         } catch (cacheErr) {
@@ -253,9 +264,43 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
       return expenses;
     } catch (e) {
-      // Re-throw application errors — they must bubble up to the UI
-      if (e is AppAuthException) rethrow;
-      if (e is GroupException) rethrow;
+      // AppAuthException offline → try cache before giving up
+      if (e is AppAuthException) {
+        final effectiveGroupId = groupId ?? _lastKnownGroupId ?? await _getPersistedGroupId();
+        if (expenseCacheDataSource != null && effectiveGroupId != null) {
+          try {
+            final cached = await expenseCacheDataSource!.getCachedExpenses(
+              effectiveGroupId,
+              startDate: startDate,
+              endDate: endDate,
+              categoryId: categoryId,
+              createdBy: createdBy,
+              limit: limit,
+              offset: offset,
+            );
+            if (cached.isNotEmpty) return cached;
+          } catch (_) {}
+        }
+        rethrow;
+      }
+      if (e is GroupException) {
+        final effectiveGroupId = groupId ?? _lastKnownGroupId ?? await _getPersistedGroupId();
+        if (expenseCacheDataSource != null && effectiveGroupId != null) {
+          try {
+            final cached = await expenseCacheDataSource!.getCachedExpenses(
+              effectiveGroupId,
+              startDate: startDate,
+              endDate: endDate,
+              categoryId: categoryId,
+              createdBy: createdBy,
+              limit: limit,
+              offset: offset,
+            );
+            if (cached.isNotEmpty) return cached;
+          } catch (_) {}
+        }
+        rethrow;
+      }
 
       // Only fall back to cache on genuine network/timeout errors
       if (!_isNetworkError(e)) rethrow;
@@ -264,7 +309,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
       // Bug #1 fix: groupId may be null when the profiles query itself failed
       // due to no network — use the last known groupId instead.
-      final effectiveGroupId = groupId ?? _lastKnownGroupId;
+      final effectiveGroupId = groupId ?? _lastKnownGroupId ?? await _getPersistedGroupId();
 
       // Try read-through cache (online expenses saved when connected)
       if (expenseCacheDataSource != null && effectiveGroupId != null) {
