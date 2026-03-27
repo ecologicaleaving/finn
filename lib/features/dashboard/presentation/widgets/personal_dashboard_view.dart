@@ -668,7 +668,7 @@ class _PersonalDashboardViewState extends ConsumerState<PersonalDashboardView> {
             // Istogramma spese per membro del gruppo
             GroupMembersExpensesChart(
               groupId: group.id,
-              period: dashboardState.period.name,
+              period: dashboardState.period,
               offset: dashboardState.offset,
             ),
             const SizedBox(height: 24),
