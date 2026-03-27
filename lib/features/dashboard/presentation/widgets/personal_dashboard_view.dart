@@ -17,6 +17,7 @@ import '../../../groups/presentation/providers/group_provider.dart';
 import '../../domain/entities/dashboard_stats_entity.dart';
 import '../providers/dashboard_provider.dart';
 import 'expenses_chart_widget.dart';
+import 'group_members_expenses_chart.dart';
 
 import '../../../../app/app_theme.dart';
 /// Parameters for personal expenses provider
@@ -663,6 +664,14 @@ class _PersonalDashboardViewState extends ConsumerState<PersonalDashboardView> {
               offset: dashboardState.offset,
             ),
             const SizedBox(height: 16),
+
+            // Istogramma spese per membro del gruppo
+            GroupMembersExpensesChart(
+              groupId: group.id,
+              period: dashboardState.period,
+              offset: dashboardState.offset,
+            ),
+            const SizedBox(height: 24),
 
             // Card utenti espandibili (me per primo, poi altri)
             _MembersCards(
