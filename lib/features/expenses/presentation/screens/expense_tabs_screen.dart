@@ -133,9 +133,6 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
                     ),
                   ),
 
-                // Category summary (collapsible)
-                if (listState.expenses.isNotEmpty)
-                  ExpenseCategorySummary(expenses: listState.expenses),
               ],
             ),
           ),
