@@ -82,59 +82,63 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
       ),
       body: Column(
         children: [
-          // Filter chips
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          // Filter chips + Legend (scrollable if needed)
+          SingleChildScrollView(
+            child: Column(
               children: [
-                _FilterChip(
-                  label: 'Tutte',
-                  isSelected: _selectedFilter == ExpenseFilter.all,
-                  onTap: () => _applyFilter(ExpenseFilter.all),
+                // Filter chips
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _FilterChip(
+                        label: 'Tutte',
+                        isSelected: _selectedFilter == ExpenseFilter.all,
+                        onTap: () => _applyFilter(ExpenseFilter.all),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: 'Personali',
+                        isSelected: _selectedFilter == ExpenseFilter.personal,
+                        onTap: () => _applyFilter(ExpenseFilter.personal),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: 'Di Gruppo',
+                        isSelected: _selectedFilter == ExpenseFilter.group,
+                        onTap: () => _applyFilter(ExpenseFilter.group),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Personali',
-                  isSelected: _selectedFilter == ExpenseFilter.personal,
-                  onTap: () => _applyFilter(ExpenseFilter.personal),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Di Gruppo',
-                  isSelected: _selectedFilter == ExpenseFilter.group,
-                  onTap: () => _applyFilter(ExpenseFilter.group),
-                ),
+
+                // Legend for expense types (shown only when filter == all)
+                if (_selectedFilter == ExpenseFilter.all)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _LegendItem(
+                          color: AppColors.personalExpenseColor,
+                          label: 'Personali',
+                        ),
+                        const SizedBox(width: 24),
+                        _LegendItem(
+                          color: AppColors.groupExpenseColor,
+                          label: 'Di Gruppo',
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Category summary (collapsible)
+                if (listState.expenses.isNotEmpty)
+                  ExpenseCategorySummary(expenses: listState.expenses),
               ],
             ),
           ),
-
-          // Legend for expense types (shown only when filter == all)
-          if (_selectedFilter == ExpenseFilter.all)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _LegendItem(
-                    color: AppColors.personalExpenseColor,
-                    label: 'Personali',
-                  ),
-                  const SizedBox(width: 24),
-                  _LegendItem(
-                    color: AppColors.groupExpenseColor,
-                    label: 'Di Gruppo',
-                  ),
-                ],
-              ),
-            ),
-
-          // Category summary with constrained height
-          if (listState.expenses.isNotEmpty)
-            SizedBox(
-              height: 120,
-              child: ExpenseCategorySummary(expenses: listState.expenses),
-            ),
 
           // Expense list with month grouping
           Expanded(
