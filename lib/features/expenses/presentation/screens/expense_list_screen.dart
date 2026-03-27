@@ -20,9 +20,11 @@ class ExpenseListScreen extends ConsumerStatefulWidget {
   const ExpenseListScreen({
     super.key,
     this.showGroupExpensesOnly,
+    this.filterMode = 'personal',
   });
 
   final bool? showGroupExpensesOnly;
+  final String filterMode;
 
   @override
   ConsumerState<ExpenseListScreen> createState() => _ExpenseListScreenState();
@@ -185,6 +187,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
                             child: ExpenseListItem(
                               expense: expense,
                               onTap: () => context.push('/expense/${expense.id}'),
+                              filterMode: widget.filterMode,
                             ),
                           ),
                           if (index < monthExpenses.length - 1)

@@ -57,6 +57,10 @@ class AppColors {
   static const categoryEntertainment = NewColors.AppColors.sageGreen;
   static const categoryClothing = NewColors.AppColors.terracotta;
 
+  // Expense type colors (#36)
+  static const groupExpenseColor = NewColors.AppColors.mistyBlue;     // Blue for group expenses
+  static const personalExpenseColor = NewColors.AppColors.sageGreen;  // Green for personal expenses
+
   // Dark theme (keep same for now)
   static const darkSurface = Color(0xFF1A1815);
   static const darkCard = Color(0xFF2A2520);

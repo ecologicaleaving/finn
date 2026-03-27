@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../app/app_theme.dart';
 import '../../../../core/services/icon_matching_service.dart';
 import '../../../../shared/widgets/reimbursement_status_badge.dart';
 import '../../domain/entities/expense_entity.dart';
@@ -11,10 +12,12 @@ class ExpenseListItem extends StatelessWidget {
     super.key,
     required this.expense,
     required this.onTap,
+    this.filterMode = 'personal', // 'personal', 'group', or 'all'
   });
 
   final ExpenseEntity expense;
   final VoidCallback onTap;
+  final String filterMode;
 
   String _formatRelativeDate(DateTime date) {
     final now = DateTime.now();
@@ -59,10 +62,24 @@ class ExpenseListItem extends StatelessWidget {
     if (paidBy.isNotEmpty) items.add(_InfoItem(Icons.person, paidBy));
     if (notes.isNotEmpty) items.add(_InfoItem(Icons.notes, notes));
 
+    // Determina il colore del border in base al filterMode
+    Color? borderColor;
+    if (filterMode == 'all') {
+      borderColor = expense.isGroupExpense
+          ? AppColors.groupExpenseColor
+          : AppColors.personalExpenseColor;
+    }
+
     return InkWell(
       onTap: onTap,
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+        shape: borderColor != null
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: borderColor, width: 3),
+              )
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Column(

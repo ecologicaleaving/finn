@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/app_theme.dart';
 import '../providers/expense_provider.dart';
 import '../widgets/expense_category_summary.dart';
 import 'expense_list_screen.dart';
@@ -109,9 +110,16 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
           if (listState.expenses.isNotEmpty)
             ExpenseCategorySummary(expenses: listState.expenses),
 
+          // Legend for 'all' filter (#36)
+          if (_selectedFilter == ExpenseFilter.all)
+            _ExpenseTypeLegend(),
+
           // Expense list with month grouping
-          const Expanded(
-            child: ExpenseListScreen(showGroupExpensesOnly: null),
+          Expanded(
+            child: ExpenseListScreen(
+              showGroupExpensesOnly: null,
+              filterMode: _selectedFilter.name,
+            ),
           ),
         ],
       ),
@@ -161,6 +169,67 @@ class _FilterChip extends StatelessWidget {
             fontSize: 14,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Legend widget for expense types (visible only when filter == 'all')
+class _ExpenseTypeLegend extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Personal expenses legend
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: AppColors.personalExpenseColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Personali',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 24),
+          // Group expenses legend
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: AppColors.groupExpenseColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Di Gruppo',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
