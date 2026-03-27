@@ -13,6 +13,13 @@ class OfflineExpenseEntity extends Equatable {
   final String? merchant;
   final String? notes;
   final bool isGroupExpense;
+  
+  // Reimbursement v2 fields
+  final String? reimbursableToLabel;
+  final String? reimbursableToUserId;
+  final double? reimbursableAmount;
+  final String? reimbursementNote;
+  
   final String? localReceiptPath;
   final int? receiptImageSize;
   final String syncStatus; // 'pending', 'syncing', 'completed', 'failed', 'conflict'
@@ -33,6 +40,10 @@ class OfflineExpenseEntity extends Equatable {
     this.merchant,
     this.notes,
     required this.isGroupExpense,
+    this.reimbursableToLabel,
+    this.reimbursableToUserId,
+    this.reimbursableAmount,
+    this.reimbursementNote,
     this.localReceiptPath,
     this.receiptImageSize,
     required this.syncStatus,
@@ -55,6 +66,10 @@ class OfflineExpenseEntity extends Equatable {
     String? merchant,
     String? notes,
     bool? isGroupExpense,
+    String? reimbursableToLabel,
+    String? reimbursableToUserId,
+    double? reimbursableAmount,
+    String? reimbursementNote,
     String? localReceiptPath,
     int? receiptImageSize,
     String? syncStatus,
@@ -75,6 +90,10 @@ class OfflineExpenseEntity extends Equatable {
       merchant: merchant ?? this.merchant,
       notes: notes ?? this.notes,
       isGroupExpense: isGroupExpense ?? this.isGroupExpense,
+      reimbursableToLabel: reimbursableToLabel ?? this.reimbursableToLabel,
+      reimbursableToUserId: reimbursableToUserId ?? this.reimbursableToUserId,
+      reimbursableAmount: reimbursableAmount ?? this.reimbursableAmount,
+      reimbursementNote: reimbursementNote ?? this.reimbursementNote,
       localReceiptPath: localReceiptPath ?? this.localReceiptPath,
       receiptImageSize: receiptImageSize ?? this.receiptImageSize,
       syncStatus: syncStatus ?? this.syncStatus,

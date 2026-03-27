@@ -49,6 +49,12 @@ class OfflineExpenses extends Table {
       .check(reimbursementStatus.isIn(['none', 'reimbursable', 'reimbursed']))();
   DateTimeColumn get reimbursedAt => dateTime().nullable()();
 
+  // Reimbursement v2 fields (Feature 040-rimborsi-v2)
+  TextColumn get reimbursableToLabel => text().nullable()(); // Nome di chi deve rimborsare
+  TextColumn get reimbursableToUserId => text().nullable()(); // FK all'utente
+  RealColumn get reimbursableAmount => real().nullable()(); // Importo rimborso
+  TextColumn get reimbursementNote => text().nullable()(); // Note rimborso
+
   // Recurring expense tracking (Feature 013-recurring-expenses)
   TextColumn get recurringExpenseId => text().nullable()(); // References recurring_expenses(id)
   BoolColumn get isRecurringInstance => boolean().withDefault(const Constant(false))(); // Whether this expense was auto-generated from a template
@@ -197,7 +203,7 @@ class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -223,6 +229,13 @@ class OfflineDatabase extends _$OfflineDatabase {
         // Add recurring expense fields to OfflineExpenses
         await m.addColumn(offlineExpenses, offlineExpenses.recurringExpenseId);
         await m.addColumn(offlineExpenses, offlineExpenses.isRecurringInstance);
+      }
+      if (from < 5) {
+        // Add reimbursement v2 fields (Issue #40)
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableToLabel);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableToUserId);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableAmount);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursementNote);
       }
     },
   );
