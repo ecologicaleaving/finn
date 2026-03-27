@@ -391,7 +391,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       }
       if (merchant != null) updates['merchant'] = merchant;
       if (notes != null) updates['notes'] = notes;
-      if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value; // T048
+      if (reimbursementStatus != null) {
+        updates['reimbursement_status'] = reimbursementStatus.value; // T048
+        // Set reimbursed_at when marking as reimbursed; clear it otherwise
+        if (reimbursementStatus == ReimbursementStatus.reimbursed) {
+          updates['reimbursed_at'] = DateTime.now().toUtc().toIso8601String();
+        } else {
+          updates['reimbursed_at'] = null;
+        }
+      }
       if (reimbursableToLabel != null) updates['reimbursable_to_label'] = reimbursableToLabel;
       if (reimbursableToUserId != null) updates['reimbursable_to_user_id'] = reimbursableToUserId;
       if (reimbursableAmount != null) updates['reimbursable_amount'] = reimbursableAmount;

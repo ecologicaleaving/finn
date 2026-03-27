@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../app/routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../categories/presentation/widgets/category_dropdown.dart';
@@ -77,6 +79,11 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             icon: const Icon(Icons.filter_alt_outlined),
             onPressed: () => _showFilterDialog(context),
             tooltip: 'Filtra',
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            onPressed: () => context.push(AppRoutes.reimbursements),
+            tooltip: 'Rimborsi',
           ),
         ],
       ),
