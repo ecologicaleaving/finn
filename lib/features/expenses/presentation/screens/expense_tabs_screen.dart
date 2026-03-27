@@ -137,11 +137,29 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             ),
           ),
 
-          // Expense list with month grouping
+          // Category summary + Expense list
           Expanded(
-            child: ExpenseListScreen(
-              showGroupExpensesOnly: null,
-              filterMode: _selectedFilter.name,
+            child: Column(
+              children: [
+                // Category summary (flexible height, max 200)
+                if (listState.expenses.isNotEmpty)
+                  Flexible(
+                    flex: 0,
+                    fit: FlexFit.loose,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: ExpenseCategorySummary(expenses: listState.expenses),
+                    ),
+                  ),
+
+                // Expense list with month grouping
+                Expanded(
+                  child: ExpenseListScreen(
+                    showGroupExpensesOnly: null,
+                    filterMode: _selectedFilter.name,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
