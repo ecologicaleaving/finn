@@ -572,41 +572,41 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       throw ServerException(e.message, e.code);
     } catch (e) {
       debugPrint('❌ CREATE EXPENSE: Exception - ${e.toString()}');
-      // Try offline save for ANY error (including auth/group offline errors)
-      final offline = offlineLocalDataSource;
-      if (offline != null) {
-        // Try multiple sources for userId
-        String? userId = supabaseClient.auth.currentUser?.id;
-        if (userId == null) {
-          // Try Hive user profile cache
-          try {
-            final box = Hive.box<String>('user_profile_cache');
-            final raw = box.get('cached_user_profile');
-            if (raw != null) {
-              final map = jsonDecode(raw) as Map<String, dynamic>;
-              userId = map['id'] as String?;
+      // Only try offline save for network/auth/group errors (not app logic errors)
+      if (e is AppAuthException || e is GroupException || _isNetworkError(e)) {
+        final offline = offlineLocalDataSource;
+        if (offline != null) {
+          // Try multiple sources for userId
+          String? userId = supabaseClient.auth.currentUser?.id;
+          if (userId == null) {
+            try {
+              final box = Hive.box<String>('user_profile_cache');
+              final raw = box.get('cached_user_profile');
+              if (raw != null) {
+                final map = jsonDecode(raw) as Map<String, dynamic>;
+                userId = map['id'] as String?;
+              }
+            } catch (_) {}
+          }
+          if (userId != null) {
+            try {
+              final offlineEntity = await offline.createOfflineExpense(
+                userId: userId,
+                amount: amount,
+                date: date,
+                categoryId: categoryId,
+                merchant: merchant,
+                notes: notes,
+                isGroupExpense: isGroupExpense,
+              );
+              debugPrint('[OFFLINE] Expense saved locally, id=${offlineEntity.id}');
+              return _offlineEntityToModel(offlineEntity, userId);
+            } catch (offlineErr) {
+              debugPrint('❌ CREATE EXPENSE offline fallback failed: $offlineErr');
             }
-          } catch (_) {}
-        }
-        if (userId != null) {
-          try {
-            final offlineEntity = await offline.createOfflineExpense(
-              userId: userId,
-              amount: amount,
-              date: date,
-              categoryId: categoryId,
-              merchant: merchant,
-              notes: notes,
-              isGroupExpense: isGroupExpense,
-            );
-            debugPrint('[OFFLINE] Expense saved locally, id=${offlineEntity.id}');
-            return _offlineEntityToModel(offlineEntity, userId);
-          } catch (offlineErr) {
-            debugPrint('❌ CREATE EXPENSE offline fallback failed: $offlineErr');
           }
         }
       }
-      // Only rethrow if offline save wasn't possible
       if (e is AppAuthException || e is GroupException) rethrow;
       throw ServerException(e.toString());
     }
