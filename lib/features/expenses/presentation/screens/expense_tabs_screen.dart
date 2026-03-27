@@ -129,9 +129,12 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
               ),
             ),
 
-          // Category summary
+          // Category summary with constrained height
           if (listState.expenses.isNotEmpty)
-            ExpenseCategorySummary(expenses: listState.expenses),
+            SizedBox(
+              height: 120,
+              child: ExpenseCategorySummary(expenses: listState.expenses),
+            ),
 
           // Expense list with month grouping
           Expanded(
