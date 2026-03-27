@@ -49,6 +49,12 @@ class OfflineExpenses extends Table {
       .check(reimbursementStatus.isIn(['none', 'reimbursable', 'reimbursed']))();
   DateTimeColumn get reimbursedAt => dateTime().nullable()();
 
+  // Reimbursement v2 fields (Issue #40)
+  TextColumn get reimbursableToLabel => text().nullable()(); // Display label of recipient
+  TextColumn get reimbursableToUserId => text().nullable()(); // UUID of recipient user
+  RealColumn get reimbursableAmount => real().nullable()(); // Amount to reimburse
+  TextColumn get reimbursementNote => text().nullable()(); // Optional note for reimbursement
+
   // Recurring expense tracking (Feature 013-recurring-expenses)
   TextColumn get recurringExpenseId => text().nullable()(); // References recurring_expenses(id)
   BoolColumn get isRecurringInstance => boolean().withDefault(const Constant(false))(); // Whether this expense was auto-generated from a template
@@ -242,7 +248,7 @@ class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -272,6 +278,13 @@ class OfflineDatabase extends _$OfflineDatabase {
       if (from < 5) {
         // Add CachedExpenses table for offline read cache (issue #30 fix)
         await m.createTable(cachedExpenses);
+      }
+      if (from < 6) {
+        // Add reimbursement v2 fields to OfflineExpenses (issue #40)
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableToLabel);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableToUserId);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursableAmount);
+        await m.addColumn(offlineExpenses, offlineExpenses.reimbursementNote);
       }
     },
   );

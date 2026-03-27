@@ -24,6 +24,10 @@ abstract class OfflineExpenseLocalDataSource {
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    String? reimbursableToLabel,
+    String? reimbursableToUserId,
+    double? reimbursableAmount,
+    String? reimbursementNote,
   });
 
   /// Get all offline expenses for current user
@@ -94,6 +98,10 @@ class OfflineExpenseLocalDataSourceImpl
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    String? reimbursableToLabel,
+    String? reimbursableToUserId,
+    double? reimbursableAmount,
+    String? reimbursementNote,
   }) async {
     final expenseId = _uuid.v4();
     final now = DateTime.now();
@@ -111,6 +119,10 @@ class OfflineExpenseLocalDataSourceImpl
       syncStatus: 'pending',
       localCreatedAt: now,
       localUpdatedAt: now,
+      reimbursableToLabel: Value(reimbursableToLabel),
+      reimbursableToUserId: Value(reimbursableToUserId),
+      reimbursableAmount: Value(reimbursableAmount),
+      reimbursementNote: Value(reimbursementNote),
     );
 
     await _db.into(_db.offlineExpenses).insert(companion);
@@ -125,6 +137,10 @@ class OfflineExpenseLocalDataSourceImpl
       'notes': notes,
       'is_group_expense': isGroupExpense,
       'created_at': now.toIso8601String(),
+      if (reimbursableToLabel != null) 'reimbursable_to_label': reimbursableToLabel,
+      if (reimbursableToUserId != null) 'reimbursable_to_user_id': reimbursableToUserId,
+      if (reimbursableAmount != null) 'reimbursable_amount': reimbursableAmount,
+      if (reimbursementNote != null) 'reimbursement_note': reimbursementNote,
     };
 
     await addToSyncQueue(
@@ -295,6 +311,10 @@ class OfflineExpenseLocalDataSourceImpl
     String? merchant,
     String? notes,
     bool? isGroupExpense,
+    String? reimbursableToLabel,
+    String? reimbursableToUserId,
+    double? reimbursableAmount,
+    String? reimbursementNote,
   }) async {
     final now = DateTime.now();
 
@@ -308,6 +328,10 @@ class OfflineExpenseLocalDataSourceImpl
       isGroupExpense: isGroupExpense != null ? Value(isGroupExpense) : const Value.absent(),
       localUpdatedAt: Value(now),
       syncStatus: const Value('pending'), // Reset to pending
+      reimbursableToLabel: reimbursableToLabel != null ? Value(reimbursableToLabel) : const Value.absent(),
+      reimbursableToUserId: reimbursableToUserId != null ? Value(reimbursableToUserId) : const Value.absent(),
+      reimbursableAmount: reimbursableAmount != null ? Value(reimbursableAmount) : const Value.absent(),
+      reimbursementNote: reimbursementNote != null ? Value(reimbursementNote) : const Value.absent(),
     );
 
     // Update offline expense
@@ -334,6 +358,10 @@ class OfflineExpenseLocalDataSourceImpl
         'notes': updated.notes,
         'is_group_expense': updated.isGroupExpense,
         'client_updated_at': now.toIso8601String(),
+        if (updated.reimbursableToLabel != null) 'reimbursable_to_label': updated.reimbursableToLabel,
+        if (updated.reimbursableToUserId != null) 'reimbursable_to_user_id': updated.reimbursableToUserId,
+        if (updated.reimbursableAmount != null) 'reimbursable_amount': updated.reimbursableAmount,
+        if (updated.reimbursementNote != null) 'reimbursement_note': updated.reimbursementNote,
       },
     );
 

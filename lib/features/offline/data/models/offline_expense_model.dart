@@ -29,6 +29,10 @@ class OfflineExpenseModel {
       serverVersionData: driftData.serverVersionData,
       localCreatedAt: driftData.localCreatedAt,
       localUpdatedAt: driftData.localUpdatedAt,
+      reimbursableToLabel: driftData.reimbursableToLabel,
+      reimbursableToUserId: driftData.reimbursableToUserId,
+      reimbursableAmount: driftData.reimbursableAmount,
+      reimbursementNote: driftData.reimbursementNote,
     );
   }
 
@@ -53,6 +57,10 @@ class OfflineExpenseModel {
       serverVersionData: drift.Value(entity.serverVersionData),
       localCreatedAt: entity.localCreatedAt,
       localUpdatedAt: entity.localUpdatedAt,
+      reimbursableToLabel: drift.Value(entity.reimbursableToLabel),
+      reimbursableToUserId: drift.Value(entity.reimbursableToUserId),
+      reimbursableAmount: drift.Value(entity.reimbursableAmount),
+      reimbursementNote: drift.Value(entity.reimbursementNote),
     );
   }
 
@@ -79,6 +87,10 @@ class OfflineExpenseModel {
       serverVersionData: drift.Value(entity.serverVersionData),
       localCreatedAt: drift.Value(entity.localCreatedAt),
       localUpdatedAt: drift.Value(entity.localUpdatedAt),
+      reimbursableToLabel: drift.Value(entity.reimbursableToLabel),
+      reimbursableToUserId: drift.Value(entity.reimbursableToUserId),
+      reimbursableAmount: drift.Value(entity.reimbursableAmount),
+      reimbursementNote: drift.Value(entity.reimbursementNote),
     );
   }
 }

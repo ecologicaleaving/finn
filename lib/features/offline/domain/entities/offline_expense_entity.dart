@@ -24,6 +24,12 @@ class OfflineExpenseEntity extends Equatable {
   final DateTime localCreatedAt;
   final DateTime localUpdatedAt;
 
+  // Reimbursement v2 fields (Issue #40)
+  final String? reimbursableToLabel;
+  final String? reimbursableToUserId;
+  final double? reimbursableAmount;
+  final String? reimbursementNote;
+
   const OfflineExpenseEntity({
     required this.id,
     required this.userId,
@@ -43,6 +49,10 @@ class OfflineExpenseEntity extends Equatable {
     this.serverVersionData,
     required this.localCreatedAt,
     required this.localUpdatedAt,
+    this.reimbursableToLabel,
+    this.reimbursableToUserId,
+    this.reimbursableAmount,
+    this.reimbursementNote,
   });
 
   /// Create a copy with updated fields
@@ -65,6 +75,10 @@ class OfflineExpenseEntity extends Equatable {
     String? serverVersionData,
     DateTime? localCreatedAt,
     DateTime? localUpdatedAt,
+    String? reimbursableToLabel,
+    String? reimbursableToUserId,
+    double? reimbursableAmount,
+    String? reimbursementNote,
   }) {
     return OfflineExpenseEntity(
       id: id ?? this.id,
@@ -85,6 +99,10 @@ class OfflineExpenseEntity extends Equatable {
       serverVersionData: serverVersionData ?? this.serverVersionData,
       localCreatedAt: localCreatedAt ?? this.localCreatedAt,
       localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+      reimbursableToLabel: reimbursableToLabel ?? this.reimbursableToLabel,
+      reimbursableToUserId: reimbursableToUserId ?? this.reimbursableToUserId,
+      reimbursableAmount: reimbursableAmount ?? this.reimbursableAmount,
+      reimbursementNote: reimbursementNote ?? this.reimbursementNote,
     );
   }
 
@@ -133,5 +151,9 @@ class OfflineExpenseEntity extends Equatable {
         serverVersionData,
         localCreatedAt,
         localUpdatedAt,
+        reimbursableToLabel,
+        reimbursableToUserId,
+        reimbursableAmount,
+        reimbursementNote,
       ];
 }
