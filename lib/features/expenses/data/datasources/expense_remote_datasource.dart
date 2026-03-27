@@ -540,7 +540,17 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       // T8: write-through — if server write fails, save offline
       final offline = offlineLocalDataSource;
       if (offline != null) {
-        final userId = supabaseClient.auth.currentUser?.id;
+        String? userId = supabaseClient.auth.currentUser?.id;
+        if (userId == null) {
+          try {
+            final box = Hive.box<String>('user_profile_cache');
+            final raw = box.get('cached_user_profile');
+            if (raw != null) {
+              final map = jsonDecode(raw) as Map<String, dynamic>;
+              userId = map['id'] as String?;
+            }
+          } catch (_) {}
+        }
         if (userId != null) {
           try {
             final offlineEntity = await offline.createOfflineExpense(
@@ -562,11 +572,22 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       throw ServerException(e.message, e.code);
     } catch (e) {
       debugPrint('❌ CREATE EXPENSE: Exception - ${e.toString()}');
-      if (e is AppAuthException || e is GroupException) rethrow;
-      // T8: write-through — if server write fails, save offline
+      // Try offline save for ANY error (including auth/group offline errors)
       final offline = offlineLocalDataSource;
       if (offline != null) {
-        final userId = supabaseClient.auth.currentUser?.id;
+        // Try multiple sources for userId
+        String? userId = supabaseClient.auth.currentUser?.id;
+        if (userId == null) {
+          // Try Hive user profile cache
+          try {
+            final box = Hive.box<String>('user_profile_cache');
+            final raw = box.get('cached_user_profile');
+            if (raw != null) {
+              final map = jsonDecode(raw) as Map<String, dynamic>;
+              userId = map['id'] as String?;
+            }
+          } catch (_) {}
+        }
         if (userId != null) {
           try {
             final offlineEntity = await offline.createOfflineExpense(
@@ -585,6 +606,8 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           }
         }
       }
+      // Only rethrow if offline save wasn't possible
+      if (e is AppAuthException || e is GroupException) rethrow;
       throw ServerException(e.toString());
     }
   }
