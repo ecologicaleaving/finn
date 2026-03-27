@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../categories/presentation/widgets/category_dropdown.dart';
 import '../providers/expense_provider.dart';
@@ -108,16 +109,72 @@ class _ExpenseTabsScreenState extends ConsumerState<ExpenseTabsScreen> {
             ),
           ),
 
+          // Legend for expense types (shown only when filter == all)
+          if (_selectedFilter == ExpenseFilter.all)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _LegendItem(
+                    color: AppColors.personalExpenseColor,
+                    label: 'Personali',
+                  ),
+                  const SizedBox(width: 24),
+                  _LegendItem(
+                    color: AppColors.groupExpenseColor,
+                    label: 'Di Gruppo',
+                  ),
+                ],
+              ),
+            ),
+
           // Category summary
           if (listState.expenses.isNotEmpty)
             ExpenseCategorySummary(expenses: listState.expenses),
 
           // Expense list with month grouping
-          const Expanded(
-            child: ExpenseListScreen(showGroupExpensesOnly: null),
+          Expanded(
+            child: ExpenseListScreen(
+              showGroupExpensesOnly: null,
+              filterMode: _selectedFilter.name,
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Legend item widget showing color indicator and label
+class _LegendItem extends StatelessWidget {
+  const _LegendItem({
+    required this.color,
+    required this.label,
+  });
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }

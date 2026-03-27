@@ -40,6 +40,12 @@ class AppColors {
   static const Color error = softCoral;
   static const Color info = mistyBlue;
 
+  // Expense Type Colors
+  /// Personal expenses color (green tones)
+  static const Color personalExpenseColor = sageGreen;
+  /// Group expenses color (blue tones)
+  static const Color groupExpenseColor = mistyBlue;
+
   // Backgrounds
   static const Color bgPrimary = cream;
   static const Color bgSecondary = warmSand;
