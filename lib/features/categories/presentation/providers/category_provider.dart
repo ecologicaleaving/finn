@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -87,41 +86,16 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
       final result = await _repository.getCategories(
         groupId: _groupId,
         includeExpenseCount: includeExpenseCount,
-      );
+      ).timeout(const Duration(seconds: 10));
 
       result.fold(
         (failure) async {
-          // Check if this is a network error
-          if (_isNetworkError(failure.message)) {
-            // Try to load from cache first
-            final cachedCategories = await _loadFromCache();
-
-            if (cachedCategories.isNotEmpty) {
-              // Use cached categories (includes custom categories!)
-              state = state.copyWith(
-                categories: cachedCategories,
-                isLoading: false,
-                errorMessage: null,
-              );
-            } else {
-              // No cache, use default Italian categories as last resort
-              state = state.copyWith(
-                categories: _getOfflineFallbackCategories(),
-                isLoading: false,
-                errorMessage: null,
-              );
-            }
-          } else {
-            state = state.copyWith(
-              isLoading: false,
-              errorMessage: failure.message,
-            );
-          }
+          // ANY failure → try cache first, then Italian defaults
+          await _loadWithFallback();
         },
         (categories) {
           // Successfully loaded from server - cache them for offline use
           _cacheDataSource.cacheCategories(_groupId, categories).catchError((e) {
-            // Cache failed but still show categories
             print('Failed to cache categories: $e');
           });
 
@@ -132,35 +106,29 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
         },
       );
     } catch (e) {
-      // Check if this is a network-related exception
-      if (e is SocketException ||
-          e.toString().contains('SocketException') ||
-          e.toString().contains('Failed host lookup') ||
-          e.toString().contains('ClientException')) {
-        // Try to load from cache first
-        final cachedCategories = await _loadFromCache();
+      // Timeout or any other exception → try cache first, then defaults
+      print('Category loading error: $e');
+      await _loadWithFallback();
+    }
+  }
 
-        if (cachedCategories.isNotEmpty) {
-          // Use cached categories (includes custom categories!)
-          state = state.copyWith(
-            categories: cachedCategories,
-            isLoading: false,
-            errorMessage: null,
-          );
-        } else {
-          // No cache, use default Italian categories as last resort
-          state = state.copyWith(
-            categories: _getOfflineFallbackCategories(),
-            isLoading: false,
-            errorMessage: null,
-          );
-        }
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          errorMessage: 'Failed to load categories: $e',
-        );
-      }
+  /// Fallback: try cache, then Italian defaults. Never leaves state empty.
+  Future<void> _loadWithFallback() async {
+    final cachedCategories = await _loadFromCache();
+
+    if (cachedCategories.isNotEmpty) {
+      state = state.copyWith(
+        categories: cachedCategories,
+        isLoading: false,
+        errorMessage: null,
+      );
+    } else {
+      // No cache available — use Italian defaults as last resort
+      state = state.copyWith(
+        categories: _getOfflineFallbackCategories(),
+        isLoading: false,
+        errorMessage: null,
+      );
     }
   }
 
@@ -172,15 +140,6 @@ class CategoryNotifier extends StateNotifier<CategoryState> {
       // If cache fails, return empty list
       return [];
     }
-  }
-
-  /// Check if error message indicates a network error
-  bool _isNetworkError(String? message) {
-    if (message == null) return false;
-    return message.contains('SocketException') ||
-        message.contains('Failed host lookup') ||
-        message.contains('ClientException') ||
-        message.contains('NetworkException');
   }
 
   /// Get offline fallback categories using Italian defaults

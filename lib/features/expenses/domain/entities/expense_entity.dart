@@ -30,6 +30,7 @@ class ExpenseEntity extends Equatable {
     this.isRecurringInstance = false,
     this.lastModifiedBy,
     this.transactionType = TransactionType.expense,
+    this.syncStatus,
   });
 
   /// Transaction type: expense (money out) or income (money in)
@@ -104,6 +105,9 @@ class ExpenseEntity extends Equatable {
   /// User ID of who last modified the expense (for audit trail - Feature 001-admin-expenses-cash-fix)
   final String? lastModifiedBy;
 
+  /// Local sync status for offline-aware UI.
+  final String? syncStatus;
+
   /// Check if the user can edit this expense
   bool canEdit(String userId, bool isAdmin) {
     return createdBy == userId || isAdmin;
@@ -128,6 +132,12 @@ class ExpenseEntity extends Equatable {
   /// Whether this expense is part of a recurring expense (Feature 013-recurring-expenses)
   bool get isRecurringExpense =>
       recurringExpenseId != null && recurringExpenseId!.isNotEmpty;
+
+  bool get isPendingSync =>
+      syncStatus == 'pending' ||
+      syncStatus == 'failed' ||
+      syncStatus == 'syncing' ||
+      syncStatus == 'conflict';
 
   /// Whether this expense is pending reimbursement
   bool get isPendingReimbursement =>
@@ -248,6 +258,7 @@ class ExpenseEntity extends Equatable {
     bool? isRecurringInstance,
     String? lastModifiedBy,
     TransactionType? transactionType,
+    String? syncStatus,
   }) {
     return ExpenseEntity(
       id: id ?? this.id,
@@ -274,6 +285,7 @@ class ExpenseEntity extends Equatable {
       isRecurringInstance: isRecurringInstance ?? this.isRecurringInstance,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
       transactionType: transactionType ?? this.transactionType,
+      syncStatus: syncStatus ?? this.syncStatus,
     );
   }
 
@@ -303,6 +315,7 @@ class ExpenseEntity extends Equatable {
         isRecurringInstance,
         lastModifiedBy,
         transactionType,
+        syncStatus,
       ];
 
   @override

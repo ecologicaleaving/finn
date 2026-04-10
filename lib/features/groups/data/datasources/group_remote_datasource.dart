@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -120,12 +119,13 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     try {
       final userId = _currentUserId;
 
-      // Get user's profile to find group_id
+      // Get user's profile to find group_id (with timeout to avoid hang when offline)
       final profileResponse = await supabaseClient
           .from('profiles')
           .select('group_id')
           .eq('id', userId)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
       final groupId = profileResponse['group_id'] as String?;
       if (groupId == null) {
@@ -140,14 +140,16 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .from('family_groups')
           .select()
           .eq('id', groupId)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
 
       // Get member count
       final memberCount = await supabaseClient
           .from('profiles')
           .select()
           .eq('group_id', groupId)
-          .count(CountOption.exact);
+          .count(CountOption.exact)
+          .timeout(const Duration(seconds: 5));
 
       final group = FamilyGroupModel.fromJson(groupResponse);
       final groupWithCount = group.copyWith(memberCount: memberCount.count);
@@ -156,40 +158,16 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       await _cacheGroupData(groupWithCount);
 
       return groupWithCount;
-    } on SocketException catch (_) {
-      // Network error - try to load from cache
+    } catch (e) {
+      // ANY error (timeout, SocketException, network) → try cache
       final cachedGroup = await _getCachedGroupData();
       if (cachedGroup != null) {
         return cachedGroup;
       }
-      throw const ServerException('Offline: nessun gruppo in cache');
-    } on PostgrestException catch (e) {
-      if (e.code == 'PGRST116') {
-        // No rows returned
-        return null;
-      }
-      // Try cache on network errors
-      if (e.message.contains('Failed host lookup') ||
-          e.message.contains('SocketException')) {
-        final cachedGroup = await _getCachedGroupData();
-        if (cachedGroup != null) {
-          return cachedGroup;
-        }
-      }
-      throw ServerException(e.message, e.code);
-    } catch (e) {
-      if (e is AppAuthException) rethrow;
 
-      // Try cache on any network error
-      if (e is SocketException ||
-          e.toString().contains('Failed host lookup') ||
-          e.toString().contains('SocketException') ||
-          e.toString().contains('ClientException')) {
-        final cachedGroup = await _getCachedGroupData();
-        if (cachedGroup != null) {
-          return cachedGroup;
-        }
-      }
+      // No cache — rethrow with proper type
+      if (e is AppAuthException) rethrow;
+      if (e is PostgrestException && e.code == 'PGRST116') return null;
       throw ServerException(e.toString());
     }
   }

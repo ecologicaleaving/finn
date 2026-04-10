@@ -41,6 +41,7 @@ Future<void> main() async {
   // Initialize Hive for local caching
   await Hive.initFlutter();
   await Hive.openBox<String>('dashboard_cache');
+  await Hive.openBox<String>('expense_cache');
 
   // Initialize wizard state cache box (Feature: 001-group-budget-wizard, Task: T004)
   // Used for temporary wizard draft storage with 24h expiry
@@ -103,14 +104,19 @@ Future<void> main() async {
         }
       });
 
-      // Perform initial widget update (if widget already exists)
+      // Perform initial widget update (non-blocking — must not delay app startup)
       final container = ProviderContainer(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(sharedPreferences),
         ],
       );
-      await container.read(widgetUpdateServiceProvider).triggerUpdate();
-      container.dispose();
+      container
+          .read(widgetUpdateServiceProvider)
+          .triggerUpdate()
+          .timeout(const Duration(seconds: 3), onTimeout: () {})
+          .catchError((e) {
+        print('Main: Widget update error: $e');
+      }).whenComplete(() => container.dispose());
 
       print('Main: Widget initialization completed');
     } catch (e) {

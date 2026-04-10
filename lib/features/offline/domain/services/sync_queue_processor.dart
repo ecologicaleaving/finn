@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:math';
 
+import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
 import '../../data/local/offline_database.dart';
 import '../../data/models/sync_queue_item_model.dart';
@@ -17,6 +17,7 @@ class SyncQueueProcessor {
   final OfflineExpenseLocalDataSource _localDataSource;
   final BatchSyncService _batchSyncService;
   final String _userId;
+  final ExpenseLocalCacheDataSource? _localCacheDataSource;
 
   // Retry delays in seconds (30s, 2min, 5min)
   static const List<int> _retryDelays = [30, 120, 300];
@@ -28,9 +29,11 @@ class SyncQueueProcessor {
     required OfflineExpenseLocalDataSource localDataSource,
     required BatchSyncService batchSyncService,
     required String userId,
+    ExpenseLocalCacheDataSource? localCacheDataSource,
   })  : _localDataSource = localDataSource,
         _batchSyncService = batchSyncService,
-        _userId = userId;
+        _userId = userId,
+        _localCacheDataSource = localCacheDataSource;
 
   /// Check if currently syncing
   bool get isSyncing => _isSyncing;
@@ -132,6 +135,11 @@ class SyncQueueProcessor {
             item.entityId,
             'completed',
           );
+          await _localCacheDataSource?.updateExpenseSyncStatus(
+            _userId,
+            item.entityId,
+            'completed',
+          );
         } catch (e) {
           // Expense might already be deleted, ignore
         }
@@ -141,6 +149,11 @@ class SyncQueueProcessor {
           item.entityId,
           'conflict',
           errorMessage: 'Server version is newer',
+        );
+        await _localCacheDataSource?.updateExpenseSyncStatus(
+          _userId,
+          item.entityId,
+          'conflict',
         );
 
         // Delete from queue - conflicts are handled separately
@@ -162,6 +175,11 @@ class SyncQueueProcessor {
           item.entityId,
           item.retryCount + 1 > _retryDelays.length ? 'failed' : 'pending',
           errorMessage: result.errorMessage,
+        );
+        await _localCacheDataSource?.updateExpenseSyncStatus(
+          _userId,
+          item.entityId,
+          item.retryCount + 1 > _retryDelays.length ? 'failed' : 'pending',
         );
       }
     }

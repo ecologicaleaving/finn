@@ -1,7 +1,9 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' as legacy;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
 import '../../data/local/offline_database.dart';
 import '../../domain/entities/offline_expense_entity.dart';
@@ -32,6 +34,10 @@ OfflineExpenseLocalDataSource offlineExpenseLocalDataSource(
   );
 }
 
+final expenseLocalCacheDataSourceProvider = legacy.Provider<ExpenseLocalCacheDataSource>((ref) {
+  return HiveExpenseLocalCacheDataSource();
+});
+
 /// Provides the batch sync service
 @riverpod
 BatchSyncService batchSyncService(BatchSyncServiceRef ref) {
@@ -44,6 +50,7 @@ BatchSyncService batchSyncService(BatchSyncServiceRef ref) {
 SyncQueueProcessor syncQueueProcessor(SyncQueueProcessorRef ref) {
   final localDataSource = ref.watch(offlineExpenseLocalDataSourceProvider);
   final batchSyncService = ref.watch(batchSyncServiceProvider);
+  final localCacheDataSource = ref.watch(expenseLocalCacheDataSourceProvider);
 
   // Get current user ID from Supabase auth
   final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -56,6 +63,7 @@ SyncQueueProcessor syncQueueProcessor(SyncQueueProcessorRef ref) {
     localDataSource: localDataSource,
     batchSyncService: batchSyncService,
     userId: userId,
+    localCacheDataSource: localCacheDataSource,
   );
 }
 

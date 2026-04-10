@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -46,28 +49,71 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   final SupabaseClient supabaseClient;
 
+  static const _cachedProfileKey = 'cached_user_profile';
+
+  /// Cache the user profile JSON in Hive for offline access
+  Future<void> _cacheUserProfile(Map<String, dynamic> profileJson) async {
+    try {
+      final box = Hive.box<String>('expense_cache');
+      await box.put(_cachedProfileKey, jsonEncode(profileJson));
+    } catch (e) {
+      print('[AUTH] Failed to cache user profile: $e');
+    }
+  }
+
+  /// Load cached user profile from Hive
+  UserModel? _loadCachedUserProfile() {
+    try {
+      final box = Hive.box<String>('expense_cache');
+      final cached = box.get(_cachedProfileKey);
+      if (cached != null) {
+        final json = jsonDecode(cached) as Map<String, dynamic>;
+        return UserModel.fromJson(json);
+      }
+    } catch (e) {
+      print('[AUTH] Failed to load cached user profile: $e');
+    }
+    return null;
+  }
+
   @override
   Future<UserModel> getCurrentUser() async {
-    try {
-      final user = supabaseClient.auth.currentUser;
-      if (user == null) {
-        throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
-      }
+    final user = supabaseClient.auth.currentUser;
+    if (user == null) {
+      throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+    }
 
-      // Fetch profile data
+    // Try to fetch profile from Supabase (with timeout to avoid hang when offline)
+    try {
       final response = await supabaseClient
           .from('profiles')
           .select()
           .eq('id', user.id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 5));
+
+      // Cache profile for offline use
+      await _cacheUserProfile(response);
 
       return UserModel.fromJson(response);
-    } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
-    } on AppAuthException {
-      rethrow;
-    } catch (e) {
-      throw ServerException(e.toString());
+    } catch (profileError) {
+      // Profile fetch failed (likely offline) — try cached profile
+      print('[AUTH] Profile fetch failed, trying cache: $profileError');
+
+      final cachedProfile = _loadCachedUserProfile();
+      if (cachedProfile != null && cachedProfile.id == user.id) {
+        print('[AUTH] Using cached profile for user ${user.id}');
+        return cachedProfile;
+      }
+
+      // No cached profile available — rethrow as appropriate error
+      if (profileError is PostgrestException) {
+        throw ServerException(profileError.message, profileError.code);
+      }
+      if (profileError is AppAuthException) {
+        rethrow;
+      }
+      throw ServerException(profileError.toString());
     }
   }
 
