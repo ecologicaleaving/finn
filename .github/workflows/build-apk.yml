@@ -73,8 +73,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Create .env from secrets
+        run: |
+          cat > .env << EOL
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          EOL
+
       - name: Build APK (debug arm64)
-        run: flutter build apk --debug --flavor production --target-platform android-arm64 || true
+        run: flutter build apk --debug --flavor production --target-platform android-arm64
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
