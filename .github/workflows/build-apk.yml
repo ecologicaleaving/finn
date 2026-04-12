@@ -71,7 +71,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
       - name: Build APK (debug arm64)
-        run: flutter build apk --debug --target-platform android-arm64 || true
+        run: flutter build apk --debug --flavor production --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
