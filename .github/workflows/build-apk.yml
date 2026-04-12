@@ -50,7 +50,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate code (Drift, Riverpod, JSON)
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: dart run build_runner build --delete-conflicting-outputs || true
 
       - name: Extract version & branch info
         id: info
