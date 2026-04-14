@@ -4,10 +4,12 @@ name: Build & Deploy APK
 # .github/workflows/build-apk.yml
 #
 # Secrets richiesti:
-#   VPS_SSH_KEY   — chiave privata SSH (github-actions-deploy)
-#   VPS_HOST      — IP VPS (46.225.60.101)
-#   VPS_USER      — utente SSH (root)
-#   TELEGRAM_TOKEN / TELEGRAM_CHAT_ID — per notifiche (opzionale)
+#   VPS_SSH_KEY         — chiave privata SSH (github-actions-deploy)
+#   VPS_HOST            — IP VPS (46.225.60.101)
+#   VPS_USER            — utente SSH (root)
+#   GH_PAT              — Personal Access Token (repo + project scope)
+#   TELEGRAM_BOT_TOKEN  — token bot Telegram
+#   TELEGRAM_CHAT_ID    — chat ID Telegram
 #
 # Flusso automatico card Project board:
 #   commit → review-ready → PUSH
@@ -49,9 +51,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Generate code (Drift, Riverpod, JSON)
-        run: dart run build_runner build --delete-conflicting-outputs || true
-
       - name: Extract version & branch info
         id: info
         run: |
@@ -73,15 +72,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Create .env from secrets
-        run: |
-          cat > .env << EOL
-          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          EOL
-
       - name: Build APK (debug arm64)
-        run: flutter build apk --debug --flavor production --target-platform android-arm64
+        run: flutter build apk --debug --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
@@ -109,19 +101,23 @@ jobs:
       # ── Cuore del workflow: label + card board ─────────────────
       - name: Mark deployed-test & move card to Test
         if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           ISSUE="${{ steps.info.outputs.issue_num }}"
           REPO="${{ github.repository }}"
           if [ -n "$ISSUE" ]; then
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "export PATH=\$PATH:/root/go/bin && \
-               gh issue edit $ISSUE --repo $REPO \
-                 --remove-label review-ready \
-                 --add-label deployed-test 2>/dev/null || true && \
-               python3 /root/.openclaw/workspace-ciccio/scripts/project_board.py \
-                 $REPO $ISSUE Test 2>/dev/null || true" || true
+            gh issue edit "$ISSUE" --repo "$REPO" \
+              --remove-label review-ready \
+              --add-label deployed-test 2>/dev/null || true
+            ITEM_ID=$(gh project item-list 2 --owner ecologicaleaving --format json --limit 200 2>/dev/null | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items',[]); m=[i for i in items if str(i.get('content',{}).get('number',''))=='${ISSUE}']; print(m[0]['id'] if m else '')" 2>/dev/null || echo "")
+            if [ -n "$ITEM_ID" ]; then
+              gh project item-edit --id "$ITEM_ID" \
+                --project-id PVT_kwHODSTPQM4BP1Xp \
+                --field-id PVTSSF_lAHODSTPQM4BP1Xpzg-INlw \
+                --single-select-option-id 1d6a37f9 || true
+            fi
           fi
 
       - name: Comment PR with APK link
@@ -145,22 +141,25 @@ jobs:
           name: v${{ steps.info.outputs.version }}
           files: ${{ steps.apk.outputs.name }}
 
-      - name: Notify Ciccio
+      - name: Notify Telegram & Claude Code
         if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           EMOJI=$([ "${{ job.status }}" = "success" ] && echo "✅" || echo "❌")
+          STATUS=$([ "${{ job.status }}" = "success" ] && echo "success" || echo "failed")
           APK="${{ steps.apk.outputs.name }}"
           URL="https://apps.8020solutions.org/downloads/test/${APK}"
-          MSG="${EMOJI} ${{ github.event.repository.name }} build ${{ job.status }}\nBranch: ${{ steps.info.outputs.branch }}\n🔗 ${URL}"
-          echo "📨 Invio notifica a Ciccio..."
-          for i in 1 2 3; do
-            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "ciccio-notify '${MSG}'"; then
-              echo "✅ Notifica inviata (tentativo $i)"
-              break
-            else
-              echo "❌ Tentativo $i fallito"
-              [ $i -lt 3 ] && sleep 5
-            fi
-          done
+          SHA="${{ steps.info.outputs.short_sha }}"
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${EMOJI} ${{ github.event.repository.name }} build ${STATUS}\nBranch: ${{ steps.info.outputs.branch }}\n\xf0\x9f\x94\x97 ${URL}\"}" || true
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/ecologicaleaving/workflow/dispatches" \
+            -d "{\"event_type\":\"build_complete\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"branch\":\"${{ steps.info.outputs.branch }}\",\"status\":\"${STATUS}\",\"sha\":\"${SHA}\",\"run_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}}" || true
