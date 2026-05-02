@@ -1,7 +1,6 @@
 name: Build & Deploy APK
 # ============================================================
-# TEMPLATE — copia in ogni repo Flutter come:
-# .github/workflows/build-apk.yml
+# Workflow CI/CD per Finn (Flutter)
 #
 # Secrets richiesti:
 #   VPS_SSH_KEY         — chiave privata SSH (github-actions-deploy)
@@ -10,18 +9,18 @@ name: Build & Deploy APK
 #   GH_PAT              — Personal Access Token (repo + project scope)
 #   TELEGRAM_BOT_TOKEN  — token bot Telegram
 #   TELEGRAM_CHAT_ID    — chat ID Telegram
+#   SUPABASE_URL        — URL progetto Supabase (per .env)
+#   SUPABASE_ANON_KEY   — anon key Supabase (per .env)
 #
-# Flusso automatico card Project board:
-#   commit → review-ready → PUSH
-#   CI deploy OK → deployed-test → Test (notifica Davide)
-#
-# TRIGGER: solo PR (build su feature branch) + push main/master (release)
-# Evita doppio run su push+PR sullo stesso commit.
+# Flusso:
+#   - push master  → build --release --flavor production → APK + GitHub Release
+#   - push altro   → build --debug → APK su /downloads/test/
+#   - PR           → build --debug → commento PR con link APK
 # ============================================================
 
 on:
   push:
-    branches: ['main', 'master']
+    branches: ['master', 'main', 'test', '**']
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -51,6 +50,16 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Generate .env from secrets
+        run: |
+          cat > .env <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          EOF
+
+      - name: Build runner (generated .g.dart files)
+        run: flutter pub run build_runner build --delete-conflicting-outputs || true
+
       - name: Extract version & branch info
         id: info
         run: |
@@ -59,11 +68,16 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           PR_NUMBER="${{ github.event.pull_request.number }}"
           ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K\d+' || echo "")
+          IS_PROD="false"
+          if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
+            IS_PROD="true"
+          fi
           echo "version=$VERSION"       >> $GITHUB_OUTPUT
           echo "branch=$BRANCH"         >> $GITHUB_OUTPUT
           echo "short_sha=$SHORT_SHA"   >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER"   >> $GITHUB_OUTPUT
           echo "issue_num=$ISSUE_NUM"   >> $GITHUB_OUTPUT
+          echo "is_prod=$IS_PROD"       >> $GITHUB_OUTPUT
 
       - name: Setup SSH
         run: |
@@ -72,8 +86,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Build APK (debug arm64)
-        run: flutter build apk --debug --target-platform android-arm64 || true
+      - name: Build APK (production release)
+        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
+        run: flutter build apk --release --flavor production --target-platform android-arm64
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+
+      - name: Build APK (debug)
+        if: steps.info.outputs.is_prod != 'true' || github.event_name != 'push'
+        run: flutter build apk --debug --flavor dev --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
@@ -85,7 +106,11 @@ jobs:
           PR="${{ steps.info.outputs.pr_number }}"
           SHA="${{ steps.info.outputs.short_sha }}"
           REPO="${{ github.event.repository.name }}"
-          [ -n "$PR" ] && APK_NAME="${REPO}-pr${PR}-${SHA}.apk" || APK_NAME="${REPO}-v${{ steps.info.outputs.version }}-${SHA}.apk"
+          if [ -n "$PR" ]; then
+            APK_NAME="${REPO}-pr${PR}-${SHA}.apk"
+          else
+            APK_NAME="${REPO}-v${{ steps.info.outputs.version }}-${SHA}.apk"
+          fi
           cp "$APK_PATH" "$APK_NAME"
           echo "name=$APK_NAME" >> $GITHUB_OUTPUT
 
@@ -98,9 +123,8 @@ jobs:
             "${{ steps.apk.outputs.name }}" \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/app-hub/downloads/test/
 
-      # ── Cuore del workflow: label + card board ─────────────────
       - name: Mark deployed-test & move card to Test
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
@@ -130,16 +154,17 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `📲 **APK pronto!**\n\n🔗 [${name}](${url})\n\n> Installa direttamente sul dispositivo Android.`
+              body: `APK pronto!\n\n[${name}](${url})\n\n> Installa direttamente sul dispositivo Android.`
             });
 
       - name: Create GitHub Release (master only)
-        if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name == 'push'
+        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.info.outputs.version }}
           name: v${{ steps.info.outputs.version }}
           files: ${{ steps.apk.outputs.name }}
+          generate_release_notes: true
 
       - name: Notify Telegram & Claude Code
         if: always()
@@ -148,15 +173,22 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          EMOJI=$([ "${{ job.status }}" = "success" ] && echo "✅" || echo "❌")
+          EMOJI=$([ "${{ job.status }}" = "success" ] && echo "OK" || echo "FAIL")
           STATUS=$([ "${{ job.status }}" = "success" ] && echo "success" || echo "failed")
           APK="${{ steps.apk.outputs.name }}"
           URL="https://apps.8020solutions.org/downloads/test/${APK}"
           SHA="${{ steps.info.outputs.short_sha }}"
+          BUILD_TYPE="${{ steps.info.outputs.is_prod == 'true' && 'PROD release' || 'debug' }}"
 
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${EMOJI} ${{ github.event.repository.name }} build ${STATUS}\nBranch: ${{ steps.info.outputs.branch }}\n\xf0\x9f\x94\x97 ${URL}\"}" || true
+            -d "$(jq -n \
+              --arg chat "${TELEGRAM_CHAT_ID}" \
+              --arg text "[${EMOJI}] ${{ github.event.repository.name }} ${BUILD_TYPE} ${STATUS}
+Branch: ${{ steps.info.outputs.branch }}
+Version: v${{ steps.info.outputs.version }}
+Download: ${URL}" \
+              '{chat_id:$chat,text:$text}')" || true
 
           curl -s -X POST \
             -H "Authorization: Bearer $GH_PAT" \
