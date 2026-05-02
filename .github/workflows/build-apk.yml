@@ -180,15 +180,12 @@ jobs:
           SHA="${{ steps.info.outputs.short_sha }}"
           BUILD_TYPE="${{ steps.info.outputs.is_prod == 'true' && 'PROD release' || 'debug' }}"
 
+          MSG=$(printf '[%s] %s %s %s\nBranch: %s\nVersion: v%s\nDownload: %s' \
+            "$EMOJI" "${{ github.event.repository.name }}" "$BUILD_TYPE" "$STATUS" \
+            "${{ steps.info.outputs.branch }}" "${{ steps.info.outputs.version }}" "$URL")
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg chat "${TELEGRAM_CHAT_ID}" \
-              --arg text "[${EMOJI}] ${{ github.event.repository.name }} ${BUILD_TYPE} ${STATUS}
-Branch: ${{ steps.info.outputs.branch }}
-Version: v${{ steps.info.outputs.version }}
-Download: ${URL}" \
-              '{chat_id:$chat,text:$text}')" || true
+            -d "$(jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "$MSG" '{chat_id:$chat,text:$text}')" || true
 
           curl -s -X POST \
             -H "Authorization: Bearer $GH_PAT" \
