@@ -1,29 +1,32 @@
 name: Build & Deploy APK
 # ============================================================
-# Workflow CI/CD per Finn (Flutter)
+# TEMPLATE — copia in ogni repo Flutter come:
+# .github/workflows/build-apk.yml
 #
 # Secrets richiesti:
-#   VPS_SSH_KEY         — chiave privata SSH (github-actions-deploy)
-#   VPS_HOST            — IP VPS (46.225.60.101)
-#   VPS_USER            — utente SSH (root)
-#   GH_PAT              — Personal Access Token (repo + project scope)
-#   TELEGRAM_BOT_TOKEN  — token bot Telegram
-#   TELEGRAM_CHAT_ID    — chat ID Telegram
-#   SUPABASE_URL        — URL progetto Supabase (per .env)
-#   SUPABASE_ANON_KEY   — anon key Supabase (per .env)
+#   VPS_SSH_KEY   — chiave privata SSH (github-actions-deploy)
+#   VPS_HOST      — IP VPS (46.225.60.101)
+#   VPS_USER      — utente SSH (root)
 #
-# Flusso:
-#   - push master  → build --release --flavor production → APK + GitHub Release
-#   - push altro   → build --debug → APK su /downloads/test/
-#   - PR           → build --debug → commento PR con link APK
+# TRIGGER: solo PR (build su feature branch) + push main/master (release)
+# Evita doppio run su push+PR sullo stesso commit.
+# concurrency: i push successivi sullo stesso branch cancellano i build
+# obsoleti ancora in corso (un solo APK builda — l'ultimo commit).
+#
+# NB: label deployed-test e spostamento card Kanban NON sono più gestiti
+# qui — li fa Claudio on-demand nel flusso issue (meno Actions).
 # ============================================================
 
 on:
   push:
-    branches: ['master', 'main', 'test', '**']
+    branches: ['main', 'master']
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -50,16 +53,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Generate .env from secrets
-        run: |
-          cat > .env <<EOF
-          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          EOF
-
-      - name: Build runner (generated .g.dart files)
-        run: flutter pub run build_runner build --delete-conflicting-outputs || true
-
       - name: Extract version & branch info
         id: info
         run: |
@@ -68,16 +61,11 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           PR_NUMBER="${{ github.event.pull_request.number }}"
           ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K\d+' || echo "")
-          IS_PROD="false"
-          if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
-            IS_PROD="true"
-          fi
           echo "version=$VERSION"       >> $GITHUB_OUTPUT
           echo "branch=$BRANCH"         >> $GITHUB_OUTPUT
           echo "short_sha=$SHORT_SHA"   >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER"   >> $GITHUB_OUTPUT
           echo "issue_num=$ISSUE_NUM"   >> $GITHUB_OUTPUT
-          echo "is_prod=$IS_PROD"       >> $GITHUB_OUTPUT
 
       - name: Setup SSH
         run: |
@@ -86,15 +74,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Build APK (production release)
-        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
-        run: flutter build apk --release --flavor production --target-platform android-arm64
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
-
-      - name: Build APK (debug)
-        if: steps.info.outputs.is_prod != 'true' || github.event_name != 'push'
-        run: flutter build apk --debug --flavor dev --target-platform android-arm64 || true
+      - name: Build APK (debug arm64)
+        run: flutter build apk --debug --target-platform android-arm64 || true
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
@@ -106,11 +87,7 @@ jobs:
           PR="${{ steps.info.outputs.pr_number }}"
           SHA="${{ steps.info.outputs.short_sha }}"
           REPO="${{ github.event.repository.name }}"
-          if [ -n "$PR" ]; then
-            APK_NAME="${REPO}-pr${PR}-${SHA}.apk"
-          else
-            APK_NAME="${REPO}-v${{ steps.info.outputs.version }}-${SHA}.apk"
-          fi
+          [ -n "$PR" ] && APK_NAME="${REPO}-pr${PR}-${SHA}.apk" || APK_NAME="${REPO}-v${{ steps.info.outputs.version }}-${SHA}.apk"
           cp "$APK_PATH" "$APK_NAME"
           echo "name=$APK_NAME" >> $GITHUB_OUTPUT
 
@@ -123,27 +100,6 @@ jobs:
             "${{ steps.apk.outputs.name }}" \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/app-hub/downloads/test/
 
-      - name: Mark deployed-test & move card to Test
-        if: success() && github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          ISSUE="${{ steps.info.outputs.issue_num }}"
-          REPO="${{ github.repository }}"
-          if [ -n "$ISSUE" ]; then
-            gh issue edit "$ISSUE" --repo "$REPO" \
-              --remove-label review-ready \
-              --add-label deployed-test 2>/dev/null || true
-            ITEM_ID=$(gh project item-list 2 --owner ecologicaleaving --format json --limit 200 2>/dev/null | \
-              python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items',[]); m=[i for i in items if str(i.get('content',{}).get('number',''))=='${ISSUE}']; print(m[0]['id'] if m else '')" 2>/dev/null || echo "")
-            if [ -n "$ITEM_ID" ]; then
-              gh project item-edit --id "$ITEM_ID" \
-                --project-id PVT_kwHODSTPQM4BP1Xp \
-                --field-id PVTSSF_lAHODSTPQM4BP1Xpzg-INlw \
-                --single-select-option-id 1d6a37f9 || true
-            fi
-          fi
-
       - name: Comment PR with APK link
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -154,41 +110,13 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `APK pronto!\n\n[${name}](${url})\n\n> Installa direttamente sul dispositivo Android.`
+              body: `📲 **APK pronto!**\n\n🔗 [${name}](${url})\n\n> Installa direttamente sul dispositivo Android.`
             });
 
       - name: Create GitHub Release (master only)
-        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.info.outputs.version }}
           name: v${{ steps.info.outputs.version }}
           files: ${{ steps.apk.outputs.name }}
-          generate_release_notes: true
-
-      - name: Notify Telegram & Claude Code
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          EMOJI=$([ "${{ job.status }}" = "success" ] && echo "OK" || echo "FAIL")
-          STATUS=$([ "${{ job.status }}" = "success" ] && echo "success" || echo "failed")
-          APK="${{ steps.apk.outputs.name }}"
-          URL="https://apps.8020solutions.org/downloads/test/${APK}"
-          SHA="${{ steps.info.outputs.short_sha }}"
-          BUILD_TYPE="${{ steps.info.outputs.is_prod == 'true' && 'PROD release' || 'debug' }}"
-
-          MSG=$(printf '[%s] %s %s %s\nBranch: %s\nVersion: v%s\nDownload: %s' \
-            "$EMOJI" "${{ github.event.repository.name }}" "$BUILD_TYPE" "$STATUS" \
-            "${{ steps.info.outputs.branch }}" "${{ steps.info.outputs.version }}" "$URL")
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "$MSG" '{chat_id:$chat,text:$text}')" || true
-
-          curl -s -X POST \
-            -H "Authorization: Bearer $GH_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/ecologicaleaving/workflow/dispatches" \
-            -d "{\"event_type\":\"build_complete\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"branch\":\"${{ steps.info.outputs.branch }}\",\"status\":\"${STATUS}\",\"sha\":\"${SHA}\",\"run_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}}" || true
