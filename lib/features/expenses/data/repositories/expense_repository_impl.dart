@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:dartz/dartz.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
@@ -348,13 +349,25 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         transactionType: transactionType,
       );
 
-      // Upload receipt if provided
+      // Upload receipt if provided.
+      //
+      // The expense already exists on the server at this point: a failed
+      // upload (network or otherwise) must NOT fall through to the offline
+      // fallback below, otherwise a second copy of the expense would be
+      // created (issue #48). Return the created expense without receipt.
       if (receiptImage != null) {
-        final receiptPath = await remoteDataSource.uploadReceiptImage(
-          expenseId: expense.id,
-          imageData: receiptImage,
-        );
-        expense = expense.copyWith(receiptUrl: receiptPath);
+        try {
+          final receiptPath = await remoteDataSource.uploadReceiptImage(
+            expenseId: expense.id,
+            imageData: receiptImage,
+          );
+          expense = expense.copyWith(receiptUrl: receiptPath);
+        } catch (uploadError) {
+          debugPrint(
+            'ExpenseRepository: receipt upload failed for expense '
+            '${expense.id}, keeping expense without receipt: $uploadError',
+          );
+        }
       }
 
       final entity = expense.toEntity().copyWith(syncStatus: 'completed');
@@ -453,6 +466,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     try {
       final expense = await remoteDataSource.updateExpenseWithTimestamp(
@@ -466,8 +481,19 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         merchant: merchant,
         notes: notes,
         reimbursementStatus: reimbursementStatus,
+        isGroupExpense: isGroupExpense,
+        paidBy: paidBy,
       );
-      return Right(expense.toEntity());
+      final entity = expense.toEntity().copyWith(syncStatus: 'completed');
+      final user = currentUser;
+      if (user != null) {
+        try {
+          await localCacheDataSource.upsertExpense(user.id, entity);
+        } catch (cacheError) {
+          debugPrint('ExpenseRepository: cache update failed: $cacheError');
+        }
+      }
+      return Right(entity);
     } on ConflictException catch (e) {
       return Left(ConflictFailure(e.message));
     } on ServerException catch (e) {
@@ -481,6 +507,26 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   Future<Either<Failure, Unit>> deleteExpense({
     required String expenseId,
   }) async {
+    final user = currentUser;
+
+    // An expense saved offline and never synced does not exist on the server:
+    // discard the offline row and its sync queue items, otherwise the next
+    // sync would recreate it (issue #48).
+    if (user != null) {
+      try {
+        final discarded = await offlineLocalDataSource.discardUnsyncedExpense(
+          expenseId: expenseId,
+          userId: user.id,
+        );
+        if (discarded) {
+          await localCacheDataSource.removeExpense(user.id, expenseId);
+          return const Right(unit);
+        }
+      } catch (e) {
+        return Left(ServerFailure(e.toString()));
+      }
+    }
+
     try {
       await remoteDataSource.deleteExpense(expenseId: expenseId);
       if (currentUser != null) {

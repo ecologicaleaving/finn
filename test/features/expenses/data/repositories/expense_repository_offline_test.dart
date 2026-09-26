@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:family_expense_tracker/core/enums/reimbursement_status.dart';
+import 'package:family_expense_tracker/core/enums/transaction_type.dart';
 import 'package:family_expense_tracker/core/errors/exceptions.dart';
 import 'package:family_expense_tracker/features/auth/domain/entities/user_entity.dart';
 import 'package:family_expense_tracker/features/expenses/data/datasources/expense_local_cache_datasource.dart';
@@ -28,6 +29,7 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? createdBy,
     String? paidBy,
     String? lastModifiedBy,
+    TransactionType transactionType = TransactionType.expense,
   }) {
     throw ServerException('SocketException: offline');
   }
@@ -102,6 +104,8 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) {
     throw UnimplementedError();
   }
@@ -215,6 +219,12 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
 
   @override
   Future<void> updateSyncStatus(String expenseId, String status, {String? errorMessage}) async {}
+
+  @override
+  Future<bool> discardUnsyncedExpense({
+    required String expenseId,
+    required String userId,
+  }) async => false;
 }
 
 void main() {
