@@ -42,9 +42,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Versione fissata: "stable" senza versione ha iniziato a installare
+      # Flutter 3.47, che rifiuta Gradle 8.11 e porta un Dart che l'analyzer
+      # di riverpod_generator 2.x non sa leggere (build_runner si blocca).
+      # pubspec.lock non e' versionato: le dipendenze si risolvono con questa
+      # versione. Vedi #61.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.35.7'
           cache: true
 
       - name: Get dependencies
@@ -58,7 +64,9 @@ jobs:
           EOF
 
       - name: Build runner (generated .g.dart files)
-        run: flutter pub run build_runner build --delete-conflicting-outputs || true
+        # Solo lib/: alcuni test obsoleti hanno @GenerateMocks non validi, che
+        # farebbero fallire il build senza riguardare l'APK.
+        run: dart run build_runner build --delete-conflicting-outputs --build-filter="lib/**"
 
       - name: Extract version & branch info
         id: info
@@ -94,7 +102,7 @@ jobs:
 
       - name: Build APK (debug)
         if: steps.info.outputs.is_prod != 'true' || github.event_name != 'push'
-        run: flutter build apk --debug --flavor dev --target-platform android-arm64 || true
+        run: flutter build apk --debug --flavor dev --target-platform android-arm64
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
