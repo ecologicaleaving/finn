@@ -73,6 +73,19 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
         .getSingleOrNull();
   }
 
+  /// Count recurring expense templates (active and paused) using a category.
+  ///
+  /// Issue #49: used to block deletion of categories still referenced by
+  /// local recurring templates.
+  Future<int> countRecurringExpensesByCategory(String categoryId) async {
+    final countExpr = recurringExpenses.id.count();
+    final query = selectOnly(recurringExpenses)
+      ..addColumns([countExpr])
+      ..where(recurringExpenses.categoryId.equals(categoryId));
+    final row = await query.getSingle();
+    return row.read(countExpr) ?? 0;
+  }
+
   /// Get recurring expenses due for instance creation (background task query)
   ///
   /// Returns all active templates where nextDueDate <= now
