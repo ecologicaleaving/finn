@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 
+import 'package:dartz/dartz.dart' show Either, Left;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../offline/presentation/providers/offline_providers.dart';
 import '../../../../shared/services/connectivity_service.dart';
@@ -244,53 +246,72 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
     }
   }
 
-  /// Update reimbursement status of an expense (T038, T039)
+  /// Change the reimbursement status of [expense] and persist it (issue #47).
   ///
-  /// Handles confirmation dialog for reversions from reimbursed state
-  /// Updates the expense locally and persists to repository
-  Future<void> updateReimbursementStatus({
-    required BuildContext context,
-    required String expenseId,
+  /// Works for any expense, even when it is not part of the loaded page of
+  /// the list (e.g. detail opened from dashboard or notifications).
+  /// Does not need a [BuildContext]: no dialogs or snackbars are shown here.
+  ///
+  /// On success the list entry (if present) is replaced with the entity
+  /// returned by the server.
+  Future<Either<Failure, ExpenseEntity>> changeReimbursementStatus({
+    required ExpenseEntity expense,
     required ReimbursementStatus newStatus,
   }) async {
-    final expense = getExpenseById(expenseId);
-    if (expense == null) return;
-
-    // Check if confirmation needed (T039)
-    if (expense.requiresConfirmation(newStatus)) {
-      final confirmed = await ReimbursementStatusChangeDialog.show(
-        context,
-        expenseName: expense.categoryName ?? 'Questa spesa',
-        currentStatus: expense.reimbursementStatus,
-        newStatus: newStatus,
-      );
-
-      if (confirmed != true) return; // User cancelled
-    }
-
-    // Validate transition
     if (!expense.canTransitionTo(newStatus)) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Transizione di stato non valida'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-      return;
+      return const Left(ValidationFailure('Transizione di stato non valida'));
     }
 
-    // Update expense using entity method
-    final updatedExpense = expense.updateReimbursementStatus(newStatus);
-
-    // Persist to repository
     final result = await _expenseRepository.updateExpense(
-      expenseId: expenseId,
+      expenseId: expense.id,
       reimbursementStatus: newStatus,
     );
 
     result.fold(
+      (_) {},
+      (updated) {
+        if (mounted) updateExpenseInList(updated);
+      },
+    );
+
+    return result;
+  }
+
+  /// Update reimbursement status of an expense (T038, T039)
+  ///
+  /// Handles confirmation dialog for reversions from reimbursed state and
+  /// shows feedback snackbars. [expense] can be passed when the caller
+  /// already has the entity (e.g. detail screen); otherwise it is looked up
+  /// in the loaded list.
+  ///
+  /// Returns true when the status was updated successfully.
+  Future<bool> updateReimbursementStatus({
+    required BuildContext context,
+    required String expenseId,
+    required ReimbursementStatus newStatus,
+    ExpenseEntity? expense,
+  }) async {
+    final target = expense ?? getExpenseById(expenseId);
+    if (target == null) return false;
+
+    // Check if confirmation needed (T039)
+    if (target.requiresConfirmation(newStatus)) {
+      final confirmed = await ReimbursementStatusChangeDialog.show(
+        context,
+        expenseName: target.categoryName ?? 'Questa spesa',
+        currentStatus: target.reimbursementStatus,
+        newStatus: newStatus,
+      );
+
+      if (confirmed != true) return false; // User cancelled
+    }
+
+    final result = await changeReimbursementStatus(
+      expense: target,
+      newStatus: newStatus,
+    );
+
+    return result.fold(
       (failure) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -300,11 +321,9 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
             ),
           );
         }
+        return false;
       },
       (_) {
-        // Update local state
-        updateExpenseInList(updatedExpense);
-
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -312,6 +331,7 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
             ),
           );
         }
+        return true;
       },
     );
   }
