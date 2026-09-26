@@ -24,6 +24,7 @@ abstract class OfflineExpenseLocalDataSource {
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
   });
 
   /// Get all offline expenses for current user
@@ -58,7 +59,11 @@ abstract class OfflineExpenseLocalDataSource {
     int priority = 0,
   });
 
-  /// Get pending sync queue items (max batch size)
+  /// Get pending expense sync queue items (max [limit])
+  ///
+  /// Only `entity_type = 'expense'` items are returned: the same table also
+  /// stores recurring expense template operations, which must not be sent
+  /// to the expense sync RPCs.
   Future<List<SyncQueueItem>> getPendingSyncItems(
     String userId, {
     int limit = 10,
@@ -94,6 +99,7 @@ class OfflineExpenseLocalDataSourceImpl
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
   }) async {
     final expenseId = _uuid.v4();
     final now = DateTime.now();
@@ -125,6 +131,7 @@ class OfflineExpenseLocalDataSourceImpl
       'notes': notes,
       'is_group_expense': isGroupExpense,
       'created_at': now.toIso8601String(),
+      ...?extraPayload,
     };
 
     await addToSyncQueue(
@@ -245,6 +252,7 @@ class OfflineExpenseLocalDataSourceImpl
     return await (_db.select(_db.syncQueueItems)
           ..where((tbl) =>
               tbl.userId.equals(userId) &
+              tbl.entityType.equals('expense') &
               (tbl.syncStatus.equals('pending') |
                   tbl.syncStatus.equals('failed')))
           ..orderBy([
@@ -274,6 +282,7 @@ class OfflineExpenseLocalDataSourceImpl
     final query = _db.selectOnly(_db.syncQueueItems)
       ..addColumns([_db.syncQueueItems.id.count()])
       ..where(_db.syncQueueItems.userId.equals(userId) &
+          _db.syncQueueItems.entityType.equals('expense') &
           (_db.syncQueueItems.syncStatus.equals('pending') |
               _db.syncQueueItems.syncStatus.equals('failed')));
 

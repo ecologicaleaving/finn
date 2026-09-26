@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
@@ -22,6 +23,7 @@ class SyncQueueProcessor {
   // Retry delays in seconds (30s, 2min, 5min)
   static const List<int> _retryDelays = [30, 120, 300];
   static const int _batchSize = 10;
+  static const int _maxItemsPerRun = 500;
 
   bool _isSyncing = false;
 
@@ -58,28 +60,27 @@ class SyncQueueProcessor {
     var totalFailed = 0;
     var totalConflicts = 0;
 
-    // Keep processing batches until queue is empty
-    while (true) {
-      // Get next batch of pending items
-      final pendingItems = await _localDataSource.getPendingSyncItems(
-        _userId,
-        limit: _batchSize,
+    // Load the whole pending queue and keep only the items whose backoff has
+    // expired. Fetching a single page and stopping when it had no ready items
+    // meant a few items waiting for a retry could block every newer expense.
+    final pendingItems = await _localDataSource.getPendingSyncItems(
+      _userId,
+      limit: _maxItemsPerRun,
+    );
+    final readyItems = pendingItems
+        .where((item) => SyncQueueItemModel(item).isReadyToRetry())
+        .toList();
+
+    for (var start = 0; start < readyItems.length; start += _batchSize) {
+      final batch = readyItems.sublist(
+        start,
+        min(start + _batchSize, readyItems.length),
       );
 
-      if (pendingItems.isEmpty) break;
-
-      // Filter items ready to retry (check exponential backoff)
-      final readyItems = pendingItems.where((item) {
-        final model = SyncQueueItemModel(item);
-        return model.isReadyToRetry();
-      }).toList();
-
-      if (readyItems.isEmpty) break;
-
       // Group by operation type
-      final creates = readyItems.where((i) => i.operation == 'create').toList();
-      final updates = readyItems.where((i) => i.operation == 'update').toList();
-      final deletes = readyItems.where((i) => i.operation == 'delete').toList();
+      final creates = batch.where((i) => i.operation == 'create').toList();
+      final updates = batch.where((i) => i.operation == 'update').toList();
+      final deletes = batch.where((i) => i.operation == 'delete').toList();
 
       // Process each operation type
       final batchResults = <String, SyncItemResult>{};
@@ -97,16 +98,13 @@ class SyncQueueProcessor {
       }
 
       // Update queue items based on results
-      await _updateQueueItems(readyItems, batchResults);
+      await _updateQueueItems(batch, batchResults);
 
       // Update statistics
       totalProcessed += batchResults.length;
       totalSuccessful += batchResults.values.where((r) => r.success).length;
       totalFailed += batchResults.values.where((r) => !r.success && !r.isConflict).length;
       totalConflicts += batchResults.values.where((r) => r.isConflict).length;
-
-      // If batch was not full, we're done
-      if (readyItems.length < _batchSize) break;
     }
 
     return SyncQueueResult(

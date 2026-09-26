@@ -265,8 +265,10 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       date: _selectedDate != _originalExpense!.date ? _selectedDate : null,
       categoryId: _selectedCategoryId != _originalExpense!.categoryId ? _selectedCategoryId : null,
       paymentMethodId: _selectedPaymentMethodId != _originalExpense!.paymentMethodId ? _selectedPaymentMethodId : null,
+      // An empty string (not null) clears a removed description: null means
+      // "unchanged" for the update call.
       notes: _notesController.text.trim() != (_originalExpense!.notes ?? '')
-          ? (_notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null)
+          ? _notesController.text.trim()
           : null,
       reimbursementStatus: _selectedReimbursementStatus != _originalExpense!.reimbursementStatus
           ? _selectedReimbursementStatus
@@ -275,6 +277,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
 
     if (updatedExpense != null && mounted) {
       listNotifier.updateExpenseInList(updatedExpense);
+      ref.invalidate(expenseProvider(updatedExpense.id));
 
       // Refresh dashboard to reflect the updated expense
       ref.read(dashboardProvider.notifier).refresh();
