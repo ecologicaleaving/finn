@@ -97,7 +97,12 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     );
 
     // Feature 013 T038: Get reserved budget for recurring expenses
-    final reservedBudget = ref.watch(currentMonthReservedBudgetProvider);
+    // for the month currently selected in the screen (issue #50).
+    final reservedBudget = ref.watch(
+      reservedBudgetForMonthProvider(
+        (year: _selectedYear, month: _selectedMonth),
+      ),
+    );
 
     // Get recurring expenses for budget reservation display
     final recurringExpensesState = ref.watch(recurringExpenseListProvider);
