@@ -4,6 +4,7 @@ import '../../../../core/errors/exceptions.dart';
 import '../../../../core/utils/invite_code_generator.dart';
 import '../models/family_group_model.dart';
 import '../models/invite_model.dart';
+import 'group_rpc_result.dart';
 
 /// Remote data source for invite operations using Supabase.
 abstract class InviteRemoteDataSource {
@@ -66,43 +67,35 @@ class InviteRemoteDataSourceImpl implements InviteRemoteDataSource {
             .eq('id', invite['id']);
       }
 
-      // Generate a unique invite code
-      String code;
-      bool isUnique = false;
-      int attempts = 0;
+      // Create the invite (expires in 7 days).
+      // Invite codes of other groups are no longer readable (RLS), so the
+      // uniqueness is enforced by the UNIQUE constraint on invites.code:
+      // on a collision (23505) a new code is generated and the insert retried.
+      final expiresAt = DateTime.now().add(const Duration(days: 7));
       const maxAttempts = 10;
+      Map<String, dynamic>? inviteResponse;
 
-      do {
-        code = InviteCodeGenerator.generate();
-
-        // Check if code already exists
-        final existing = await supabaseClient
-            .from('invites')
-            .select('id')
-            .eq('code', code)
-            .maybeSingle();
-
-        isUnique = existing == null;
-        attempts++;
-      } while (!isUnique && attempts < maxAttempts);
-
-      if (!isUnique) {
-        throw const ServerException('Impossibile generare un codice univoco', 'code_generation_failed');
+      for (var attempt = 0; attempt < maxAttempts && inviteResponse == null; attempt++) {
+        final code = InviteCodeGenerator.generate();
+        try {
+          inviteResponse = await supabaseClient
+              .from('invites')
+              .insert({
+                'group_id': groupId,
+                'code': code,
+                'created_by': userId,
+                'expires_at': expiresAt.toIso8601String(),
+              })
+              .select()
+              .single();
+        } on PostgrestException catch (e) {
+          if (e.code != '23505') rethrow;
+        }
       }
 
-      // Create the invite (expires in 7 days)
-      final expiresAt = DateTime.now().add(const Duration(days: 7));
-
-      final inviteResponse = await supabaseClient
-          .from('invites')
-          .insert({
-            'group_id': groupId,
-            'code': code,
-            'created_by': userId,
-            'expires_at': expiresAt.toIso8601String(),
-          })
-          .select()
-          .single();
+      if (inviteResponse == null) {
+        throw const ServerException('Impossibile generare un codice univoco', 'code_generation_failed');
+      }
 
       return InviteModel.fromJson(inviteResponse);
     } on PostgrestException catch (e) {
@@ -159,37 +152,36 @@ class InviteRemoteDataSourceImpl implements InviteRemoteDataSource {
   @override
   Future<InviteModel> validateInviteCode({required String code}) async {
     try {
-      // Normalize code to uppercase
+      // Normalize code to uppercase (the server normalizes too)
       final normalizedCode = code.toUpperCase().trim();
 
-      // Find the invite
-      final inviteResponse = await supabaseClient
-          .from('invites')
-          .select()
-          .eq('code', normalizedCode)
-          .maybeSingle();
+      // Invites are not readable by non-admins: validation happens in a
+      // SECURITY DEFINER function that returns only what the join needs and
+      // raises invalid_code / already_used / expired.
+      final response = await supabaseClient.rpc(
+        'validate_invite_code',
+        params: {'p_code': normalizedCode},
+      );
 
-      if (inviteResponse == null) {
+      final row = response is List
+          ? (response.isNotEmpty ? response.first : null)
+          : response;
+
+      if (row is! Map) {
         throw const InviteException('Codice invito non valido', 'invalid_code');
       }
 
-      final invite = InviteModel.fromJson(inviteResponse);
-
-      // Check if already used
-      if (invite.isUsed) {
-        throw const InviteException('Questo codice invito è già stato utilizzato', 'already_used');
-      }
-
-      // Check if expired
-      if (invite.isExpired) {
-        throw const InviteException('Questo codice invito è scaduto', 'expired');
-      }
-
-      return invite;
+      return InviteModel(
+        id: '',
+        groupId: row['group_id'] as String,
+        code: normalizedCode,
+        createdBy: '',
+        expiresAt: DateTime.parse(row['expires_at'] as String),
+      );
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is InviteException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -197,55 +189,26 @@ class InviteRemoteDataSourceImpl implements InviteRemoteDataSource {
   @override
   Future<FamilyGroupModel> joinGroupWithCode({required String code}) async {
     try {
-      final userId = _currentUserId;
-
-      // Check if user is already in a group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', userId)
-          .single();
-
-      final currentGroupId = profileResponse['group_id'] as String?;
-      if (currentGroupId != null) {
-        throw const GroupException(
-          'Fai già parte di un gruppo. Devi prima uscire dal gruppo attuale.',
-          'already_in_group',
-        );
+      if (supabaseClient.auth.currentUser == null) {
+        throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
       }
 
-      // Validate the invite
-      final invite = await validateInviteCode(code: code);
+      // Server-side: checks the user is not in a group, locks and validates
+      // the invite, marks it used and sets group_id / is_group_admin = false.
+      final response = await supabaseClient.rpc(
+        'join_group_with_code',
+        params: {'p_code': code.toUpperCase().trim()},
+      );
 
-      // Update the invite to mark it as used
-      await supabaseClient
-          .from('invites')
-          .update({
-            'used_by': userId,
-            'used_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', invite.id);
+      if (response is! Map) {
+        throw const ServerException('Errore durante l\'ingresso nel gruppo');
+      }
 
-      // Join the group
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': invite.groupId})
-          .eq('id', userId);
-
-      // Get the group details
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select()
-          .eq('id', invite.groupId)
-          .single();
-
-      return FamilyGroupModel.fromJson(groupResponse);
+      return FamilyGroupModel.fromJson(Map<String, dynamic>.from(response));
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException || e is InviteException) {
-        rethrow;
-      }
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }

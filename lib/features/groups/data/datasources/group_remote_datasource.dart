@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/family_group_model.dart';
 import '../models/member_model.dart';
+import 'group_rpc_result.dart';
 
 /// Remote data source for group operations using Supabase.
 abstract class GroupRemoteDataSource {
@@ -53,6 +54,12 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     return userId;
   }
 
+  void _ensureAuthenticated() {
+    if (supabaseClient.auth.currentUser == null) {
+      throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+    }
+  }
+
   /// Cache group ID in secure storage
   Future<void> _cacheGroupId(String groupId) async {
     try {
@@ -94,6 +101,17 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     return null;
   }
 
+  /// Remove the cached group so the offline fallback of [getCurrentGroup]
+  /// does not bring back a group the user left or deleted.
+  Future<void> _clearGroupCache() async {
+    try {
+      await _secureStorage.delete(key: _groupIdKey);
+      await _secureStorage.delete(key: _groupDataKey);
+    } catch (_) {
+      // Ignore cache errors
+    }
+  }
+
   @override
   Future<FamilyGroupModel> createGroup({required String name}) async {
     try {
@@ -107,9 +125,9 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
       return FamilyGroupModel.fromJson(groupResponse as Map<String, dynamic>);
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -229,53 +247,17 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   @override
   Future<void> leaveGroup() async {
     try {
-      final userId = _currentUserId;
+      _ensureAuthenticated();
 
-      // Get user's current group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', userId)
-          .single();
+      // Server-side: checks membership/admin, clears group_id and
+      // is_group_admin, deletes the group if the caller was the last member.
+      await supabaseClient.rpc('leave_group');
 
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
-
-      // Check if user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId == userId) {
-        // Check if there are other members
-        final memberCount = await supabaseClient
-            .from('profiles')
-            .select()
-            .eq('group_id', groupId)
-            .count(CountOption.exact);
-
-        if (memberCount.count > 1) {
-          throw const GroupException(
-            'L\'amministratore non può lasciare il gruppo se ci sono altri membri',
-            'admin_cannot_leave',
-          );
-        }
-      }
-
-      // Leave the group
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId);
+      await _clearGroupCache();
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -285,48 +267,23 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     try {
       final currentUserId = _currentUserId;
 
-      // Get current user's group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', currentUserId)
-          .single();
-
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
-
-      // Check if current user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId != currentUserId) {
-        throw const GroupException(
-          'Solo l\'amministratore può rimuovere membri',
-          'not_admin',
-        );
-      }
-
-      // Cannot remove yourself
+      // Fast path: the server enforces the same rule.
       if (userId == currentUserId) {
         throw const GroupException('Non puoi rimuovere te stesso', 'cannot_remove_self');
       }
 
-      // Remove the member
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId)
-          .eq('group_id', groupId);
+      // Server-side: verifies the caller is admin of the same group and
+      // raises member_not_found if no row was updated.
+      final result = await supabaseClient.rpc(
+        'remove_group_member',
+        params: {'p_user_id': userId},
+      );
+
+      ensureAffected(result, 'member_not_found');
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -383,64 +340,19 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   @override
   Future<void> deleteGroup() async {
     try {
-      final userId = _currentUserId;
+      _ensureAuthenticated();
 
-      // Get user's group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', userId)
-          .single();
+      // Server-side: only the admin, only without other members; raises
+      // group_not_deleted if nothing was deleted.
+      final result = await supabaseClient.rpc('delete_family_group');
 
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
+      ensureAffected(result, 'group_not_deleted');
 
-      // Check if user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId != userId) {
-        throw const GroupException(
-          'Solo l\'amministratore può eliminare il gruppo',
-          'not_admin',
-        );
-      }
-
-      // Check if there are other members
-      final memberCount = await supabaseClient
-          .from('profiles')
-          .select()
-          .eq('group_id', groupId)
-          .count(CountOption.exact);
-
-      if (memberCount.count > 1) {
-        throw const GroupException(
-          'Il gruppo non può essere eliminato se ci sono altri membri',
-          'has_members',
-        );
-      }
-
-      // Remove user from group
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId);
-
-      // Delete the group
-      await supabaseClient
-          .from('family_groups')
-          .delete()
-          .eq('id', groupId);
+      await _clearGroupCache();
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
