@@ -107,6 +107,8 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) {
     throw UnimplementedError();
   }
@@ -223,6 +225,18 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
 
   @override
   Future<void> updateSyncStatus(String expenseId, String status, {String? errorMessage}) async {}
+
+  @override
+  Future<bool> discardUnsyncedExpense({
+    required String expenseId,
+    required String userId,
+  }) async => false;
+
+  @override
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) async {}
 }
 
 void main() {

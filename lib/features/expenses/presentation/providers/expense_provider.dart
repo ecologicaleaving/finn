@@ -50,6 +50,10 @@ enum ExpenseListStatus {
   error,
 }
 
+/// Sentinel used by [ExpenseListState.copyWith] to distinguish "parameter not
+/// passed" from "explicitly set to null".
+const Object _unset = Object();
+
 /// Expense list state class
 class ExpenseListState {
   const ExpenseListState({
@@ -76,29 +80,46 @@ class ExpenseListState {
   final ReimbursementStatus? filterReimbursementStatus; // T044
   final bool? filterIsGroupExpense;
 
+  /// Returns a copy of this state.
+  ///
+  /// Filter parameters use a sentinel default so that passing an explicit
+  /// `null` clears the filter, while omitting the parameter keeps the
+  /// current value (issue #48).
   ExpenseListState copyWith({
     ExpenseListStatus? status,
     List<ExpenseEntity>? expenses,
     bool? hasMore,
     String? errorMessage,
-    String? filterCategoryId,
-    DateTime? filterStartDate,
-    DateTime? filterEndDate,
-    String? filterCreatedBy,
-    ReimbursementStatus? filterReimbursementStatus, // T044
-    bool? filterIsGroupExpense,
+    Object? filterCategoryId = _unset,
+    Object? filterStartDate = _unset,
+    Object? filterEndDate = _unset,
+    Object? filterCreatedBy = _unset,
+    Object? filterReimbursementStatus = _unset, // T044
+    Object? filterIsGroupExpense = _unset,
   }) {
     return ExpenseListState(
       status: status ?? this.status,
       expenses: expenses ?? this.expenses,
       hasMore: hasMore ?? this.hasMore,
       errorMessage: errorMessage,
-      filterCategoryId: filterCategoryId ?? this.filterCategoryId,
-      filterStartDate: filterStartDate ?? this.filterStartDate,
-      filterEndDate: filterEndDate ?? this.filterEndDate,
-      filterCreatedBy: filterCreatedBy ?? this.filterCreatedBy,
-      filterReimbursementStatus: filterReimbursementStatus ?? this.filterReimbursementStatus, // T044
-      filterIsGroupExpense: filterIsGroupExpense ?? this.filterIsGroupExpense,
+      filterCategoryId: identical(filterCategoryId, _unset)
+          ? this.filterCategoryId
+          : filterCategoryId as String?,
+      filterStartDate: identical(filterStartDate, _unset)
+          ? this.filterStartDate
+          : filterStartDate as DateTime?,
+      filterEndDate: identical(filterEndDate, _unset)
+          ? this.filterEndDate
+          : filterEndDate as DateTime?,
+      filterCreatedBy: identical(filterCreatedBy, _unset)
+          ? this.filterCreatedBy
+          : filterCreatedBy as String?,
+      filterReimbursementStatus: identical(filterReimbursementStatus, _unset)
+          ? this.filterReimbursementStatus
+          : filterReimbursementStatus as ReimbursementStatus?, // T044
+      filterIsGroupExpense: identical(filterIsGroupExpense, _unset)
+          ? this.filterIsGroupExpense
+          : filterIsGroupExpense as bool?,
     );
   }
 
@@ -523,6 +544,8 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
 
@@ -537,6 +560,8 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       merchant: merchant,
       notes: notes,
       reimbursementStatus: reimbursementStatus,
+      isGroupExpense: isGroupExpense,
+      paidBy: paidBy,
     );
 
     return result.fold(

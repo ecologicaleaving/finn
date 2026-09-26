@@ -74,6 +74,8 @@ abstract class ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   });
 
   /// Delete an expense.
@@ -442,6 +444,55 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     }
   }
 
+  /// Builds the column map sent by [updateExpenseWithTimestamp].
+  ///
+  /// Only non-null fields are included; `last_modified_by` is always present.
+  /// Kept pure so the payload can be unit-tested without Supabase.
+  @visibleForTesting
+  static Map<String, dynamic> buildTimestampUpdatePayload({
+    required String lastModifiedBy,
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? paymentMethodId,
+    String? paymentMethodName,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
+    String? paidByName,
+    DateTime? now,
+  }) {
+    final updates = <String, dynamic>{
+      // Add last_modified_by for audit trail
+      'last_modified_by': lastModifiedBy,
+    };
+
+    if (amount != null) updates['amount'] = amount;
+    if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
+    if (categoryId != null) updates['category_id'] = categoryId;
+    if (paymentMethodId != null) {
+      updates['payment_method_id'] = paymentMethodId;
+      if (paymentMethodName != null) {
+        updates['payment_method_name'] = paymentMethodName;
+      }
+    }
+    if (merchant != null) updates['merchant'] = merchant;
+    if (notes != null) updates['notes'] = notes;
+    if (reimbursementStatus != null) {
+      // #47: reimbursed_at must follow the status (check constraint)
+      updates.addAll(reimbursementFields(reimbursementStatus, now: now));
+    }
+    if (isGroupExpense != null) updates['is_group_expense'] = isGroupExpense;
+    if (paidBy != null) {
+      updates['paid_by'] = paidBy;
+      updates['paid_by_name'] = paidByName ?? 'Utente';
+    }
+
+    return updates;
+  }
+
   @override
   Future<ExpenseModel> updateExpenseWithTimestamp({
     required String expenseId,
@@ -454,20 +505,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     try {
-      final updates = buildUpdatePayload(
-        amount: amount,
-        date: date,
-        categoryId: categoryId,
-        merchant: merchant,
-        notes: notes,
-        reimbursementStatus: reimbursementStatus, // #47
-      );
-
-      // Add last_modified_by for audit trail
-      updates['last_modified_by'] = lastModifiedBy;
-
+      String? paymentMethodName;
       if (paymentMethodId != null) {
         // Get payment method name for denormalization
         final paymentMethodResponse = await supabaseClient
@@ -475,10 +517,34 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             .select('name')
             .eq('id', paymentMethodId)
             .single();
-        final paymentMethodName = paymentMethodResponse['name'] as String;
-        updates['payment_method_id'] = paymentMethodId;
-        updates['payment_method_name'] = paymentMethodName;
+        paymentMethodName = paymentMethodResponse['name'] as String;
       }
+
+      String? paidByName;
+      if (paidBy != null) {
+        // Get paid_by user's display name for denormalization
+        final paidByProfileResponse = await supabaseClient
+            .from('profiles')
+            .select('display_name')
+            .eq('id', paidBy)
+            .maybeSingle();
+        paidByName = paidByProfileResponse?['display_name'] as String?;
+      }
+
+      final updates = buildTimestampUpdatePayload(
+        lastModifiedBy: lastModifiedBy,
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        paymentMethodId: paymentMethodId,
+        paymentMethodName: paymentMethodName,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus,
+        isGroupExpense: isGroupExpense,
+        paidBy: paidBy,
+        paidByName: paidByName,
+      );
 
       // Optimistic locking: only update if updated_at matches the original timestamp
       final response = await supabaseClient

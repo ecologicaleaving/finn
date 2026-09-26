@@ -1,4 +1,5 @@
 import 'package:family_expense_tracker/core/enums/reimbursement_status.dart';
+import 'package:family_expense_tracker/core/enums/transaction_type.dart';
 import 'package:family_expense_tracker/core/errors/failures.dart';
 import 'package:family_expense_tracker/features/auth/domain/entities/user_entity.dart';
 import 'package:family_expense_tracker/features/auth/presentation/providers/auth_provider.dart';
@@ -29,6 +30,7 @@ class _FakeExpenseRepository implements ExpenseRepository {
     String? createdBy,
     String? paidBy,
     String? lastModifiedBy,
+    TransactionType transactionType = TransactionType.expense,
   }) async {
     throw UnimplementedError();
   }
@@ -105,6 +107,8 @@ class _FakeExpenseRepository implements ExpenseRepository {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     throw UnimplementedError();
   }

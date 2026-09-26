@@ -86,9 +86,14 @@ abstract class ExpenseRepository {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   });
 
   /// Delete an expense.
+  ///
+  /// If the expense was saved offline and never synced, it is discarded
+  /// locally (offline row + sync queue items) without calling the server.
   Future<Either<Failure, Unit>> deleteExpense({
     required String expenseId,
   });
