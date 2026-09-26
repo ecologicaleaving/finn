@@ -187,9 +187,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
         );
       } else {
+        final errorMessage = ref.read(authProvider).errorMessage;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Errore nell\'eliminazione dell\'account'),
+          SnackBar(
+            content: Text(
+              errorMessage ?? 'Errore nell\'eliminazione dell\'account',
+            ),
             backgroundColor: Colors.red,
           ),
         );

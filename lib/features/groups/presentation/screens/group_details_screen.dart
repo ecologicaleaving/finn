@@ -64,11 +64,14 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 
     if (confirmed == true) {
       final success = await ref.read(groupProvider.notifier).leaveGroup();
-      if (mounted && success) {
+      if (!mounted) return;
+      if (success) {
         await ref.read(authProvider.notifier).refreshUser();
         if (mounted) {
           context.go('/no-group');
         }
+      } else {
+        _showErrorSnackBar('Impossibile lasciare il gruppo');
       }
     }
   }
@@ -99,11 +102,14 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 
     if (confirmed == true) {
       final success = await ref.read(groupProvider.notifier).deleteGroup();
-      if (mounted && success) {
+      if (!mounted) return;
+      if (success) {
         await ref.read(authProvider.notifier).refreshUser();
         if (mounted) {
           context.go('/no-group');
         }
+      } else {
+        _showErrorSnackBar('Il gruppo non è stato eliminato');
       }
     }
   }
@@ -130,8 +136,32 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     );
 
     if (confirmed == true) {
-      await ref.read(groupProvider.notifier).removeMember(userId: userId);
+      final success =
+          await ref.read(groupProvider.notifier).removeMember(userId: userId);
+      if (!mounted) return;
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$displayName è stato rimosso dal gruppo'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        _showErrorSnackBar('Impossibile rimuovere $displayName dal gruppo');
+      }
     }
+  }
+
+  /// Show the error of the last group operation (or [fallback]) in a red
+  /// SnackBar.
+  void _showErrorSnackBar(String fallback) {
+    final errorMessage = ref.read(groupProvider).errorMessage;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(errorMessage ?? fallback),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   Future<void> _handleGenerateInvite() async {
