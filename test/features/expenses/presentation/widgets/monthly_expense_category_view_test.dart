@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
-import 'package:finn/features/expenses/domain/entities/expense_entity.dart';
-import 'package:finn/features/expenses/presentation/widgets/monthly_expense_category_view.dart';
+import 'package:family_expense_tracker/core/enums/transaction_type.dart';
+import 'package:family_expense_tracker/features/expenses/domain/entities/expense_entity.dart';
+import 'package:family_expense_tracker/features/expenses/presentation/widgets/monthly_expense_category_view.dart';
 
 void main() {
   setUpAll(() async {
@@ -173,6 +174,72 @@ void main() {
       expect(find.text('Aprile 2026'), findsOneWidget);
       expect(find.text('Nessuna spesa questo mese'), findsOneWidget);
     });
+
+    testWidgets('le entrate non entrano nei totali del mese ne\' delle categorie', (tester) async {
+      final expenses = [
+        _expense(
+          id: '1',
+          categoryName: 'Cibo',
+          amount: 10.0,
+          date: DateTime(2026, 3, 10),
+          merchant: 'Conad',
+        ),
+        _expense(
+          id: '2',
+          categoryName: 'Cibo',
+          amount: 100.0,
+          date: DateTime(2026, 3, 11),
+          merchant: 'Rimborso',
+          transactionType: TransactionType.income,
+        ),
+      ];
+
+      final format = NumberFormat.currency(locale: 'it_IT', symbol: '\u20ac', decimalDigits: 2);
+      await tester.pumpWidget(
+        buildTestWidget(
+          expenses: expenses,
+          nowBuilder: () => DateTime(2026, 3, 15),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Totale personale: ${format.format(10.0)}'), findsOneWidget);
+      expect(find.text('Cibo'), findsOneWidget);
+      expect(find.text(format.format(10.0)), findsOneWidget);
+      expect(find.text(format.format(110.0)), findsNothing);
+      expect(find.text('1 spesa'), findsOneWidget);
+
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Conad'), findsOneWidget);
+      expect(find.text('Rimborso'), findsNothing);
+    });
+
+    testWidgets('mese con sole entrate mostra stato vuoto', (tester) async {
+      final expenses = [
+        _expense(
+          id: '1',
+          categoryName: 'Stipendio',
+          amount: 1500.0,
+          date: DateTime(2026, 3, 1),
+          merchant: 'Azienda',
+          transactionType: TransactionType.income,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        buildTestWidget(
+          expenses: expenses,
+          nowBuilder: () => DateTime(2026, 3, 15),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Marzo 2026'), findsOneWidget);
+      expect(find.text('Nessuna spesa questo mese'), findsOneWidget);
+      expect(find.text('Stipendio'), findsNothing);
+    });
   });
 }
 
@@ -182,6 +249,7 @@ ExpenseEntity _expense({
   required double amount,
   required DateTime date,
   required String merchant,
+  TransactionType transactionType = TransactionType.expense,
 }) {
   return ExpenseEntity(
     id: id,
@@ -194,5 +262,6 @@ ExpenseEntity _expense({
     paymentMethodId: 'pm',
     paymentMethodName: 'Carta',
     merchant: merchant,
+    transactionType: transactionType,
   );
 }

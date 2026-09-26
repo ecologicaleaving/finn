@@ -9,7 +9,7 @@ import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../categories/presentation/widgets/category_dropdown.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../providers/expense_provider.dart';
 import '../widgets/expense_list_item.dart';
@@ -250,7 +250,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
 
     if (success) {
       // Refresh dashboard to reflect the deleted expense
-      ref.read(dashboardProvider.notifier).refresh();
+      refreshPersonalDashboard(ref);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

@@ -11,6 +11,7 @@ import '../../../expenses/presentation/providers/expense_provider.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../domain/entities/dashboard_stats_entity.dart';
 import '../providers/dashboard_provider.dart';
+import '../providers/dashboard_refresh.dart';
 import '../../../categories/presentation/widgets/orphaned_expenses_notification.dart';
 import '../widgets/budget_summary_card.dart';
 import '../widgets/category_budget_list.dart';
@@ -40,7 +41,7 @@ class DashboardScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh),
             onPressed: dashboardState.isLoading
                 ? null
-                : () => ref.read(dashboardProvider.notifier).refresh(),
+                : () => refreshPersonalDashboard(ref),
             tooltip: 'Aggiorna',
           ),
         ],
@@ -49,7 +50,7 @@ class DashboardScreen extends ConsumerWidget {
         dashboardState: dashboardState,
         members: groupState.members,
         isPersonalView: true,
-        onRefresh: () => ref.read(dashboardProvider.notifier).refresh(),
+        onRefresh: () => refreshPersonalDashboard(ref),
         onPeriodChanged: (period) =>
             ref.read(dashboardProvider.notifier).setPeriod(period),
         onNavigatePrevious: () =>
@@ -78,7 +79,7 @@ class _DashboardContent extends ConsumerWidget {
   final DashboardState dashboardState;
   final List<dynamic> members;
   final bool isPersonalView;
-  final VoidCallback onRefresh;
+  final Future<void> Function() onRefresh;
   final ValueChanged<DashboardPeriod> onPeriodChanged;
   final VoidCallback onNavigatePrevious;
   final VoidCallback onNavigateNext;
@@ -103,7 +104,7 @@ class _DashboardContent extends ConsumerWidget {
     final stats = dashboardState.stats;
 
     return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
+      onRefresh: onRefresh,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),

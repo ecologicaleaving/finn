@@ -172,9 +172,18 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
     return widget.expenses.map((expense) => expense.date).reduce((a, b) => a.isBefore(b) ? a : b);
   }
 
+  /// Spese (entrate escluse) del mese indicato.
+  ///
+  /// Totali, raggruppamento per categoria, dettaglio categoria e stato vuoto
+  /// considerano solo le uscite. La copertura della paginazione
+  /// ([_needsMoreDataForSelectedMonth]) continua invece a usare tutte le righe
+  /// di [MonthlyExpenseCategoryView.expenses].
   List<ExpenseEntity> _expensesForMonth(DateTime month) {
     return widget.expenses
-        .where((expense) => expense.date.year == month.year && expense.date.month == month.month)
+        .where((expense) =>
+            !expense.isIncome &&
+            expense.date.year == month.year &&
+            expense.date.month == month.month)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
   }
