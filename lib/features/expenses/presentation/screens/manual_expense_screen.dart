@@ -16,9 +16,7 @@ import '../../../budgets/presentation/providers/budget_repository_provider.dart'
 import '../../../categories/presentation/providers/category_provider.dart';
 import '../../../categories/presentation/providers/category_repository_provider.dart';
 import '../../../categories/presentation/widgets/budget_prompt_dialog.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
-import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
-import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../payment_methods/presentation/providers/payment_method_provider.dart';
 import '../../domain/entities/expense_entity.dart';
@@ -302,16 +300,10 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       } else {
         listNotifier.updateExpenseInList(updatedExpense);
       }
+      ref.invalidate(expenseProvider(updatedExpense.id));
 
       // Refresh dashboard to reflect the updated expense
-      ref.read(dashboardProvider.notifier).refresh();
-
-      // Invalidate all dashboard providers to refresh totals
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      refreshPersonalDashboard(ref);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -380,14 +372,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       await _checkAndPromptForVirginCategory();
 
       // Refresh dashboard to reflect the new expense
-      await ref.read(dashboardProvider.notifier).refresh();
-
-      // Invalidate all dashboard providers to refresh totals
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      if (mounted) await refreshPersonalDashboard(ref);
 
       if (mounted) {
         if (expense.isPendingSync) {
@@ -457,12 +442,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       await _checkAndPromptForVirginCategory();
 
       // Refresh dashboard
-      ref.read(dashboardProvider.notifier).refresh();
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      if (mounted) refreshPersonalDashboard(ref);
 
       // Show success message
       if (mounted) {

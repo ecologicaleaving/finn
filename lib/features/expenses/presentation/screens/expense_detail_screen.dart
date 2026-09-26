@@ -9,12 +9,12 @@ import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../shared/widgets/receipt_image_viewer.dart';
 import '../../../../shared/widgets/reimbursement_status_badge.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
-import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
-import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../domain/entities/expense_entity.dart';
 import '../providers/expense_provider.dart';
 import '../providers/receipt_image_provider.dart';
+import '../providers/reimbursements_provider.dart';
 import '../widgets/budget_context_widget.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 
@@ -288,10 +288,11 @@ class ExpenseDetailScreen extends ConsumerWidget {
                               checkmarkColor: color,
                               onSelected: (selected) {
                                 if (selected && !isSelected) {
-                                  ref.read(expenseListProvider.notifier).updateReimbursementStatus(
-                                    context: context,
-                                    expenseId: expense.id,
-                                    newStatus: status,
+                                  _changeReimbursementStatus(
+                                    context,
+                                    ref,
+                                    expense,
+                                    status,
                                   );
                                 }
                               },
@@ -357,6 +358,34 @@ class ExpenseDetailScreen extends ConsumerWidget {
     );
   }
 
+  /// Change reimbursement status from the detail screen (issue #47).
+  ///
+  /// Passes the entity loaded by [expenseProvider] so the update works even
+  /// when the expense is not in the loaded page of the list, then refreshes
+  /// the detail so the badge and chips reflect the new status.
+  Future<void> _changeReimbursementStatus(
+    BuildContext context,
+    WidgetRef ref,
+    ExpenseEntity expense,
+    ReimbursementStatus status,
+  ) async {
+    final ok = await ref.read(expenseListProvider.notifier).updateReimbursementStatus(
+          context: context,
+          expenseId: expense.id,
+          newStatus: status,
+          expense: expense,
+        );
+
+    if (!ok || !context.mounted) return;
+
+    ref.invalidate(expenseProvider(expense.id));
+    ref.invalidate(recentGroupExpensesProvider);
+    ref.invalidate(recentPersonalExpensesProvider);
+    if (ref.exists(reimbursementsListProvider)) {
+      ref.read(reimbursementsListProvider.notifier).refresh();
+    }
+  }
+
   Future<void> _handleDelete(BuildContext context, WidgetRef ref) async {
     // Get the expense to check if it's reimbursable
     final expenseAsync = await ref.read(expenseProvider(expenseId).future);
@@ -378,14 +407,7 @@ class ExpenseDetailScreen extends ConsumerWidget {
       if (success && context.mounted) {
         ref.read(expenseListProvider.notifier).removeExpenseFromList(expenseId);
 
-        // Invalidate providers to refresh totals
-        ref.invalidate(recentGroupExpensesProvider);
-        ref.invalidate(recentPersonalExpensesProvider);
-        ref.invalidate(personalExpensesByCategoryProvider);
-        ref.invalidate(expensesByPeriodProvider);
-        ref.invalidate(groupMembersExpensesProvider);
-        ref.invalidate(groupExpensesByCategoryProvider);
-        ref.read(dashboardProvider.notifier).refresh();
+        refreshPersonalDashboard(ref);
 
         context.pop();
       }

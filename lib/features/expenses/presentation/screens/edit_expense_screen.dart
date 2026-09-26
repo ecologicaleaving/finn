@@ -13,9 +13,7 @@ import '../../../../shared/widgets/navigation_guard.dart';
 import '../../../../shared/widgets/primary_button.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../categories/presentation/providers/category_provider.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
-import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
-import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../providers/expense_provider.dart';
@@ -314,13 +312,7 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
         (_) {
           // Success: update providers
           expenseListNotifier.removeExpenseFromList(widget.expense.id);
-          ref.invalidate(recentGroupExpensesProvider);
-          ref.invalidate(recentPersonalExpensesProvider);
-          ref.invalidate(personalExpensesByCategoryProvider);
-          ref.invalidate(expensesByPeriodProvider);
-          ref.invalidate(groupMembersExpensesProvider);
-          ref.invalidate(groupExpensesByCategoryProvider);
-          ref.read(dashboardProvider.notifier).refresh();
+          refreshPersonalDashboard(ref);
 
           // Show success message
           ScaffoldMessenger.of(context).showSnackBar(
@@ -400,13 +392,7 @@ class _EditExpenseFormState extends ConsumerState<_EditExpenseForm>
     // Update list and navigate
     listNotifier.updateExpenseInList(updatedExpense);
     ref.invalidate(expenseProvider(widget.expense.id));
-    ref.invalidate(recentGroupExpensesProvider);
-    ref.invalidate(recentPersonalExpensesProvider);
-    ref.invalidate(personalExpensesByCategoryProvider);
-    ref.invalidate(expensesByPeriodProvider);
-    ref.invalidate(groupMembersExpensesProvider);
-    ref.invalidate(groupExpensesByCategoryProvider);
-    ref.read(dashboardProvider.notifier).refresh();
+    refreshPersonalDashboard(ref);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

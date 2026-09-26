@@ -46,6 +46,22 @@ ExpenseEditChanges _compute(
 
 void main() {
   group('ExpenseEditChanges.compute (issue #48)', () {
+    test('clearing the description sends an empty string, not null', () {
+      final changes = ExpenseEditChanges.compute(
+        original: _expense(),
+        currentUserId: 'user-1',
+        amount: _expense().amount,
+        date: _expense().date,
+        categoryId: _expense().categoryId,
+        paymentMethodId: _expense().paymentMethodId,
+        notes: '   ',
+        reimbursementStatus: _expense().reimbursementStatus,
+        isGroupExpense: _expense().isGroupExpense,
+        selectedMemberId: null,
+      );
+      expect(changes.notes, '');
+    });
+
     test('no change produces an empty diff', () {
       final changes = _compute(_expense());
       expect(changes.amount, isNull);

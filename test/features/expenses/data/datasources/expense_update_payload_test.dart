@@ -61,6 +61,8 @@ void main() {
         'payment_method_name': 'Carta',
         'notes': 'nota',
         'reimbursement_status': 'reimbursable',
+        // #47: reimbursed_at always travels with the status
+        'reimbursed_at': null,
         'is_group_expense': true,
       });
     });

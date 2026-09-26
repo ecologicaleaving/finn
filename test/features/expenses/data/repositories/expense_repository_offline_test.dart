@@ -16,6 +16,8 @@ import 'package:family_expense_tracker/shared/services/connectivity_service.dart
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
+  int createCalls = 0;
+
   @override
   Future<ExpenseModel> createExpense({
     required double amount,
@@ -30,8 +32,9 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? paidBy,
     String? lastModifiedBy,
     TransactionType transactionType = TransactionType.expense,
-  }) {
-    throw ServerException('SocketException: offline');
+  }) async {
+    createCalls++;
+    throw const ServerException('SocketException: offline');
   }
 
   @override
@@ -155,6 +158,7 @@ class _FakeExpenseLocalCacheDataSource implements ExpenseLocalCacheDataSource {
 
 class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSource {
   OfflineExpenseEntity? createdExpense;
+  Map<String, dynamic>? createdExtraPayload;
 
   @override
   Future<void> addToSyncQueue({
@@ -175,7 +179,9 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
   }) async {
+    createdExtraPayload = extraPayload;
     createdExpense = OfflineExpenseEntity(
       id: 'offline-expense-1',
       userId: userId,
@@ -348,5 +354,75 @@ void main() {
     expect(expense.syncStatus, 'pending');
     expect(cache.cachedExpenses.single.syncStatus, 'pending');
     expect(offlineDataSource.createdExpense?.id, 'offline-expense-1');
+    expect(offlineDataSource.createdExpense?.notes, 'Spesa offline');
+    // Fields not stored in the offline table must still reach the server
+    expect(offlineDataSource.createdExtraPayload?['payment_method_id'], 'cash');
+    expect(offlineDataSource.createdExtraPayload?['paid_by'], 'user-1');
+    expect(offlineDataSource.createdExtraPayload?['transaction_type'], 'expense');
+  });
+
+  test('con stato rete sconosciuto il salvataggio prova prima il server', () async {
+    final remote = _FakeExpenseRemoteDataSource();
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: remote,
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => null,
+    );
+
+    final result = await repository.createExpense(
+      amount: 10,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+    );
+
+    expect(remote.createCalls, 1);
+    // The fake remote fails with a network error: falls back to offline
+    expect(result.isRight(), isTrue);
+    expect(offlineDataSource.createdExpense, isNotNull);
+  });
+
+  test('dettaglio di una spesa non ancora sincronizzata letto dalla cache', () async {
+    final cache = _FakeExpenseLocalCacheDataSource();
+    await cache.upsertExpense(
+      'user-1',
+      ExpenseEntity(
+        id: 'pending-1',
+        groupId: 'group-1',
+        createdBy: 'user-1',
+        amount: 12.0,
+        date: DateTime(2026, 3, 8),
+        categoryId: 'cat-1',
+        paymentMethodId: 'cash',
+        notes: 'Pizza',
+        syncStatus: 'pending',
+      ),
+    );
+
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(), // getExpense throws
+      localCacheDataSource: cache,
+      offlineLocalDataSource: _FakeOfflineExpenseLocalDataSource(),
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => NetworkStatus.online,
+    );
+
+    final result = await repository.getExpense(expenseId: 'pending-1');
+
+    expect(result.isRight(), isTrue);
+    expect(result.getOrElse(() => throw StateError('no expense')).notes, 'Pizza');
   });
 }

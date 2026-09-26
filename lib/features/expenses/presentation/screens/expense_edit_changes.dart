@@ -42,9 +42,9 @@ class ExpenseEditChanges {
       categoryId: categoryId != original.categoryId ? categoryId : null,
       paymentMethodId:
           paymentMethodId != original.paymentMethodId ? paymentMethodId : null,
-      notes: trimmedNotes != (original.notes ?? '')
-          ? (trimmedNotes.isNotEmpty ? trimmedNotes : null)
-          : null,
+      // An empty string (not null) clears a removed description: null means
+      // "unchanged" for the update call.
+      notes: trimmedNotes != (original.notes ?? '') ? trimmedNotes : null,
       reimbursementStatus: reimbursementStatus != original.reimbursementStatus
           ? reimbursementStatus
           : null,

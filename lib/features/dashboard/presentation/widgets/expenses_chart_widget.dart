@@ -7,48 +7,24 @@ import 'package:intl/intl.dart';
 import '../../../../core/utils/currency_utils.dart';
 
 import '../../../../app/app_theme.dart';
-enum ChartPeriod { week, month, year }
+import '../../domain/utils/chart_period_utils.dart';
+
+export '../../domain/utils/chart_period_utils.dart' show ChartPeriod;
 
 /// Provider per le spese raggruppate per periodo
 final expensesByPeriodProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, ExpenseChartParams>((ref, params) async {
   final supabase = Supabase.instance.client;
-  final now = DateTime.now();
-
-  DateTime startDate;
-  DateTime endDate;
-
-  switch (params.period) {
-    case ChartPeriod.week:
-      // Settimana corrente + offset
-      final weekDay = now.weekday;
-      final currentWeekStart = now.subtract(Duration(days: weekDay - 1));
-      startDate = currentWeekStart.add(Duration(days: params.offset * 7));
-      endDate = startDate.add(const Duration(days: 6));
-      break;
-    case ChartPeriod.month:
-      // Mese corrente + offset
-      final targetMonth = now.month + params.offset;
-      final targetYear = now.year + (targetMonth - 1) ~/ 12;
-      final normalizedMonth = ((targetMonth - 1) % 12) + 1;
-      startDate = DateTime(targetYear, normalizedMonth, 1);
-      endDate = DateTime(targetYear, normalizedMonth + 1, 0);
-      break;
-    case ChartPeriod.year:
-      // Anno corrente + offset
-      final targetYear = now.year + params.offset;
-      startDate = DateTime(targetYear, 1, 1);
-      endDate = DateTime(targetYear, 12, 31);
-      break;
-  }
+  final range = chartRangeFor(params.period, params.offset, DateTime.now());
+  final dateFormat = DateFormat('yyyy-MM-dd');
 
   // Query spese nel periodo (escluse entrate)
   var query = supabase
       .from('expenses')
       .select('amount, date')
       .neq('transaction_type', 'income')
-      .gte('date', startDate.toIso8601String().split('T')[0])
-      .lte('date', endDate.toIso8601String().split('T')[0]);
+      .gte('date', dateFormat.format(range.start))
+      .lte('date', dateFormat.format(range.end));
 
   if (params.isPersonalView) {
     // Use paid_by instead of created_by to include expenses created by admin on behalf of user
@@ -60,64 +36,31 @@ final expensesByPeriodProvider = FutureProvider.autoDispose
   final expenses = await query as List;
 
   // Raggruppa per data/periodo
-  final Map<String, int> grouped = {};
+  final grouped = groupAmountsByBucket(
+    params.period,
+    expenses.cast<Map<String, dynamic>>(),
+  );
 
-  for (final expense in expenses) {
-    final date = DateTime.parse(expense['date'] as String);
-    final amount = (expense['amount'] as num).toDouble();
-    final amountCents = (amount * 100).round();
-
-    String key;
+  // Converti in lista ordinata, usando le date del periodo richiesto
+  final List<Map<String, dynamic>> result = [];
+  for (final date in chartBucketDates(params.period, range.start, range.end)) {
+    final String label;
     switch (params.period) {
       case ChartPeriod.week:
+        label = DateFormat('E', 'it').format(date); // Lun, Mar, ...
+        break;
       case ChartPeriod.month:
-        key = DateFormat('yyyy-MM-dd').format(date);
+        label = date.day.toString();
         break;
       case ChartPeriod.year:
-        key = DateFormat('yyyy-MM').format(date);
+        label = DateFormat('MMM', 'it').format(date); // Gen, Feb, ...
         break;
     }
-
-    grouped[key] = (grouped[key] ?? 0) + amountCents;
-  }
-
-  // Converti in lista ordinata
-  final List<Map<String, dynamic>> result = [];
-
-  if (params.period == ChartPeriod.week) {
-    // Settimana: 7 giorni
-    for (int i = 0; i < 7; i++) {
-      final date = startDate.add(Duration(days: i));
-      final key = DateFormat('yyyy-MM-dd').format(date);
-      result.add({
-        'label': DateFormat('E', 'it').format(date), // Lun, Mar, ...
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
-  } else if (params.period == ChartPeriod.month) {
-    // Mese: tutti i giorni
-    final daysInMonth = endDate.day;
-    for (int i = 1; i <= daysInMonth; i++) {
-      final date = DateTime(now.year, now.month, i);
-      final key = DateFormat('yyyy-MM-dd').format(date);
-      result.add({
-        'label': i.toString(),
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
-  } else {
-    // Anno: 12 mesi
-    for (int i = 1; i <= 12; i++) {
-      final date = DateTime(now.year, i, 1);
-      final key = DateFormat('yyyy-MM').format(date);
-      result.add({
-        'label': DateFormat('MMM', 'it').format(date), // Gen, Feb, ...
-        'value': grouped[key] ?? 0,
-        'date': date,
-      });
-    }
+    result.add({
+      'label': label,
+      'value': grouped[chartBucketKey(params.period, date)] ?? 0,
+      'date': date,
+    });
   }
 
   return result;
@@ -183,23 +126,15 @@ class _ExpensesChartWidgetState extends ConsumerState<ExpensesChartWidget> {
   }
 
   String _getPeriodLabel() {
-    final now = DateTime.now();
+    final range = chartRangeFor(_selectedPeriod, _offset, DateTime.now());
 
     switch (_selectedPeriod) {
       case ChartPeriod.week:
-        final weekDay = now.weekday;
-        final currentWeekStart = now.subtract(Duration(days: weekDay - 1));
-        final targetWeekStart = currentWeekStart.add(Duration(days: _offset * 7));
-        final targetWeekEnd = targetWeekStart.add(const Duration(days: 6));
-        return '${DateFormat('d MMM', 'it').format(targetWeekStart)} - ${DateFormat('d MMM', 'it').format(targetWeekEnd)}';
+        return '${DateFormat('d MMM', 'it').format(range.start)} - ${DateFormat('d MMM', 'it').format(range.end)}';
       case ChartPeriod.month:
-        final targetMonth = now.month + _offset;
-        final targetYear = now.year + (targetMonth - 1) ~/ 12;
-        final normalizedMonth = ((targetMonth - 1) % 12) + 1;
-        final date = DateTime(targetYear, normalizedMonth);
-        return DateFormat('MMMM yyyy', 'it').format(date);
+        return DateFormat('MMMM yyyy', 'it').format(range.start);
       case ChartPeriod.year:
-        return (now.year + _offset).toString();
+        return range.start.year.toString();
     }
   }
 

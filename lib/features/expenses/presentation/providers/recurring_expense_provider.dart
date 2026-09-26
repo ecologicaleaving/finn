@@ -317,6 +317,7 @@ class RecurringExpenseFormNotifier
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
   }) async {
     state = state.copyWith(
         status: RecurringExpenseFormStatus.submitting, errorMessage: null);
@@ -334,6 +335,7 @@ class RecurringExpenseFormNotifier
       defaultReimbursementStatus: defaultReimbursementStatus,
       paymentMethodId: paymentMethodId,
       paymentMethodName: paymentMethodName,
+      anchorDate: anchorDate,
     );
 
     return result.fold(
