@@ -621,7 +621,9 @@ final expenseFormProvider =
 });
 
 /// Provider for a single expense
-final expenseProvider = FutureProvider.family<ExpenseEntity?, String>((ref, expenseId) async {
+// autoDispose: the detail screen must reload the expense every time it is
+// opened, otherwise edits (e.g. a description added later) never show up.
+final expenseProvider = FutureProvider.autoDispose.family<ExpenseEntity?, String>((ref, expenseId) async {
   final repository = ref.watch(expenseRepositoryProvider);
   final result = await repository.getExpense(expenseId: expenseId);
   return result.fold((_) => null, (expense) => expense);

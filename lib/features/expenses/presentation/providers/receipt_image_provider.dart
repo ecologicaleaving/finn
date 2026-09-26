@@ -57,7 +57,7 @@ final receiptImageUrlProvider = FutureProvider.family<String, String>(
 ///   error: (e, _) => ErrorWidget(e),
 /// );
 /// ```
-final expenseReceiptProvider = FutureProvider.family<String?, String>(
+final expenseReceiptProvider = FutureProvider.autoDispose.family<String?, String>(
   (ref, expenseId) async {
     // First get the expense to check if it has a receipt
     final expenseAsync = await ref.watch(expenseProvider(expenseId).future);
