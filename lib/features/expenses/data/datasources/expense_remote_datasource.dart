@@ -101,6 +101,49 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
   final SupabaseClient supabaseClient;
 
+  /// Builds the reimbursement columns for a write (issue #47).
+  ///
+  /// The DB constraint `check_reimbursed_at_consistency` requires
+  /// `reimbursed_at` to be NOT NULL when status is `reimbursed` and NULL
+  /// otherwise, so both columns must always be written together.
+  static Map<String, dynamic> reimbursementFields(
+    ReimbursementStatus status, {
+    DateTime? now,
+  }) {
+    return <String, dynamic>{
+      'reimbursement_status': status.value,
+      'reimbursed_at': status == ReimbursementStatus.reimbursed
+          ? (now ?? DateTime.now()).toUtc().toIso8601String()
+          : null,
+    };
+  }
+
+  /// Builds the update payload for the simple (non-lookup) expense fields.
+  ///
+  /// Payment method fields and `last_modified_by` are added by the callers.
+  /// When [reimbursementStatus] is null neither `reimbursement_status` nor
+  /// `reimbursed_at` is included, so the existing values stay untouched.
+  static Map<String, dynamic> buildUpdatePayload({
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+    DateTime? now,
+  }) {
+    final updates = <String, dynamic>{};
+    if (amount != null) updates['amount'] = amount;
+    if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
+    if (categoryId != null) updates['category_id'] = categoryId;
+    if (merchant != null) updates['merchant'] = merchant;
+    if (notes != null) updates['notes'] = notes;
+    if (reimbursementStatus != null) {
+      updates.addAll(reimbursementFields(reimbursementStatus, now: now));
+    }
+    return updates;
+  }
+
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
     if (userId == null) {
@@ -310,7 +353,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'merchant': merchant,
             'notes': notes,
             'is_group_expense': isGroupExpense,
-            'reimbursement_status': reimbursementStatus.value, // T048
+            ...reimbursementFields(reimbursementStatus), // T048, #47
             'last_modified_by': lastModifiedBy ?? effectiveCreatedBy, // T014: Set last_modified_by
             // Only include transaction_type for income (backward compatible: column may not exist yet)
             if (transactionType != TransactionType.expense)
@@ -354,11 +397,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     ReimbursementStatus? reimbursementStatus, // T048
   }) async {
     try {
-      final updates = <String, dynamic>{};
+      final updates = buildUpdatePayload(
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus, // T048, #47
+      );
 
-      if (amount != null) updates['amount'] = amount;
-      if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
-      if (categoryId != null) updates['category_id'] = categoryId;
       if (paymentMethodId != null) {
         // Get payment method name for denormalization
         final paymentMethodResponse = await supabaseClient
@@ -370,9 +417,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         updates['payment_method_id'] = paymentMethodId;
         updates['payment_method_name'] = paymentMethodName;
       }
-      if (merchant != null) updates['merchant'] = merchant;
-      if (notes != null) updates['notes'] = notes;
-      if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value; // T048
 
       if (updates.isEmpty) {
         return await getExpense(expenseId: expenseId);
@@ -412,14 +456,18 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     ReimbursementStatus? reimbursementStatus,
   }) async {
     try {
-      final updates = <String, dynamic>{};
+      final updates = buildUpdatePayload(
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus, // #47
+      );
 
       // Add last_modified_by for audit trail
       updates['last_modified_by'] = lastModifiedBy;
 
-      if (amount != null) updates['amount'] = amount;
-      if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
-      if (categoryId != null) updates['category_id'] = categoryId;
       if (paymentMethodId != null) {
         // Get payment method name for denormalization
         final paymentMethodResponse = await supabaseClient
@@ -431,9 +479,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         updates['payment_method_id'] = paymentMethodId;
         updates['payment_method_name'] = paymentMethodName;
       }
-      if (merchant != null) updates['merchant'] = merchant;
-      if (notes != null) updates['notes'] = notes;
-      if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value;
 
       // Optimistic locking: only update if updated_at matches the original timestamp
       final response = await supabaseClient
