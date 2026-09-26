@@ -225,6 +225,12 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
     required String expenseId,
     required String userId,
   }) async => false;
+
+  @override
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) async {}
 }
 
 void main() {

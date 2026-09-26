@@ -119,6 +119,16 @@ class _FakeOffline implements OfflineExpenseLocalDataSource {
     return discardResult;
   }
 
+  final List<String> removeLocalCalls = [];
+
+  @override
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) async {
+    removeLocalCalls.add('$expenseId/$userId');
+  }
+
   @override
   Future<OfflineExpenseEntity> createOfflineExpense({
     required String userId,
@@ -197,6 +207,7 @@ void main() {
         expect(offline.discardCalls, ['X/user-1']);
         expect(remote.deletedIds, isEmpty);
         expect(cache.cachedExpenses, isEmpty);
+        expect(offline.removeLocalCalls, isEmpty);
       });
     }
 
@@ -214,6 +225,7 @@ void main() {
       expect(offline.discardCalls, ['S/user-1']);
       expect(remote.deletedIds, ['S']);
       expect(cache.cachedExpenses, isEmpty);
+      expect(offline.removeLocalCalls, ['S/user-1']);
     });
   });
 

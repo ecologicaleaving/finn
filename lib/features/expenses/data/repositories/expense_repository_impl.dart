@@ -509,9 +509,10 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   }) async {
     final user = currentUser;
 
-    // An expense saved offline and never synced does not exist on the server:
-    // discard the offline row and its sync queue items, otherwise the next
-    // sync would recreate it (issue #48).
+    // An expense saved offline and never synced (its 'create' is still in the
+    // sync queue) does not exist on the server: discard the offline row and
+    // its queue items, otherwise the next sync would recreate it (issue #48).
+    // Anything already synced falls through to the remote delete.
     if (user != null) {
       try {
         final discarded = await offlineLocalDataSource.discardUnsyncedExpense(
@@ -529,8 +530,19 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
 
     try {
       await remoteDataSource.deleteExpense(expenseId: expenseId);
-      if (currentUser != null) {
-        await localCacheDataSource.removeExpense(currentUser!.id, expenseId);
+      if (user != null) {
+        await localCacheDataSource.removeExpense(user.id, expenseId);
+        // Drop leftover offline data of a synced expense (e.g. a queued
+        // offline 'update') so the sync does not replay it. Best effort:
+        // the server delete already succeeded.
+        try {
+          await offlineLocalDataSource.removeLocalExpenseData(
+            expenseId: expenseId,
+            userId: user.id,
+          );
+        } catch (e) {
+          debugPrint('deleteExpense: local offline cleanup failed: $e');
+        }
       }
       return const Right(unit);
     } on ServerException catch (e) {
