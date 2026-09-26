@@ -120,15 +120,12 @@ class _CurrencyInputFieldState extends State<CurrencyInputField> {
     }
   }
 
-  /// Parse display string to cents (e.g., "12.50" -> 1250)
+  /// Parse display string to cents (e.g., "12.50" or "12,50" -> 1250)
   int? _parseDisplayToCents(String text) {
     if (text.isEmpty) return null;
 
-    // Remove currency symbols and whitespace
-    text = text.replaceAll(RegExp(r'[€$£¥\s,]'), '');
-
     try {
-      final amount = double.parse(text);
+      final amount = double.parse(_normalizeDecimal(text));
       return (amount * 100).round();
     } catch (e) {
       return null;
@@ -193,7 +190,7 @@ class _CurrencyInputFieldState extends State<CurrencyInputField> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(
           widget.showDecimals
-              ? RegExp(r'^\d+\.?\d{0,2}')
+              ? RegExp(r'^\d+[.,]?\d{0,2}')
               : RegExp(r'^\d+'),
         ),
       ],
@@ -245,14 +242,38 @@ extension CurrencyFormatting on int {
 }
 
 /// Helper function to parse currency string to cents
+///
+/// Accepts both '.' and ',' as decimal separator (e.g. "12,50" -> 1250,
+/// "1,234.56" -> 123456, "1.234,56" -> 123456).
 int? parseCurrencyToCents(String text) {
-  // Remove currency symbols and whitespace
-  text = text.replaceAll(RegExp(r'[€$£¥\s,]'), '');
-
   try {
-    final amount = double.parse(text);
+    final amount = double.parse(_normalizeDecimal(text));
     return (amount * 100).round();
   } catch (e) {
     return null;
   }
+}
+
+/// Normalizes a user-entered amount so it can be parsed by [double.parse].
+///
+/// Strips currency symbols and whitespace. When both '.' and ',' are present,
+/// the last one is the decimal separator and the others are thousands
+/// separators. When only ',' is present it is treated as decimal separator.
+String _normalizeDecimal(String text) {
+  var normalized = text.replaceAll(RegExp(r'[€$£¥\s]'), '');
+
+  final lastDot = normalized.lastIndexOf('.');
+  final lastComma = normalized.lastIndexOf(',');
+
+  if (lastDot >= 0 && lastComma >= 0) {
+    final decimalIndex = lastDot > lastComma ? lastDot : lastComma;
+    final integerPart =
+        normalized.substring(0, decimalIndex).replaceAll(RegExp(r'[.,]'), '');
+    final fractionalPart = normalized.substring(decimalIndex + 1);
+    normalized = '$integerPart.$fractionalPart';
+  } else if (lastComma >= 0) {
+    normalized = normalized.replaceAll(',', '.');
+  }
+
+  return normalized;
 }
