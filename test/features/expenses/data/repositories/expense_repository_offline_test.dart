@@ -154,6 +154,15 @@ class _FakeExpenseLocalCacheDataSource implements ExpenseLocalCacheDataSource {
     }
     cachedExpenses[index] = expense;
   }
+
+  @override
+  Future<int> removeSyncedExpenses(String userId, Set<String> ids) async {
+    final before = cachedExpenses.length;
+    cachedExpenses.removeWhere(
+      (e) => ids.contains(e.id) && e.syncStatus == 'completed',
+    );
+    return before - cachedExpenses.length;
+  }
 }
 
 class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSource {
@@ -237,6 +246,9 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
     required String expenseId,
     required String userId,
   }) async {}
+
+  @override
+  Future<Set<String>> getUnsyncedExpenseIds(String userId) async => {};
 }
 
 void main() {

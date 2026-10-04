@@ -16,6 +16,7 @@ import '../../data/datasources/expense_remote_datasource.dart';
 import '../../data/repositories/expense_repository_impl.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
+import '../../domain/utils/expense_ordering.dart';
 import '../widgets/reimbursement_status_change_dialog.dart';
 
 /// Provider for expense remote data source
@@ -159,7 +160,9 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
       reimbursementStatus: state.filterReimbursementStatus, // T045, T046
       isGroupExpense: state.filterIsGroupExpense,
       limit: _pageSize,
-      offset: refresh ? 0 : state.expenses.length,
+      // The offset counts only synced expenses: pending ones are not on the
+      // server and are returned once, with the first page.
+      offset: refresh ? 0 : state.expenses.where((e) => !e.isPendingSync).length,
     );
 
     result.fold(
@@ -170,10 +173,21 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
         );
       },
       (expenses) {
+        final List<ExpenseEntity> combined;
+        if (refresh) {
+          combined = [...expenses]..sort(compareExpensesNewestFirst);
+        } else {
+          // Merge by id (the new copy wins) and keep the global order.
+          final byId = <String, ExpenseEntity>{
+            for (final e in state.expenses) e.id: e,
+            for (final e in expenses) e.id: e,
+          };
+          combined = byId.values.toList()..sort(compareExpensesNewestFirst);
+        }
         state = state.copyWith(
           status: ExpenseListStatus.loaded,
-          expenses: refresh ? expenses : [...state.expenses, ...expenses],
-          hasMore: expenses.length >= _pageSize,
+          expenses: combined,
+          hasMore: expenses.where((e) => !e.isPendingSync).length >= _pageSize,
         );
       },
     );
