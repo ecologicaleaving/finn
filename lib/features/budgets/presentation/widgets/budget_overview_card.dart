@@ -5,6 +5,13 @@ import '../../../../core/utils/currency_utils.dart';
 import '../../domain/entities/budget_composition_entity.dart';
 
 import '../../../../app/app_theme.dart';
+
+/// Valore (in centesimi) del riquadro GRUPPO: somma dei soli budget di gruppo
+/// (issue #68). Non sottrae le entrate: `stats.totalCategoryBudgets` e' gia'
+/// la somma dei budget di gruppo (dalla #50).
+int groupBoxBudgetCents(BudgetStats stats) =>
+    stats.totalCategoryBudgets < 0 ? 0 : stats.totalCategoryBudgets;
+
 /// Overview card showing budget totals and progress
 ///
 /// Displays:
@@ -56,7 +63,7 @@ class BudgetOverviewCard extends StatelessWidget {
 
     // Calculate personal and group budgets
     final personalBudget = _calculatePersonalBudget();
-    final groupBudget = stats.totalCategoryBudgets - personalBudget;
+    final groupBudget = groupBoxBudgetCents(stats);
 
     // Calculate progress
     final progressPercentage = stats.overallPercentageUsed.clamp(0.0, 100.0);
