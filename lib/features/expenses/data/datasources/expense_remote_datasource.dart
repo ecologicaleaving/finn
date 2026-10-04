@@ -103,6 +103,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
   final SupabaseClient supabaseClient;
 
+  /// Ordering of the expense list query: (column, ascending). Mirrors
+  /// `compareExpensesNewestFirst` in the domain layer.
+  @visibleForTesting
+  static const List<(String, bool)> expenseListOrdering = [
+    ('date', false),
+    ('created_at', false),
+    ('id', false),
+  ];
+
   /// Builds the reimbursement columns for a write (issue #47).
   ///
   /// The DB constraint `check_reimbursed_at_consistency` requires
@@ -212,7 +221,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       }
 
       // Apply ordering and pagination
-      var orderedQuery = filterQuery.order('date', ascending: false);
+      // The order is total (see compareExpensesNewestFirst), so range()
+      // pagination is deterministic even with equal dates.
+      var orderedQuery = filterQuery.order(
+        ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$1,
+        ascending: ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$2,
+      );
+      for (final (column, ascending)
+          in ExpenseRemoteDataSourceImpl.expenseListOrdering.skip(1)) {
+        orderedQuery = orderedQuery.order(column, ascending: ascending);
+      }
 
       if (offset != null && limit != null) {
         orderedQuery = orderedQuery.range(offset, offset + limit - 1);

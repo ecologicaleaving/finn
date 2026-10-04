@@ -27,6 +27,13 @@ abstract class BudgetLocalDataSource {
   /// Insert or update multiple income sources in local database
   Future<void> upsertLocalIncomeSources(List<IncomeSourceModel> incomeSources);
 
+  /// Align the user's local income sources to the server list, atomically:
+  /// rows of [userId] not in [incomeSources] are deleted (an empty list
+  /// removes them all), the others are inserted or updated. Rows of other
+  /// users are never touched.
+  Future<void> replaceLocalIncomeSources(
+      String userId, List<IncomeSourceModel> incomeSources);
+
   /// Delete income source from local database
   Future<void> deleteLocalIncomeSource(String id);
 
@@ -151,6 +158,19 @@ class BudgetLocalDataSourceImpl implements BudgetLocalDataSource {
               updatedAt: Value(model.updatedAt),
             )),
       );
+    });
+  }
+
+  @override
+  Future<void> replaceLocalIncomeSources(
+      String userId, List<IncomeSourceModel> incomeSources) async {
+    final mine = incomeSources.where((m) => m.userId == userId).toList();
+    final keepIds = mine.map((m) => m.id).toList();
+    await database.transaction(() async {
+      await (database.delete(database.incomeSources)
+            ..where((t) => t.userId.equals(userId) & t.id.isNotIn(keepIds)))
+          .go();
+      await upsertLocalIncomeSources(mine);
     });
   }
 

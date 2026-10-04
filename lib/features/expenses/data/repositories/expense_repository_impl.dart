@@ -12,6 +12,7 @@ import '../../../auth/domain/entities/user_entity.dart';
 import '../../../offline/data/datasources/offline_expense_local_datasource.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
+import '../../domain/utils/expense_ordering.dart';
 import '../datasources/expense_local_cache_datasource.dart';
 import '../datasources/expense_remote_datasource.dart';
 
@@ -62,8 +63,42 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     return localCacheDataSource.getCachedExpenses(userId);
   }
 
-  List<ExpenseEntity> _applyLocalFilters(
-    List<ExpenseEntity> expenses, {
+  bool _matchesFilters(
+    ExpenseEntity expense, {
+    DateTime? startDate,
+    DateTime? endDate,
+    String? categoryId,
+    String? createdBy,
+    String? paidBy,
+    bool? isGroupExpense,
+    ReimbursementStatus? reimbursementStatus,
+  }) {
+    final matchesStart = startDate == null ||
+        !expense.date.isBefore(DateTime(startDate.year, startDate.month, startDate.day));
+    final matchesEnd = endDate == null ||
+        !expense.date.isAfter(DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59));
+    final matchesCategory = categoryId == null || expense.categoryId == categoryId;
+    final matchesCreatedBy = createdBy == null || expense.createdBy == createdBy;
+    final matchesPaidBy = paidBy == null || expense.paidBy == paidBy;
+    final matchesGroup = isGroupExpense == null || expense.isGroupExpense == isGroupExpense;
+    final matchesReimbursement = reimbursementStatus == null ||
+        expense.reimbursementStatus == reimbursementStatus;
+
+    return matchesStart &&
+        matchesEnd &&
+        matchesCategory &&
+        matchesCreatedBy &&
+        matchesPaidBy &&
+        matchesGroup &&
+        matchesReimbursement;
+  }
+
+  /// Serves a page from the local cache (offline / network failure), with the
+  /// same pagination contract as the online path: `offset`/`limit` count only
+  /// synced expenses, and the pending ones that match the filters appear once,
+  /// in the page with offset 0.
+  List<ExpenseEntity> _pageFromCache(
+    List<ExpenseEntity> cached, {
     DateTime? startDate,
     DateTime? endDate,
     String? categoryId,
@@ -74,38 +109,32 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     int? limit,
     int? offset,
   }) {
-    var filtered = expenses.where((expense) {
-      final matchesStart = startDate == null ||
-          !expense.date.isBefore(DateTime(startDate.year, startDate.month, startDate.day));
-      final matchesEnd = endDate == null ||
-          !expense.date.isAfter(DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59));
-      final matchesCategory = categoryId == null || expense.categoryId == categoryId;
-      final matchesCreatedBy = createdBy == null || expense.createdBy == createdBy;
-      final matchesPaidBy = paidBy == null || expense.paidBy == paidBy;
-      final matchesGroup = isGroupExpense == null || expense.isGroupExpense == isGroupExpense;
-      final matchesReimbursement = reimbursementStatus == null ||
-          expense.reimbursementStatus == reimbursementStatus;
-
-      return matchesStart &&
-          matchesEnd &&
-          matchesCategory &&
-          matchesCreatedBy &&
-          matchesPaidBy &&
-          matchesGroup &&
-          matchesReimbursement;
-    }).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final matching = cached
+        .where((e) => _matchesFilters(
+              e,
+              startDate: startDate,
+              endDate: endDate,
+              categoryId: categoryId,
+              createdBy: createdBy,
+              paidBy: paidBy,
+              isGroupExpense: isGroupExpense,
+              reimbursementStatus: reimbursementStatus,
+            ))
+        .toList();
+    final pending = matching.where((e) => e.isPendingSync).toList();
+    final synced = matching.where((e) => !e.isPendingSync).toList()
+      ..sort(compareExpensesNewestFirst);
 
     final safeOffset = offset ?? 0;
-    if (safeOffset >= filtered.length) {
-      return const [];
-    }
+    final skipped = safeOffset >= synced.length
+        ? const <ExpenseEntity>[]
+        : synced.skip(safeOffset).toList();
+    final page = limit == null ? skipped : skipped.take(limit).toList();
 
-    if (limit == null) {
-      return filtered.skip(safeOffset).toList();
+    if (safeOffset == 0) {
+      return [...pending, ...page]..sort(compareExpensesNewestFirst);
     }
-
-    return filtered.skip(safeOffset).take(limit).toList();
+    return page;
   }
 
   Future<void> _cacheExpenses(List<ExpenseEntity> expenses) async {
@@ -120,23 +149,85 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     );
   }
 
+  /// Adds the local pending expenses that match the filters to the remote
+  /// page, but only for the first page (offset 0): later pages contain
+  /// synced expenses only, so a pending expense is never repeated.
   List<ExpenseEntity> _mergeWithPendingCachedExpenses(
     List<ExpenseEntity> remoteExpenses,
-    List<ExpenseEntity> cachedExpenses,
-  ) {
+    List<ExpenseEntity> cachedExpenses, {
+    required int? offset,
+    required bool Function(ExpenseEntity) matches,
+  }) {
     final merged = <String, ExpenseEntity>{
       for (final expense in remoteExpenses) expense.id: expense,
     };
 
-    for (final expense in cachedExpenses) {
-      if (expense.isPendingSync && !merged.containsKey(expense.id)) {
-        merged[expense.id] = expense;
+    if ((offset ?? 0) == 0) {
+      for (final expense in cachedExpenses) {
+        if (expense.isPendingSync &&
+            matches(expense) &&
+            !merged.containsKey(expense.id)) {
+          merged[expense.id] = expense;
+        }
       }
     }
 
-    return merged.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+    return merged.values.toList()..sort(compareExpensesNewestFirst);
   }
 
+  /// Removes from the local cache the synced expenses that the server no
+  /// longer has (deleted from another device), looking only at the window of
+  /// the list covered by this remote page. Strictly conservative: anything
+  /// not 'completed', with local work queued, outside the window or outside
+  /// the filters is kept; any error is swallowed and nothing is removed.
+  Future<void> _reconcileCache({
+    required String userId,
+    required List<ExpenseEntity> snapshot,
+    required List<ExpenseEntity> remote,
+    required bool Function(ExpenseEntity) matches,
+    required int? limit,
+    required int? offset,
+  }) async {
+    try {
+      final safeOffset = offset ?? 0;
+      if (safeOffset > 0 && remote.isEmpty) return;
+
+      final sortedRemote = [...remote]..sort(compareExpensesNewestFirst);
+      final first = safeOffset > 0 ? sortedRemote.first : null;
+      final bool lowerOpen = limit == null || remote.length < limit;
+      final last = lowerOpen ? null : sortedRemote.last;
+      final remoteIds = remote.map((e) => e.id).toSet();
+
+      final candidates = snapshot.where((e) {
+        if (e.syncStatus != 'completed') return false;
+        if (remoteIds.contains(e.id)) return false;
+        if (!matches(e)) return false;
+        if (first != null && compareExpensesNewestFirst(e, first) < 0) {
+          return false;
+        }
+        if (last != null && compareExpensesNewestFirst(e, last) > 0) {
+          return false;
+        }
+        return true;
+      }).map((e) => e.id).toSet();
+      if (candidates.isEmpty) return;
+
+      final unsynced = await offlineLocalDataSource.getUnsyncedExpenseIds(userId);
+      final toRemove = candidates.difference(unsynced);
+      if (toRemove.isEmpty) return;
+
+      await localCacheDataSource.removeSyncedExpenses(userId, toRemove);
+    } catch (e) {
+      debugPrint('ExpenseRepository: cache reconcile skipped: $e');
+    }
+  }
+
+  /// Returns one page of expenses.
+  ///
+  /// Pagination contract: `offset` and `limit` count only synced expenses
+  /// (those on the server). Local expenses not yet synced that match the
+  /// filters appear exactly once, in the page with offset null or 0, merged
+  /// in the same total order ([compareExpensesNewestFirst]).
   @override
   Future<Either<Failure, List<ExpenseEntity>>> getExpenses({
     DateTime? startDate,
@@ -149,20 +240,19 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     int? limit,
     int? offset,
   }) async {
-    if (!_canUseRemote) {
-      final cachedExpenses = _applyLocalFilters(
-        await _loadCachedExpenses(),
-        startDate: startDate,
-        endDate: endDate,
-        categoryId: categoryId,
-        createdBy: createdBy,
-        paidBy: paidBy,
-        isGroupExpense: isGroupExpense,
-        reimbursementStatus: reimbursementStatus,
-      );
-      return Right(
-        _applyLocalFilters(
-          cachedExpenses,
+    bool matches(ExpenseEntity e) => _matchesFilters(
+          e,
+          startDate: startDate,
+          endDate: endDate,
+          categoryId: categoryId,
+          createdBy: createdBy,
+          paidBy: paidBy,
+          isGroupExpense: isGroupExpense,
+          reimbursementStatus: reimbursementStatus,
+        );
+
+    Future<List<ExpenseEntity>> fromCache() async => _pageFromCache(
+          await _loadCachedExpenses(),
           startDate: startDate,
           endDate: endDate,
           categoryId: categoryId,
@@ -172,8 +262,10 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
           reimbursementStatus: reimbursementStatus,
           limit: limit,
           offset: offset,
-        ),
-      );
+        );
+
+    if (!_canUseRemote) {
+      return Right(await fromCache());
     }
 
     try {
@@ -192,7 +284,23 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       final entities = expenses
           .map((e) => e.toEntity().copyWith(syncStatus: 'completed'))
           .toList();
-      final mergedExpenses = _mergeWithPendingCachedExpenses(entities, cachedExpenses);
+      final mergedExpenses = _mergeWithPendingCachedExpenses(
+        entities,
+        cachedExpenses,
+        offset: offset,
+        matches: matches,
+      );
+      final userId = currentUser?.id;
+      if (userId != null) {
+        await _reconcileCache(
+          userId: userId,
+          snapshot: cachedExpenses,
+          remote: entities,
+          matches: matches,
+          limit: limit,
+          offset: offset,
+        );
+      }
       await _cacheExpenses(mergedExpenses);
       return Right(mergedExpenses);
     } on AppAuthException catch (e) {
@@ -201,40 +309,12 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       return Left(GroupFailure(e.message));
     } on ServerException catch (e) {
       if (_isLikelyNetworkFailure(e)) {
-        final cachedExpenses = await _loadCachedExpenses();
-        return Right(
-          _applyLocalFilters(
-            cachedExpenses,
-            startDate: startDate,
-            endDate: endDate,
-            categoryId: categoryId,
-            createdBy: createdBy,
-            paidBy: paidBy,
-            isGroupExpense: isGroupExpense,
-            reimbursementStatus: reimbursementStatus,
-            limit: limit,
-            offset: offset,
-          ),
-        );
+        return Right(await fromCache());
       }
       return Left(ServerFailure(e.message));
     } catch (e) {
       if (_isLikelyNetworkFailure(e)) {
-        final cachedExpenses = await _loadCachedExpenses();
-        return Right(
-          _applyLocalFilters(
-            cachedExpenses,
-            startDate: startDate,
-            endDate: endDate,
-            categoryId: categoryId,
-            createdBy: createdBy,
-            paidBy: paidBy,
-            isGroupExpense: isGroupExpense,
-            reimbursementStatus: reimbursementStatus,
-            limit: limit,
-            offset: offset,
-          ),
-        );
+        return Right(await fromCache());
       }
       return Left(ServerFailure(e.toString()));
     }
