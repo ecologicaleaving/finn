@@ -100,7 +100,7 @@ Da trasformare in issue con AC taggati (FLUSSO §1) e passare al dev-loop:
 3. **Paginazione lista spese**: con spese non ancora sincronizzate le pagine contengono doppioni e saltano righe (`_mergeWithPendingCachedExpenses` aggiunge le pending a ogni pagina). Manca anche un ordinamento secondario stabile (ordina solo per `date`).
 4. **Cache Hive**: le spese eliminate da un altro membro ricompaiono offline, perché `cacheExpenses` non rimuove mai nulla.
 5. **Fonti di entrata eliminate su un altro device** restano nella cache Drift (`getIncomeSources`).
-6. **Mezzanotte**: il `CHECK (date <= CURRENT_DATE)` è valutato in UTC, quindi tra 00:00 e 02:00 italiane una spesa con data di oggi viene rifiutata.
+6. **Mezzanotte**: il `CHECK (date <= CURRENT_DATE)` è valutato in UTC, quindi tra 00:00 e 02:00 italiane una spesa con data di oggi viene rifiutata. **Issue #66: lato codice risolto (helper `toServerDate`, test); migration `20261004_66_expenses_date_check_europe_rome.sql` in attesa di essere applicata a mano da Davide.** Le spese rifiutate restano in coda e passano da sole.
 7. **Scontrini PDF** salvati come `.jpg`/`image/jpeg`, poi non si aprono. Un salvataggio offline perde l'immagine dello scontrino.
 8. **Riquadro «GRUPPO»** nella schermata Budget = budget categorie − entrate, che può dare un valore negativo (`budget_overview_card.dart`).
 9. **Spese ricorrenti**:
