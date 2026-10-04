@@ -121,6 +121,14 @@ abstract class OfflineExpenseLocalDataSource {
     required String expenseId,
     required String userId,
   });
+
+  /// Ids of the user's expenses that still have local work to do: offline
+  /// rows whose sync status is not 'completed' (pending, syncing, failed,
+  /// conflict) plus every expense sync queue item still pending, failed or
+  /// syncing (any operation).
+  ///
+  /// Used to protect those expenses from any cache cleanup (issue #65).
+  Future<Set<String>> getUnsyncedExpenseIds(String userId);
 }
 
 class OfflineExpenseLocalDataSourceImpl
@@ -317,6 +325,26 @@ class OfflineExpenseLocalDataSourceImpl
         .get();
 
     return expenses.map((e) => OfflineExpenseModel(e).toEntity()).toList();
+  }
+
+  @override
+  Future<Set<String>> getUnsyncedExpenseIds(String userId) async {
+    final rows = await (_db.select(_db.offlineExpenses)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) & tbl.syncStatus.equals('completed').not()))
+        .get();
+    final items = await (_db.select(_db.syncQueueItems)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              tbl.entityType.equals('expense') &
+              (tbl.syncStatus.equals('pending') |
+                  tbl.syncStatus.equals('failed') |
+                  tbl.syncStatus.equals('syncing'))))
+        .get();
+    return {
+      for (final r in rows) r.id,
+      for (final i in items) i.entityId,
+    };
   }
 
   @override

@@ -1,5 +1,6 @@
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
+import '../../../../core/utils/date_only.dart';
 import '../../domain/entities/expense_entity.dart';
 
 /// Expense model for JSON serialization/deserialization.
@@ -78,15 +79,12 @@ class ExpenseModel extends ExpenseEntity {
 
   /// Convert to JSON map for database operations.
   Map<String, dynamic> toJson() {
-    // Normalize date to UTC date only (no time component)
-    final normalizedDate = DateTime.utc(date.year, date.month, date.day);
-
     return {
       'id': id,
       'group_id': groupId,
       'created_by': createdBy,
       'amount': amount,
-      'date': normalizedDate.toIso8601String().split('T')[0],
+      'date': toServerDate(date),
       'category_id': categoryId,
       'category_name': categoryName,
       'payment_method_id': paymentMethodId,

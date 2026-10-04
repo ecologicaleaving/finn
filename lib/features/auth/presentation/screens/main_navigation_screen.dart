@@ -6,6 +6,7 @@ import '../../../../app/routes.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../../widget/presentation/services/widget_update_service.dart';
 import 'settings_screen.dart';
 
 /// Main navigation screen with bottom navigation bar.
@@ -26,6 +27,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // Load group data when the screen is first shown
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(groupProvider.notifier).loadCurrentGroup();
+      // Repopulate the widget for the current user (issue #64 AC4).
+      // Fire and forget: offline it fails silently.
+      ref.read(widgetUpdateServiceProvider).triggerUpdate().catchError((_) {});
     });
   }
 

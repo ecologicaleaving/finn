@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../app/session_cleanup.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/user_entity.dart';
@@ -65,11 +66,24 @@ class AuthState {
 
 /// Auth notifier for managing authentication state
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier(this._authRepository) : super(const AuthState()) {
+  AuthNotifier(this._authRepository, {this.onSessionEnded})
+      : super(const AuthState()) {
     _init();
   }
 
   final AuthRepository _authRepository;
+
+  /// Best-effort cleanup hook called when a session ends (logout / account
+  /// deletion). Never blocks the logout; errors are swallowed.
+  final Future<void> Function(String? userId)? onSessionEnded;
+
+  Future<void> _runSessionEnded(String? userId) async {
+    try {
+      await onSessionEnded?.call(userId);
+    } catch (e) {
+      print('[AUTH] session cleanup failed: $e');
+    }
+  }
 
   /// Initialize auth state
   Future<void> _init() async {
@@ -155,9 +169,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Sign out
   Future<void> signOut() async {
+    final endingUserId = state.user?.id;
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
     final result = await _authRepository.signOut();
+
+    // Cleanup AFTER signOut (success or failure), best-effort.
+    await _runSessionEnded(endingUserId);
 
     result.fold(
       (failure) {
@@ -226,11 +244,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Delete account
   Future<bool> deleteAccount({required bool anonymizeExpenses}) async {
+    final endingUserId = state.user?.id;
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
     final result = await _authRepository.deleteAccount(
       anonymizeExpenses: anonymizeExpenses,
     );
+
+    if (result.isRight()) {
+      await _runSessionEnded(endingUserId);
+    }
 
     return result.fold(
       (failure) {
@@ -270,9 +293,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 }
 
+/// User id only while authenticated, null otherwise. Used to detect
+/// logout -> login transitions (e.g. to restart the offline sync).
+String? authenticatedUserId(AuthState s) =>
+    s.isAuthenticated ? s.user?.id : null;
+
 /// Provider for auth state
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(ref.watch(authRepositoryProvider));
+  return AuthNotifier(
+    ref.watch(authRepositoryProvider),
+    onSessionEnded: (uid) =>
+        ref.read(sessionCleanupProvider).clearUserScopedData(uid),
+  );
 });
 
 /// Convenience provider to check if user is authenticated

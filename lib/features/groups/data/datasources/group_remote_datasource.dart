@@ -30,6 +30,10 @@ abstract class GroupRemoteDataSource {
 
   /// Delete the group.
   Future<void> deleteGroup();
+
+  /// Cancella la cache locale del gruppo (logout / cambio account).
+  /// Non tocca altri dati nello storage sicuro.
+  Future<void> clearCachedGroup({String? userId});
 }
 
 /// Implementation of [GroupRemoteDataSource] using Supabase.
@@ -53,38 +57,47 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     return userId;
   }
 
+  /// Chiave di cache legata all'utente (issue #64): la cache del gruppo di A
+  /// non deve mai essere letta da B sullo stesso dispositivo.
+  String _userKey(String base, String userId) => '${base}_$userId';
+
+  String? get _currentUserIdOrNull => supabaseClient.auth.currentUser?.id;
+
   /// Cache group ID in secure storage
   Future<void> _cacheGroupId(String groupId) async {
     try {
-      await _secureStorage.write(key: _groupIdKey, value: groupId);
+      await _secureStorage.write(
+        key: _userKey(_groupIdKey, _currentUserId),
+        value: groupId,
+      );
     } catch (e) {
       // Ignore cache errors
       print('Failed to cache group ID: $e');
     }
   }
 
-  /// Get cached group ID
-  Future<String?> _getCachedGroupId() async {
-    try {
-      return await _secureStorage.read(key: _groupIdKey);
-    } catch (e) {
-      return null;
-    }
-  }
-
   /// Cache group data
   Future<void> _cacheGroupData(FamilyGroupModel group) async {
     try {
-      await _secureStorage.write(key: _groupDataKey, value: group.toJsonString());
+      await _secureStorage.write(
+        key: _userKey(_groupDataKey, _currentUserId),
+        value: group.toJsonString(),
+      );
     } catch (e) {
       print('Failed to cache group data: $e');
     }
   }
 
-  /// Get cached group data
+  /// Get cached group data: prima la chiave dell'utente, poi (solo per non
+  /// rompere l'uso offline subito dopo l'aggiornamento) quella legacy.
   Future<FamilyGroupModel?> _getCachedGroupData() async {
     try {
-      final data = await _secureStorage.read(key: _groupDataKey);
+      final userId = _currentUserIdOrNull;
+      String? data;
+      if (userId != null) {
+        data = await _secureStorage.read(key: _userKey(_groupDataKey, userId));
+      }
+      data ??= await _secureStorage.read(key: _groupDataKey);
       if (data != null) {
         return FamilyGroupModel.fromJsonString(data);
       }
@@ -92,6 +105,36 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       return null;
     }
     return null;
+  }
+
+  /// Rimuove le chiavi legacy (senza suffisso utente) dopo un caricamento
+  /// online riuscito.
+  Future<void> _deleteLegacyCache() async {
+    for (final key in [_groupIdKey, _groupDataKey]) {
+      try {
+        await _secureStorage.delete(key: key);
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<void> clearCachedGroup({String? userId}) async {
+    final keys = <String>[
+      _groupIdKey,
+      _groupDataKey,
+      if (userId != null) ...[
+        _userKey(_groupIdKey, userId),
+        _userKey(_groupDataKey, userId),
+      ],
+    ];
+    // Mai deleteAll(): nello storage ci sono anche i token di sessione.
+    for (final key in keys) {
+      try {
+        await _secureStorage.delete(key: key);
+      } catch (e) {
+        print('Failed to clear $key: $e');
+      }
+    }
   }
 
   @override
@@ -156,6 +199,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
       // Cache the group data for offline use
       await _cacheGroupData(groupWithCount);
+      await _deleteLegacyCache();
 
       return groupWithCount;
     } catch (e) {

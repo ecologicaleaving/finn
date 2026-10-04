@@ -1,10 +1,17 @@
 import 'dart:convert';
+<<<<<<< HEAD
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/receipt_file_type.dart';
+=======
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../../core/utils/date_only.dart';
+>>>>>>> origin/test
 import '../../data/local/offline_database.dart';
 
 /// The receipt file saved offline no longer exists on the device.
@@ -203,6 +210,56 @@ class BatchSyncService {
     return _CreateContext(userId: userId, groupId: groupId);
   }
 
+  /// Builds the insert row for a queued expense (pure, testable).
+  @visibleForTesting
+  static Map<String, dynamic> buildCreateRow(
+    Map<String, dynamic> payload, {
+    required String id,
+    required String groupId,
+    required String createdBy,
+    required String createdByName,
+    required String paidBy,
+    required String paidByName,
+    required String? paymentMethodId,
+    required String? paymentMethodName,
+  }) {
+    final transactionType = payload['transaction_type'] as String?;
+    final createdAt = payload['created_at'] as String?;
+    return {
+      'id': id,
+      'group_id': groupId,
+      'created_by': createdBy,
+      'created_by_name': createdByName,
+      'paid_by': paidBy,
+      'paid_by_name': paidByName,
+      'amount': payload['amount'],
+      // Date only, as entered on the device (no timezone shift)
+      'date': serverDateFromPayload(payload['date'] as String),
+      'category_id': payload['category_id'],
+      'payment_method_id': paymentMethodId,
+      'payment_method_name': paymentMethodName,
+      'merchant': payload['merchant'],
+      'notes': payload['notes'],
+      'is_group_expense': payload['is_group_expense'] as bool? ?? true,
+      'reimbursement_status':
+          payload['reimbursement_status'] as String? ?? 'none',
+      'last_modified_by': payload['last_modified_by'] as String? ?? createdBy,
+      if (createdAt != null)
+        'created_at': DateTime.parse(createdAt).toUtc().toIso8601String(),
+      // Same as the online path: only sent for income
+      if (transactionType != null && transactionType != 'expense')
+        'transaction_type': transactionType,
+    };
+  }
+
+  /// Copy of the update payload with 'date' normalized to yyyy-MM-dd.
+  static Map<String, dynamic> _normalizeUpdateFields(dynamic payload) {
+    final fields = Map<String, dynamic>.from(payload as Map);
+    final d = fields['date'];
+    if (d is String) fields['date'] = serverDateFromPayload(d);
+    return fields;
+  }
+
   Future<SyncItemResult> _createExpense(
     SyncQueueItem item,
     _CreateContext context,
@@ -214,37 +271,22 @@ class BatchSyncService {
       final paidBy = payload['paid_by'] as String? ?? createdBy;
       final paymentMethodId = payload['payment_method_id'] as String? ??
           await _defaultPaymentMethodId(context);
-      final transactionType = payload['transaction_type'] as String?;
-      final createdAt = payload['created_at'] as String?;
+
+      final row = buildCreateRow(
+        payload,
+        id: id,
+        groupId: context.groupId,
+        createdBy: createdBy,
+        createdByName: await _displayName(createdBy, context),
+        paidBy: paidBy,
+        paidByName: await _displayName(paidBy, context),
+        paymentMethodId: paymentMethodId,
+        paymentMethodName: await _paymentMethodName(paymentMethodId, context),
+      );
 
       final response = await _supabase
           .from('expenses')
-          .insert({
-            'id': id,
-            'group_id': context.groupId,
-            'created_by': createdBy,
-            'created_by_name': await _displayName(createdBy, context),
-            'paid_by': paidBy,
-            'paid_by_name': await _displayName(paidBy, context),
-            'amount': payload['amount'],
-            // Date only, as entered on the device (no timezone shift)
-            'date': (payload['date'] as String).split('T').first,
-            'category_id': payload['category_id'],
-            'payment_method_id': paymentMethodId,
-            'payment_method_name':
-                await _paymentMethodName(paymentMethodId, context),
-            'merchant': payload['merchant'],
-            'notes': payload['notes'],
-            'is_group_expense': payload['is_group_expense'] as bool? ?? true,
-            'reimbursement_status':
-                payload['reimbursement_status'] as String? ?? 'none',
-            'last_modified_by': payload['last_modified_by'] as String? ?? createdBy,
-            if (createdAt != null)
-              'created_at': DateTime.parse(createdAt).toUtc().toIso8601String(),
-            // Same as the online path: only sent for income
-            if (transactionType != null && transactionType != 'expense')
-              'transaction_type': transactionType,
-          })
+          .insert(row)
           .select('id, updated_at')
           .single();
 
@@ -339,7 +381,7 @@ class BatchSyncService {
         return {
           'id': item.entityId,
           'client_updated_at': payload['local_updated_at'],
-          'fields': payload,
+          'fields': _normalizeUpdateFields(payload),
         };
       }).toList();
 

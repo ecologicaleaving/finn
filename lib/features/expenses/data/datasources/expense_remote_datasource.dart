@@ -6,7 +6,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/exceptions.dart';
+<<<<<<< HEAD
 import '../../../../core/utils/receipt_file_type.dart';
+=======
+import '../../../../core/utils/date_only.dart';
+>>>>>>> origin/test
 import '../models/expense_model.dart';
 
 /// Remote data source for expense operations using Supabase.
@@ -107,6 +111,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
 
   final SupabaseClient supabaseClient;
 
+  /// Ordering of the expense list query: (column, ascending). Mirrors
+  /// `compareExpensesNewestFirst` in the domain layer.
+  @visibleForTesting
+  static const List<(String, bool)> expenseListOrdering = [
+    ('date', false),
+    ('created_at', false),
+    ('id', false),
+  ];
+
   /// Builds the reimbursement columns for a write (issue #47).
   ///
   /// The DB constraint `check_reimbursed_at_consistency` requires
@@ -140,7 +153,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   }) {
     final updates = <String, dynamic>{};
     if (amount != null) updates['amount'] = amount;
-    if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
+    if (date != null) updates['date'] = toServerDate(date);
     if (categoryId != null) updates['category_id'] = categoryId;
     if (merchant != null) updates['merchant'] = merchant;
     if (notes != null) updates['notes'] = notes;
@@ -216,7 +229,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       }
 
       // Apply ordering and pagination
-      var orderedQuery = filterQuery.order('date', ascending: false);
+      // The order is total (see compareExpensesNewestFirst), so range()
+      // pagination is deterministic even with equal dates.
+      var orderedQuery = filterQuery.order(
+        ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$1,
+        ascending: ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$2,
+      );
+      for (final (column, ascending)
+          in ExpenseRemoteDataSourceImpl.expenseListOrdering.skip(1)) {
+        orderedQuery = orderedQuery.order(column, ascending: ascending);
+      }
 
       if (offset != null && limit != null) {
         orderedQuery = orderedQuery.range(offset, offset + limit - 1);
@@ -336,9 +358,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           .single();
       final paymentMethodName = paymentMethodResponse['name'] as String;
 
-      // Normalize date to UTC date only (no time component)
-      final normalizedDate = DateTime.utc(date.year, date.month, date.day);
-
       // DEBUG: Log the amount being saved
       debugPrint('🔍 SAVE EXPENSE: Saving to DB amount=$amount (type: ${amount.runtimeType})');
       debugPrint('🔍 SAVE EXPENSE: is_group_expense=$isGroupExpense, group_id=$groupId');
@@ -352,7 +371,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'paid_by': effectivePaidBy, // Who paid for the expense (may be different)
             'paid_by_name': paidByDisplayName ?? 'Utente',
             'amount': amount,
-            'date': normalizedDate.toIso8601String().split('T')[0],
+            'date': toServerDate(date),
             'category_id': categoryId,
             'payment_method_id': finalPaymentMethodId,
             'payment_method_name': paymentMethodName,
@@ -474,7 +493,7 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     };
 
     if (amount != null) updates['amount'] = amount;
-    if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
+    if (date != null) updates['date'] = toServerDate(date);
     if (categoryId != null) updates['category_id'] = categoryId;
     if (paymentMethodId != null) {
       updates['payment_method_id'] = paymentMethodId;

@@ -26,12 +26,22 @@ class _FakeLocalDataSource implements OfflineExpenseLocalDataSource {
     deletedIds.addAll(itemIds);
   }
 
+  final List<SyncQueueItemsCompanion> queueUpdates = [];
+  final List<(String, String)> statusUpdates = [];
+
+  @override
+  Future<void> updateSyncQueueItem(SyncQueueItemsCompanion companion) async {
+    queueUpdates.add(companion);
+  }
+
   @override
   Future<void> updateSyncStatus(
     String expenseId,
     String status, {
     String? errorMessage,
-  }) async {}
+  }) async {
+    statusUpdates.add((expenseId, status));
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -40,15 +50,28 @@ class _FakeLocalDataSource implements OfflineExpenseLocalDataSource {
 class _FakeBatchSyncService implements BatchSyncService {
   final List<String> createdIds = [];
 
+  /// When true the next batch fails with a check violation (23514).
+  bool failNext = false;
+
   @override
   Future<Map<String, SyncItemResult>> batchCreateExpenses(
     List<SyncQueueItem> items,
   ) async {
+    final fail = failNext;
+    failNext = false;
     return {
       for (final item in items)
         item.entityId: () {
           createdIds.add(item.entityId);
-          return SyncItemResult(id: item.entityId, success: true);
+          return fail
+              ? SyncItemResult(
+                  id: item.entityId,
+                  success: false,
+                  errorCode: '23514',
+                  errorMessage:
+                      'violates check constraint "expenses_date_check"',
+                )
+              : SyncItemResult(id: item.entityId, success: true);
         }(),
     };
   }
@@ -57,7 +80,12 @@ class _FakeBatchSyncService implements BatchSyncService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-SyncQueueItem _item(int id, {DateTime? nextRetryAt}) {
+SyncQueueItem _item(
+  int id, {
+  DateTime? nextRetryAt,
+  String syncStatus = 'pending',
+  int? retryCount,
+}) {
   return SyncQueueItem(
     id: id,
     userId: 'user-1',
@@ -65,8 +93,8 @@ SyncQueueItem _item(int id, {DateTime? nextRetryAt}) {
     entityType: 'expense',
     entityId: 'expense-$id',
     payload: '{}',
-    syncStatus: 'pending',
-    retryCount: nextRetryAt == null ? 0 : 1,
+    syncStatus: syncStatus,
+    retryCount: retryCount ?? (nextRetryAt == null ? 0 : 1),
     nextRetryAt: nextRetryAt,
     priority: 0,
     createdAt: DateTime(2026, 9, 1).add(Duration(minutes: id)),
@@ -74,6 +102,55 @@ SyncQueueItem _item(int id, {DateTime? nextRetryAt}) {
 }
 
 void main() {
+  group('check_violation 23514 (issue #66, AC4)', () {
+    test('a failed item is kept in the queue and retried on the next run',
+        () async {
+      final local = _FakeLocalDataSource([
+        _item(1, syncStatus: 'failed', retryCount: 4),
+      ]);
+      final batch = _FakeBatchSyncService()..failNext = true;
+      final processor = SyncQueueProcessor(
+        localDataSource: local,
+        batchSyncService: batch,
+        userId: 'user-1',
+      );
+
+      final first = await processor.processQueue();
+      expect(first.failed, 1);
+      expect(local.deletedIds, isEmpty);
+      expect(local.queueUpdates, hasLength(1));
+      expect(local.queueUpdates.single.syncStatus.value, 'failed');
+      expect(local.statusUpdates.last, ('expense-1', 'failed'));
+
+      final second = await processor.processQueue();
+      expect(second.successful, 1);
+      expect(batch.createdIds, ['expense-1', 'expense-1']);
+      expect(local.deletedIds, [1]);
+      expect(local.statusUpdates.last, ('expense-1', 'completed'));
+    });
+
+    test('a pending item whose backoff expired is sent on the next run',
+        () async {
+      final local = _FakeLocalDataSource([
+        _item(
+          2,
+          retryCount: 1,
+          nextRetryAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      ]);
+      final batch = _FakeBatchSyncService();
+
+      final result = await SyncQueueProcessor(
+        localDataSource: local,
+        batchSyncService: batch,
+        userId: 'user-1',
+      ).processQueue();
+
+      expect(result.successful, 1);
+      expect(local.deletedIds, [2]);
+    });
+  });
+
   test('items waiting for a retry do not block newer expenses', () async {
     final later = DateTime.now().add(const Duration(minutes: 5));
     final items = [
