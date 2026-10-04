@@ -1,17 +1,12 @@
 import 'dart:convert';
-<<<<<<< HEAD
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-import '../../../../core/utils/receipt_file_type.dart';
-=======
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/date_only.dart';
->>>>>>> origin/test
+import '../../../../core/utils/receipt_file_type.dart';
 import '../../data/local/offline_database.dart';
 
 /// The receipt file saved offline no longer exists on the device.
