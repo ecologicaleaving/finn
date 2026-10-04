@@ -73,6 +73,53 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
     }
   }
 
+  /// Keys written by [updateNativeWidget] through home_widget.
+  static const List<String> _nativeWidgetKeys = [
+    'widgetDataJson',
+    'groupAmount',
+    'personalAmount',
+    'totalAmount',
+    'expenseCount',
+    'month',
+    'currency',
+    'isDarkMode',
+    'hasError',
+    'lastUpdated',
+    'groupName',
+  ];
+
+  @override
+  Future<void> clearWidgetData() async {
+    // 'widget_config' is a device preference: NOT removed.
+    try {
+      await sharedPreferences.remove(_widgetDataKey);
+    } catch (e) {
+      print('Failed to clear cached widget data: $e');
+    }
+
+    for (final key in _nativeWidgetKeys) {
+      try {
+        // home_widget: null value removes the key
+        await HomeWidget.saveWidgetData<String>(key, null);
+      } catch (e) {
+        print('Failed to clear widget key $key: $e');
+      }
+    }
+
+    try {
+      if (Platform.isAndroid && platformChannel != null) {
+        await platformChannel!.invokeMethod('updateWidget');
+      } else if (Platform.isIOS) {
+        await HomeWidget.updateWidget(
+          androidName: 'BudgetWidgetProvider',
+          iOSName: 'BudgetWidget',
+        );
+      }
+    } catch (e) {
+      print('Failed to refresh widget after clear: $e');
+    }
+  }
+
   @override
   Future<void> updateNativeWidget(WidgetDataModel data) async {
     try {

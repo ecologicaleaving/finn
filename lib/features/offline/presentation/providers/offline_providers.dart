@@ -139,7 +139,9 @@ class SyncTrigger extends _$SyncTrigger {
     // Sync after login too: at startup the connection may come up before
     // the session is restored, when there is no user to sync for yet.
     ref.listen(
-      currentUserProvider.select((user) => user?.id),
+      // Id solo quando autenticato: logout -> login dello stesso utente
+      // produce null -> id e rilancia la sync della coda pending (issue #64).
+      authProvider.select(authenticatedUserId),
       (previous, next) {
         if (next != null &&
             next != previous &&
