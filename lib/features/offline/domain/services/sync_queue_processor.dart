@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
@@ -107,12 +110,70 @@ class SyncQueueProcessor {
       totalConflicts += batchResults.values.where((r) => r.isConflict).length;
     }
 
+    // Receipts saved offline are uploaded after the expense exists on the
+    // server. Never affects the queue outcome.
+    await _uploadPendingReceipts();
+
     return SyncQueueResult(
       processed: totalProcessed,
       successful: totalSuccessful,
       failed: totalFailed,
       conflicts: totalConflicts,
     );
+  }
+
+  Future<void> _uploadPendingReceipts() async {
+    try {
+      final rows = await _localDataSource.getExpensesWithPendingReceipt(_userId);
+      for (final row in rows) {
+        final localPath = row.localReceiptPath;
+        if (localPath == null) continue;
+        try {
+          final storagePath = await _batchSyncService.uploadPendingReceipt(
+            expenseId: row.id,
+            localPath: localPath,
+          );
+          await _localDataSource.clearLocalReceiptPath(row.id);
+          await _deleteFileQuietly(localPath);
+          await _updateCachedReceipt(row.id, storagePath);
+        } on ReceiptFileMissing catch (e) {
+          debugPrint('Receipt file missing, giving up: $e');
+          await _localDataSource.clearLocalReceiptPath(row.id);
+        } on ReceiptUploadPermanentError catch (e) {
+          debugPrint('Receipt rejected by server, giving up: $e');
+          await _localDataSource.clearLocalReceiptPath(row.id);
+          await _deleteFileQuietly(localPath);
+        } catch (e) {
+          // Transient: keep path and file, retried on the next sync.
+          debugPrint('Receipt upload for ${row.id} failed, will retry: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Receipt upload pass failed: $e');
+    }
+  }
+
+  Future<void> _updateCachedReceipt(String expenseId, String storagePath) async {
+    final cache = _localCacheDataSource;
+    if (cache == null) return;
+    try {
+      final cached = await cache.getCachedExpenses(_userId);
+      for (final e in cached) {
+        if (e.id == expenseId) {
+          await cache.upsertExpense(_userId, e.copyWith(receiptUrl: storagePath));
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint('Receipt cache update failed for $expenseId: $e');
+    }
+  }
+
+  Future<void> _deleteFileQuietly(String path) async {
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   Future<void> _updateQueueItems(

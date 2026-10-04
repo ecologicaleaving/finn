@@ -66,6 +66,11 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
   }
 
   @override
+  Future<Uint8List> downloadReceipt({required String receiptPath}) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<String> uploadReceiptImage({
     required String expenseId,
     required Uint8List imageData,
@@ -159,6 +164,16 @@ class _FakeExpenseLocalCacheDataSource implements ExpenseLocalCacheDataSource {
 class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSource {
   OfflineExpenseEntity? createdExpense;
   Map<String, dynamic>? createdExtraPayload;
+  Uint8List? createdReceiptBytes;
+
+  @override
+  Future<List<OfflineExpenseEntity>> getExpensesWithPendingReceipt(
+    String userId,
+  ) async =>
+      const [];
+
+  @override
+  Future<void> clearLocalReceiptPath(String expenseId) async {}
 
   @override
   Future<void> addToSyncQueue({
@@ -180,7 +195,9 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
     String? notes,
     bool isGroupExpense = true,
     Map<String, dynamic>? extraPayload,
+    Uint8List? receiptBytes,
   }) async {
+    createdReceiptBytes = receiptBytes;
     createdExtraPayload = extraPayload;
     createdExpense = OfflineExpenseEntity(
       id: 'offline-expense-1',
@@ -359,6 +376,66 @@ void main() {
     expect(offlineDataSource.createdExtraPayload?['payment_method_id'], 'cash');
     expect(offlineDataSource.createdExtraPayload?['paid_by'], 'user-1');
     expect(offlineDataSource.createdExtraPayload?['transaction_type'], 'expense');
+  });
+
+  test('scontrino PDF allegato offline viene passato al salvataggio locale', () async {
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(),
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => NetworkStatus.offline,
+    );
+    final pdf = Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x2D, 1, 2, 3]);
+
+    final result = await repository.createExpense(
+      amount: 5,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+      receiptImage: pdf,
+    );
+
+    final expense = result.getOrElse(() => throw StateError('expected Right'));
+    expect(offlineDataSource.createdReceiptBytes, pdf);
+    // Il path locale non deve mai finire in receiptUrl
+    expect(expense.receiptUrl, isNull);
+    expect(expense.syncStatus, 'pending');
+  });
+
+  test('scontrino allegato passa al salvataggio locale anche nel fallback di rete', () async {
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(),
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => null,
+    );
+    final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1]);
+
+    final result = await repository.createExpense(
+      amount: 5,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+      receiptImage: png,
+    );
+
+    final expense = result.getOrElse(() => throw StateError('expected Right'));
+    expect(offlineDataSource.createdReceiptBytes, png);
+    expect(expense.receiptUrl, isNull);
   });
 
   test('con stato rete sconosciuto il salvataggio prova prima il server', () async {

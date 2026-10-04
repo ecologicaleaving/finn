@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../../core/utils/receipt_file_type.dart';
 import '../models/expense_model.dart';
 
 /// Remote data source for expense operations using Supabase.
@@ -95,6 +96,9 @@ abstract class ExpenseRemoteDataSource {
 
   /// Get signed URL for a receipt.
   Future<String> getReceiptUrl({required String receiptPath});
+
+  /// Download the raw bytes of a receipt.
+  Future<Uint8List> downloadReceipt({required String receiptPath});
 }
 
 /// Implementation of [ExpenseRemoteDataSource] using Supabase.
@@ -628,15 +632,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   }) async {
     try {
       final userId = _currentUserId;
-      final path = '$userId/$expenseId.jpg';
+      final type = ReceiptFileType.detect(imageData);
+      final path = ReceiptFileType.storagePath(userId, expenseId, imageData);
 
       await supabaseClient.storage
           .from('receipts')
           .uploadBinary(
             path,
             imageData,
-            fileOptions: const FileOptions(
-              contentType: 'image/jpeg',
+            fileOptions: FileOptions(
+              contentType: type.contentType,
               upsert: true,
             ),
           );
@@ -663,6 +668,17 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           .createSignedUrl(receiptPath, 3600); // 1 hour expiry
 
       return signedUrl;
+    } on StorageException catch (e) {
+      throw ServerException(e.message, e.statusCode);
+    } catch (e) {
+      throw ServerException(e.toString());
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadReceipt({required String receiptPath}) async {
+    try {
+      return await supabaseClient.storage.from('receipts').download(receiptPath);
     } on StorageException catch (e) {
       throw ServerException(e.message, e.statusCode);
     } catch (e) {

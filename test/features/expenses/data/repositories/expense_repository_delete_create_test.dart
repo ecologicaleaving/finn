@@ -139,6 +139,7 @@ class _FakeOffline implements OfflineExpenseLocalDataSource {
     String? notes,
     bool isGroupExpense = true,
     Map<String, dynamic>? extraPayload,
+    Uint8List? receiptBytes,
   }) async {
     createOfflineCalls++;
     return OfflineExpenseEntity(

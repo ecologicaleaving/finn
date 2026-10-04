@@ -309,6 +309,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     String? paidBy,
     String? lastModifiedBy,
     required TransactionType transactionType,
+    Uint8List? receiptImage,
   }) async {
     final effectiveCreatedBy = createdBy ?? user.id;
     final effectivePaidBy = paidBy ?? effectiveCreatedBy;
@@ -322,6 +323,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       merchant: merchant,
       notes: notes,
       isGroupExpense: isGroupExpense,
+      receiptBytes: receiptImage,
       extraPayload: {
         'payment_method_id': paymentMethodId,
         'created_by': effectiveCreatedBy,
@@ -396,6 +398,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
           paidBy: paidBy,
           lastModifiedBy: lastModifiedBy,
           transactionType: transactionType,
+          receiptImage: receiptImage,
         ));
       } catch (e) {
         return Left(ServerFailure(e.toString()));
@@ -464,6 +467,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
           paidBy: paidBy,
           lastModifiedBy: lastModifiedBy,
           transactionType: transactionType,
+          receiptImage: receiptImage,
         ));
         } catch (cacheError) {
           return Left(ServerFailure(cacheError.toString()));

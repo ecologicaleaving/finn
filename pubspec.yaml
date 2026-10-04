@@ -54,6 +54,7 @@ dependencies:
   workmanager: ^0.9.0
   path_provider: ^2.1.0
   path: ^1.9.0
+  pdfx: ^2.9.2
 
   # Timezone Support
   flutter_timezone: ^5.0.1
