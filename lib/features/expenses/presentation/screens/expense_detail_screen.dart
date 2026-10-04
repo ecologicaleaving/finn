@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/utils/date_formatter.dart';
+import '../../../../core/utils/receipt_file_type.dart';
+import '../../../../shared/widgets/receipt_pdf_viewer.dart';
 import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../shared/widgets/receipt_image_viewer.dart';
@@ -17,6 +19,7 @@ import '../providers/receipt_image_provider.dart';
 import '../providers/reimbursements_provider.dart';
 import '../widgets/budget_context_widget.dart';
 import '../widgets/delete_confirmation_dialog.dart';
+import '../widgets/receipt_pdf_screen.dart';
 
 /// Screen showing full expense details with receipt image.
 class ExpenseDetailScreen extends ConsumerWidget {
@@ -478,6 +481,22 @@ class _ReceiptImageSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+
+    if (receiptPath.toLowerCase().endsWith('.pdf')) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.picture_as_pdf, size: 32),
+          title: const Text('Scontrino PDF'),
+          subtitle: const Text('Documento allegato alla spesa'),
+          trailing: FilledButton(
+            onPressed: () => ReceiptPdfScreen.show(context, receiptPath),
+            child: const Text('Apri'),
+          ),
+          onTap: () => ReceiptPdfScreen.show(context, receiptPath),
+        ),
+      );
+    }
+
     final receiptUrlAsync = ref.watch(receiptImageUrlProvider(receiptPath));
 
     return Card(
@@ -505,7 +524,10 @@ class _ReceiptImageSection extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             receiptUrlAsync.when(
-              data: (imageUrl) => _ReceiptPreview(imageUrl: imageUrl),
+              data: (imageUrl) => _ReceiptPreview(
+                imageUrl: imageUrl,
+                receiptPath: receiptPath,
+              ),
               loading: () => _ReceiptPlaceholder(
                 theme: theme,
                 child: const LoadingIndicator(
@@ -571,13 +593,41 @@ class _ReceiptPlaceholder extends StatelessWidget {
 }
 
 /// Receipt image preview that opens full-screen viewer on tap.
-class _ReceiptPreview extends StatelessWidget {
-  const _ReceiptPreview({required this.imageUrl});
+class _ReceiptPreview extends ConsumerWidget {
+  const _ReceiptPreview({required this.imageUrl, required this.receiptPath});
 
   final String imageUrl;
+  final String receiptPath;
+
+  /// Legacy receipts: PDFs uploaded before the fix are stored as '.jpg'.
+  /// Download the bytes and open them as a PDF if they really are one.
+  Future<void> _openAsDocument(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      final bytes =
+          await ref.read(receiptFileBytesProvider(receiptPath).future);
+      if (ReceiptFileType.isPdfBytes(bytes)) {
+        await navigator.push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ReceiptPdfViewer(bytes: bytes),
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Il file non e\' un PDF valido')),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Impossibile scaricare il file')),
+      );
+    }
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
 
     return GestureDetector(
@@ -623,6 +673,12 @@ class _ReceiptPreview extends StatelessWidget {
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        TextButton.icon(
+                          onPressed: () => _openAsDocument(context, ref),
+                          icon: const Icon(Icons.picture_as_pdf, size: 16),
+                          label: const Text('Apri come documento'),
                         ),
                       ],
                     ),

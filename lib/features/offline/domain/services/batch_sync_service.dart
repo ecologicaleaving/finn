@@ -1,9 +1,32 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/date_only.dart';
+import '../../../../core/utils/receipt_file_type.dart';
 import '../../data/local/offline_database.dart';
+
+/// The receipt file saved offline no longer exists on the device.
+class ReceiptFileMissing implements Exception {
+  ReceiptFileMissing(this.path);
+  final String path;
+
+  @override
+  String toString() => 'ReceiptFileMissing($path)';
+}
+
+/// The server rejected the receipt and will always do so (retry is useless).
+class ReceiptUploadPermanentError implements Exception {
+  ReceiptUploadPermanentError(this.message, this.statusCode);
+  final String message;
+  final int statusCode;
+
+  @override
+  String toString() => 'ReceiptUploadPermanentError($statusCode): $message';
+}
 
 /// Result of syncing a single item
 class SyncItemResult {
@@ -101,6 +124,66 @@ class BatchSyncService {
     }
 
     return results;
+  }
+
+  /// Uploads the receipt saved on the device for an expense that has already
+  /// been created on the server, and links it (`receipts` bucket +
+  /// `expenses.receipt_url`). Returns the storage path.
+  ///
+  /// Throws [ReceiptFileMissing] if the local file is gone,
+  /// [ReceiptUploadPermanentError] if the server will never accept it (e.g.
+  /// file too large, type rejected), any other error for transient failures
+  /// (the caller retries on the next sync). Safe to retry: upsert.
+  Future<String> uploadPendingReceipt({
+    required String expenseId,
+    required String localPath,
+  }) async {
+    final file = File(localPath);
+    final Uint8List bytes;
+    try {
+      if (!await file.exists()) throw ReceiptFileMissing(localPath);
+      bytes = await file.readAsBytes();
+    } on ReceiptFileMissing {
+      rethrow;
+    } on FileSystemException {
+      throw ReceiptFileMissing(localPath);
+    }
+    if (bytes.isEmpty) throw ReceiptFileMissing(localPath);
+
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('User not authenticated');
+    }
+
+    final type = ReceiptFileType.detect(bytes);
+    final path = ReceiptFileType.storagePath(userId, expenseId, bytes);
+
+    try {
+      await _supabase.storage.from('receipts').uploadBinary(
+            path,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: type.contentType,
+              upsert: true,
+            ),
+          );
+    } on StorageException catch (e) {
+      final status = int.tryParse(e.statusCode ?? '');
+      const transient = {401, 403, 408, 429};
+      if (status != null &&
+          status >= 400 &&
+          status < 500 &&
+          !transient.contains(status)) {
+        throw ReceiptUploadPermanentError(e.message, status);
+      }
+      rethrow;
+    }
+
+    await _supabase
+        .from('expenses')
+        .update({'receipt_url': path}).eq('id', expenseId);
+
+    return path;
   }
 
   Future<_CreateContext> _loadCreateContext() async {

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -82,3 +84,12 @@ final expenseReceiptProvider = FutureProvider.autoDispose.family<String?, String
     return signedUrl;
   },
 );
+
+/// Scarica i byte di uno scontrino dallo storage.
+///
+/// Serve per aprire i PDF (anche quelli storici salvati come '.jpg').
+final receiptFileBytesProvider = FutureProvider.autoDispose
+    .family<Uint8List, String>((ref, receiptPath) async {
+  final dataSource = ref.watch(expenseRemoteDataSourceProvider);
+  return dataSource.downloadReceipt(receiptPath: receiptPath);
+});
