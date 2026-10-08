@@ -1,9 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/utils/budget_calculator.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../expenses/presentation/providers/recurring_expense_provider.dart';
+
+/// Provider for the reserved budget of a specific month/year.
+///
+/// Calculates the total budget reserved by active recurring expenses for the
+/// given month. Used by screens that let the user navigate between months so
+/// that the reservation follows the selected month instead of always using
+/// the current one (issue #50).
+final reservedBudgetForMonthProvider =
+    Provider.family<int, ({int year, int month})>((ref, period) {
+  final recurringExpensesState = ref.watch(recurringExpenseListProvider);
+
+  return BudgetCalculator.calculateReservedBudget(
+    recurringExpenses: recurringExpensesState.templates,
+    month: period.month,
+    year: period.year,
+  );
+});
 
 /// Provider for current month's reserved budget
 ///
@@ -13,22 +28,9 @@ import '../../../expenses/presentation/providers/recurring_expense_provider.dart
 /// for the current month. This amount represents future commitments
 /// that should be subtracted from available budget.
 final currentMonthReservedBudgetProvider = Provider<int>((ref) {
-  final userId = ref.watch(currentUserIdProvider);
-  final groupId = ref.watch(currentGroupIdProvider);
-
-  // Get current month and year
   final now = DateTime.now();
-  final month = now.month;
-  final year = now.year;
-
-  // Get all recurring expenses for the user
-  final recurringExpensesState = ref.watch(recurringExpenseListProvider);
-
-  // Calculate total reserved budget for current month
-  return BudgetCalculator.calculateReservedBudget(
-    recurringExpenses: recurringExpensesState.templates,
-    month: month,
-    year: year,
+  return ref.watch(
+    reservedBudgetForMonthProvider((year: now.year, month: now.month)),
   );
 });
 

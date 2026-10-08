@@ -10,7 +10,7 @@ import 'currency_utils.dart';
 /// - Over-allocation detection (category budgets > group budget)
 /// - Percentage overflow (member percentages > 100%)
 /// - Invalid percentage values (outside 0-100 range)
-/// - Invalid amounts (negative, zero, too large)
+/// - Invalid amounts (negative or too large; zero category budgets are allowed)
 /// - Missing required budgets
 class BudgetValidator {
   /// Maximum budget amount (€10,000,000 = 1 billion cents)
@@ -86,12 +86,18 @@ class BudgetValidator {
     final issues = <BudgetValidationIssue>[];
 
     // Check category budget amount
-    if (categoryBudget.groupBudgetAmount <= 0) {
+    if (categoryBudget.groupBudgetAmount < 0) {
       issues.add(BudgetValidationIssue.invalidAmount(
         context: 'Budget categoria "${categoryBudget.categoryName}"',
         amount: categoryBudget.groupBudgetAmount,
       ));
       return issues; // Skip further checks if amount is invalid
+    }
+
+    // A zero budget is legitimate (e.g. the auto-created "Varie" catch-all
+    // category): it is not a validation issue (issue #50).
+    if (categoryBudget.groupBudgetAmount == 0) {
+      return issues;
     }
 
     if (categoryBudget.groupBudgetAmount > MAX_BUDGET_CENTS) {

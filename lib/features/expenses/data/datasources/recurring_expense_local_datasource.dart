@@ -34,6 +34,9 @@ abstract class RecurringExpenseLocalDataSource {
   });
 
   /// Update a recurring expense template
+  ///
+  /// [anchorDate] and [nextDueDate] are written only when non-null.
+  /// `lastInstanceCreatedAt` is never modified by this method.
   Future<RecurringExpenseEntity> updateRecurringExpense({
     required String id,
     double? amount,
@@ -46,6 +49,8 @@ abstract class RecurringExpenseLocalDataSource {
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
+    DateTime? nextDueDate,
   });
 
   /// Pause a recurring expense
@@ -200,6 +205,8 @@ class RecurringExpenseLocalDataSourceImpl
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
+    DateTime? nextDueDate,
   }) async {
     try {
       final companion = RecurringExpensesCompanion(
@@ -222,6 +229,10 @@ class RecurringExpenseLocalDataSourceImpl
         paymentMethodName: paymentMethodName != null
             ? Value(paymentMethodName)
             : const Value.absent(),
+        anchorDate:
+            anchorDate != null ? Value(anchorDate) : const Value.absent(),
+        nextDueDate:
+            nextDueDate != null ? Value(nextDueDate) : const Value.absent(),
         updatedAt: Value(DateTime.now()),
       );
 

@@ -7,7 +7,7 @@ import '../../../../core/utils/validators.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/primary_button.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../expenses/presentation/providers/expense_provider.dart';
 import '../../../expenses/presentation/widgets/category_selector.dart';
 import '../providers/upload_provider.dart';
@@ -86,7 +86,7 @@ class _UploadFileScreenState extends ConsumerState<UploadFileScreen> {
     if (expense != null && mounted) {
       listNotifier.addExpense(expense);
       // Refresh dashboard to reflect the new expense
-      ref.read(dashboardProvider.notifier).refresh();
+      refreshPersonalDashboard(ref);
       ref.read(uploadProvider.notifier).clearFile();
       context.go('/expenses');
     }

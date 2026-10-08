@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:family_expense_tracker/core/enums/reimbursement_status.dart';
+import 'package:family_expense_tracker/core/enums/transaction_type.dart';
 import 'package:family_expense_tracker/core/errors/exceptions.dart';
 import 'package:family_expense_tracker/features/auth/domain/entities/user_entity.dart';
 import 'package:family_expense_tracker/features/expenses/data/datasources/expense_local_cache_datasource.dart';
@@ -15,6 +16,8 @@ import 'package:family_expense_tracker/shared/services/connectivity_service.dart
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
+  int createCalls = 0;
+
   @override
   Future<ExpenseModel> createExpense({
     required double amount,
@@ -28,8 +31,10 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? createdBy,
     String? paidBy,
     String? lastModifiedBy,
-  }) {
-    throw ServerException('SocketException: offline');
+    TransactionType transactionType = TransactionType.expense,
+  }) async {
+    createCalls++;
+    throw const ServerException('SocketException: offline');
   }
 
   @override
@@ -57,6 +62,11 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
 
   @override
   Future<String> getReceiptUrl({required String receiptPath}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Uint8List> downloadReceipt({required String receiptPath}) {
     throw UnimplementedError();
   }
 
@@ -102,6 +112,8 @@ class _FakeExpenseRemoteDataSource implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) {
     throw UnimplementedError();
   }
@@ -147,10 +159,30 @@ class _FakeExpenseLocalCacheDataSource implements ExpenseLocalCacheDataSource {
     }
     cachedExpenses[index] = expense;
   }
+
+  @override
+  Future<int> removeSyncedExpenses(String userId, Set<String> ids) async {
+    final before = cachedExpenses.length;
+    cachedExpenses.removeWhere(
+      (e) => ids.contains(e.id) && e.syncStatus == 'completed',
+    );
+    return before - cachedExpenses.length;
+  }
 }
 
 class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSource {
   OfflineExpenseEntity? createdExpense;
+  Map<String, dynamic>? createdExtraPayload;
+  Uint8List? createdReceiptBytes;
+
+  @override
+  Future<List<OfflineExpenseEntity>> getExpensesWithPendingReceipt(
+    String userId,
+  ) async =>
+      const [];
+
+  @override
+  Future<void> clearLocalReceiptPath(String expenseId) async {}
 
   @override
   Future<void> addToSyncQueue({
@@ -171,7 +203,11 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
+    Uint8List? receiptBytes,
   }) async {
+    createdReceiptBytes = receiptBytes;
+    createdExtraPayload = extraPayload;
     createdExpense = OfflineExpenseEntity(
       id: 'offline-expense-1',
       userId: userId,
@@ -215,6 +251,21 @@ class _FakeOfflineExpenseLocalDataSource implements OfflineExpenseLocalDataSourc
 
   @override
   Future<void> updateSyncStatus(String expenseId, String status, {String? errorMessage}) async {}
+
+  @override
+  Future<bool> discardUnsyncedExpense({
+    required String expenseId,
+    required String userId,
+  }) async => false;
+
+  @override
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) async {}
+
+  @override
+  Future<Set<String>> getUnsyncedExpenseIds(String userId) async => {};
 }
 
 void main() {
@@ -332,5 +383,135 @@ void main() {
     expect(expense.syncStatus, 'pending');
     expect(cache.cachedExpenses.single.syncStatus, 'pending');
     expect(offlineDataSource.createdExpense?.id, 'offline-expense-1');
+    expect(offlineDataSource.createdExpense?.notes, 'Spesa offline');
+    // Fields not stored in the offline table must still reach the server
+    expect(offlineDataSource.createdExtraPayload?['payment_method_id'], 'cash');
+    expect(offlineDataSource.createdExtraPayload?['paid_by'], 'user-1');
+    expect(offlineDataSource.createdExtraPayload?['transaction_type'], 'expense');
+  });
+
+  test('scontrino PDF allegato offline viene passato al salvataggio locale', () async {
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(),
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => NetworkStatus.offline,
+    );
+    final pdf = Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x2D, 1, 2, 3]);
+
+    final result = await repository.createExpense(
+      amount: 5,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+      receiptImage: pdf,
+    );
+
+    final expense = result.getOrElse(() => throw StateError('expected Right'));
+    expect(offlineDataSource.createdReceiptBytes, pdf);
+    // Il path locale non deve mai finire in receiptUrl
+    expect(expense.receiptUrl, isNull);
+    expect(expense.syncStatus, 'pending');
+  });
+
+  test('scontrino allegato passa al salvataggio locale anche nel fallback di rete', () async {
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(),
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => null,
+    );
+    final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1]);
+
+    final result = await repository.createExpense(
+      amount: 5,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+      receiptImage: png,
+    );
+
+    final expense = result.getOrElse(() => throw StateError('expected Right'));
+    expect(offlineDataSource.createdReceiptBytes, png);
+    expect(expense.receiptUrl, isNull);
+  });
+
+  test('con stato rete sconosciuto il salvataggio prova prima il server', () async {
+    final remote = _FakeExpenseRemoteDataSource();
+    final offlineDataSource = _FakeOfflineExpenseLocalDataSource();
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: remote,
+      localCacheDataSource: _FakeExpenseLocalCacheDataSource(),
+      offlineLocalDataSource: offlineDataSource,
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'offline@example.com',
+        displayName: 'Offline User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => null,
+    );
+
+    final result = await repository.createExpense(
+      amount: 10,
+      date: DateTime(2026, 3, 8),
+      categoryId: 'cat-1',
+      paymentMethodId: 'cash',
+    );
+
+    expect(remote.createCalls, 1);
+    // The fake remote fails with a network error: falls back to offline
+    expect(result.isRight(), isTrue);
+    expect(offlineDataSource.createdExpense, isNotNull);
+  });
+
+  test('dettaglio di una spesa non ancora sincronizzata letto dalla cache', () async {
+    final cache = _FakeExpenseLocalCacheDataSource();
+    await cache.upsertExpense(
+      'user-1',
+      ExpenseEntity(
+        id: 'pending-1',
+        groupId: 'group-1',
+        createdBy: 'user-1',
+        amount: 12.0,
+        date: DateTime(2026, 3, 8),
+        categoryId: 'cat-1',
+        paymentMethodId: 'cash',
+        notes: 'Pizza',
+        syncStatus: 'pending',
+      ),
+    );
+
+    final repository = ExpenseRepositoryImpl(
+      remoteDataSource: _FakeExpenseRemoteDataSource(), // getExpense throws
+      localCacheDataSource: cache,
+      offlineLocalDataSource: _FakeOfflineExpenseLocalDataSource(),
+      currentUser: const UserEntity(
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        groupId: 'group-1',
+      ),
+      networkStatusGetter: () => NetworkStatus.online,
+    );
+
+    final result = await repository.getExpense(expenseId: 'pending-1');
+
+    expect(result.isRight(), isTrue);
+    expect(result.getOrElse(() => throw StateError('no expense')).notes, 'Pizza');
   });
 }

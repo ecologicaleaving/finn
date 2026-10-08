@@ -7,11 +7,22 @@ import '../../domain/entities/expense_category_entity.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../datasources/category_remote_datasource.dart';
 
+/// Counts local (Drift) recurring expense templates that use a category.
+typedef LocalRecurringTemplateCounter = Future<int> Function(String categoryId);
+
 /// Implementation of [CategoryRepository] using remote data source.
 class CategoryRepositoryImpl implements CategoryRepository {
-  CategoryRepositoryImpl({required this.remoteDataSource});
+  CategoryRepositoryImpl({
+    required this.remoteDataSource,
+    this.localRecurringTemplateCounter,
+  });
 
   final CategoryRemoteDataSource remoteDataSource;
+
+  /// Issue #49: recurring templates live only in the local Drift database
+  /// (they are never uploaded to the remote `recurring_expenses` table), so
+  /// deletion must also check them locally.
+  final LocalRecurringTemplateCounter? localRecurringTemplateCounter;
 
   // ========== Category CRUD Operations ==========
 
@@ -238,16 +249,44 @@ class CategoryRepositoryImpl implements CategoryRepository {
             );
           }
 
-          // Feature 013 T066: Check if it has recurring expenses
+          // Issue #49: recurring templates are stored locally (Drift).
+          // Fail-closed: if the local count cannot be read, do not delete.
+          var localRecurringCount = 0;
+          final localCounter = localRecurringTemplateCounter;
+          if (localCounter != null) {
+            try {
+              localRecurringCount = await localCounter(categoryId);
+            } catch (e) {
+              return Left(
+                CacheFailure(
+                  'Unable to verify recurring expenses for this category: $e',
+                ),
+              );
+            }
+          }
+
+          // Feature 013 T066: remote `recurring_expenses` check, kept as a
+          // best-effort safety net. A failure here (table missing, RLS)
+          // must not mask the local check nor block deletion by itself.
+          var remoteRecurringCount = 0;
+          try {
+            remoteRecurringCount =
+                await remoteDataSource.getCategoryRecurringExpenseCount(
+              categoryId: categoryId,
+            );
+          } on ServerException {
+            remoteRecurringCount = 0;
+          }
+
           final recurringExpenseCount =
-              await remoteDataSource.getCategoryRecurringExpenseCount(
-            categoryId: categoryId,
-          );
+              localRecurringCount > remoteRecurringCount
+                  ? localRecurringCount
+                  : remoteRecurringCount;
 
           if (recurringExpenseCount > 0) {
             return Left(
               ValidationFailure(
-                'Cannot delete category with $recurringExpenseCount active recurring expense(s). '
+                'Cannot delete category with $recurringExpenseCount recurring expense(s). '
                 'Please delete or reassign the recurring expenses first.',
               ),
             );

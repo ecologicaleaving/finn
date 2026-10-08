@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -14,6 +15,53 @@ import '../models/personal_budget_model.dart';
 import '../models/income_source_model.dart';
 import '../models/savings_goal_model.dart';
 import '../models/group_expense_assignment_model.dart';
+
+/// Filters raw `category_budgets` rows down to group budgets only and
+/// removes duplicates, so each category appears at most once (issue #50).
+///
+/// - Rows with `is_group_budget == false` (personal budgets) are dropped.
+/// - Rows where `is_group_budget` is missing/null are treated as group budgets
+///   (legacy behaviour).
+/// - When several group rows exist for the same `category_id`, only the most
+///   recent one (by `updated_at`, then `created_at`) is kept; ties keep the
+///   first occurrence. The relative order of categories is preserved.
+@visibleForTesting
+List<Map<String, dynamic>> groupCategoryBudgetRows(List rows) {
+  final result = <Map<String, dynamic>>[];
+  final indexByCategory = <String, int>{};
+
+  DateTime? timestampOf(Map<String, dynamic> row) {
+    final raw = row['updated_at'] ?? row['created_at'];
+    if (raw is DateTime) return raw;
+    if (raw is String) return DateTime.tryParse(raw);
+    return null;
+  }
+
+  for (final raw in rows) {
+    if (raw is! Map) continue;
+    final row = Map<String, dynamic>.from(raw);
+    final isGroup = row['is_group_budget'] as bool? ?? true;
+    if (!isGroup) continue;
+
+    final categoryId = row['category_id'] as String?;
+    if (categoryId == null) continue;
+
+    final existingIndex = indexByCategory[categoryId];
+    if (existingIndex == null) {
+      indexByCategory[categoryId] = result.length;
+      result.add(row);
+      continue;
+    }
+
+    final existingTs = timestampOf(result[existingIndex]);
+    final newTs = timestampOf(row);
+    if (newTs != null && (existingTs == null || newTs.isAfter(existingTs))) {
+      result[existingIndex] = row;
+    }
+  }
+
+  return result;
+}
 
 /// Remote data source for budget operations using Supabase.
 abstract class BudgetRemoteDataSource {
@@ -975,10 +1023,16 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
       }
 
       // Step 2: Get all category budgets for this month
-      final categoryBudgetsData = await getCategoryBudgets(
-        groupId: groupId,
-        year: year,
-        month: month,
+      // Only group budgets participate in the group composition: personal
+      // rows (is_group_budget = false) would otherwise duplicate categories
+      // and inflate the total (issue #50). getCategoryBudgets itself is left
+      // unfiltered because other screens need the personal rows.
+      final categoryBudgetsData = groupCategoryBudgetRows(
+        await getCategoryBudgets(
+          groupId: groupId,
+          year: year,
+          month: month,
+        ),
       );
 
       // Step 3: Get all categories for names and colors
@@ -1007,7 +1061,6 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
 
       for (final budgetData in categoryBudgetsData) {
         final categoryId = budgetData['category_id'] as String;
-        final isGroupBudget = budgetData['is_group_budget'] as bool? ?? true;
         final budgetAmount = (budgetData['amount'] as num).toInt();
         final budgetId = budgetData['id'] as String;
 
@@ -1088,21 +1141,18 @@ class BudgetRemoteDataSourceImpl implements BudgetRemoteDataSource {
         final startOfMonth = DateTime(year, month, 1);
         final endOfMonth = DateTime(year, month + 1, 0, 23, 59, 59);
 
-        // Query expenses for this category (group expenses only for group budget, escluse entrate)
-        var expensesQuery = supabaseClient
+        // Query group expenses for this category, excluding income and
+        // already-reimbursed expenses (issue #50).
+        final expensesResponse = await supabaseClient
             .from('expenses')
             .select('amount')
             .eq('group_id', groupId)
             .eq('category_id', categoryId)
+            .eq('is_group_expense', true)
             .neq('transaction_type', 'income')
+            .neq('reimbursement_status', 'reimbursed')
             .gte('date', startOfMonth.toIso8601String().split('T')[0])
             .lte('date', endOfMonth.toIso8601String().split('T')[0]);
-
-        if (isGroupBudget) {
-          expensesQuery = expensesQuery.eq('is_group_expense', true);
-        }
-
-        final expensesResponse = await expensesQuery;
 
         // Sum up expenses (convert from euros to cents)
         int spentAmount = 0;

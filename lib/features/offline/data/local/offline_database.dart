@@ -196,6 +196,10 @@ class CachedCategories extends Table {
 class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase() : super(_openConnection());
 
+  /// Opens the database on an arbitrary executor (e.g. an in-memory
+  /// `NativeDatabase.memory()`), for tests only.
+  OfflineDatabase.forTesting(QueryExecutor executor) : super(executor);
+
   @override
   int get schemaVersion => 4;
 

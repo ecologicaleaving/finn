@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../expenses/presentation/providers/recurring_expense_provider.dart';
 import '../../data/datasources/category_remote_datasource.dart';
 import '../../data/repositories/category_repository_impl.dart';
 import '../../domain/repositories/category_repository.dart';
@@ -21,5 +22,8 @@ final categoryRemoteDataSourceProvider = Provider<CategoryRemoteDataSource>((ref
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   return CategoryRepositoryImpl(
     remoteDataSource: ref.watch(categoryRemoteDataSourceProvider),
+    // Issue #49: recurring templates live only in the local Drift database.
+    localRecurringTemplateCounter:
+        ref.watch(recurringExpenseDaoProvider).countRecurringExpensesByCategory,
   );
 });

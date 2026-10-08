@@ -66,8 +66,14 @@ class MemberSelector extends ConsumerWidget {
       }),
     ];
 
+    // The selected member may have left the group (e.g. editing an old expense):
+    // DropdownButtonFormField asserts that its value is among the items, so
+    // fall back to "Me stesso" for display in that case.
+    final hasSelectedMember = selectedMemberId == null ||
+        groupMembers.any((member) => member.userId == selectedMemberId);
+
     return DropdownButtonFormField<String>(
-      value: selectedMemberId,
+      value: hasSelectedMember ? selectedMemberId : null,
       decoration: const InputDecoration(
         labelText: 'Crea spesa per',
         border: OutlineInputBorder(),

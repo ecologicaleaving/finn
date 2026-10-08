@@ -237,6 +237,7 @@ class _EditRecurringExpenseFormState
       budgetReservationEnabled: _budgetReservationEnabled,
       defaultReimbursementStatus: _defaultReimbursementStatus,
       paymentMethodId: _selectedPaymentMethodId,
+      anchorDate: _anchorDate != _initialAnchorDate ? _anchorDate : null,
     );
 
     if (updatedTemplate != null && mounted) {
