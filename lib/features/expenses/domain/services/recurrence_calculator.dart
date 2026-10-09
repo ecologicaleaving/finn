@@ -75,7 +75,13 @@ class RecurrenceCalculator {
   /// Budget is reserved only if:
   /// - Template is active (not paused)
   /// - Budget reservation is enabled
-  /// - Next due date falls within the period
+  ///
+  /// Every occurrence not yet generated that falls in the period counts
+  /// (issue #69): starting from `nextDueDate` (or the anchor date when no
+  /// instance exists yet, so the first occurrence is counted), the schedule
+  /// is walked forward and each occurrence inside the period, bounds
+  /// included, adds one amount. Weekly and daily templates therefore reserve
+  /// several times a month.
   static int calculateBudgetReservation({
     required RecurringExpense template,
     required int month,
@@ -91,23 +97,39 @@ class RecurrenceCalculator {
     final periodEnd = tz.TZDateTime(tz.local, year, month + 1, 1)
         .subtract(const Duration(microseconds: 1));
 
-    // Calculate next due date
-    final nextDue = calculateNextDueDate(
-      anchorDate: template.anchorDate,
-      frequency: template.frequency,
-      lastCreated: template.lastInstanceCreatedAt,
-    );
+    final amountCents = (template.amount * 100).round();
+    DateTime? occurrence = template.nextDueDate ?? template.anchorDate;
+    var total = 0;
 
-    if (nextDue == null) return 0;
-
-    // Check if due date falls within the period
-    final nextDueTz = tz.TZDateTime.from(nextDue, tz.local);
-    if (nextDueTz.isAfter(periodStart) && nextDueTz.isBefore(periodEnd)) {
-      // Convert euros to cents
-      return (template.amount * 100).round();
+    // Fast-forward over occurrences before the period (not counted).
+    var guard = 0;
+    while (occurrence != null &&
+        occurrence.isBefore(periodStart) &&
+        guard < 1000) {
+      guard++;
+      final next = calculateNextDueDate(
+        anchorDate: template.anchorDate,
+        frequency: template.frequency,
+        lastCreated: occurrence,
+      );
+      if (next == null || !next.isAfter(occurrence)) return 0;
+      occurrence = next;
     }
 
-    return 0;
+    // Count the occurrences inside the period (at most 40 iterations).
+    for (var i = 0; i < 40 && occurrence != null; i++) {
+      if (occurrence.isAfter(periodEnd)) break;
+      if (!occurrence.isBefore(periodStart)) total += amountCents;
+      final next = calculateNextDueDate(
+        anchorDate: template.anchorDate,
+        frequency: template.frequency,
+        lastCreated: occurrence,
+      );
+      if (next == null || !next.isAfter(occurrence)) break;
+      occurrence = next;
+    }
+
+    return total;
   }
 
   /// Calculate total reserved budget for all recurring expenses in a period.

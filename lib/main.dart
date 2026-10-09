@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -9,6 +12,7 @@ import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'app/app.dart';
+import 'app/background_tasks.dart';
 import 'core/config/env.dart';
 import 'core/services/monthly_budget_reset_service.dart';
 import 'features/widget/presentation/providers/widget_provider.dart';
@@ -33,6 +37,11 @@ Future<void> main() async {
     final timezoneInfo = await FlutterTimezone.getLocalTimezone();
     final String deviceTimezone = timezoneInfo.identifier;
     tz.setLocalLocation(tz.getLocation(deviceTimezone));
+    // The background isolate uses the same timezone (issue #69)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(kDeviceTimezonePrefsKey, deviceTimezone);
+    } catch (_) {}
   } catch (e) {
     // Fallback to UTC if device timezone cannot be determined
     tz.setLocalLocation(tz.getLocation('UTC'));
@@ -83,6 +92,18 @@ Future<void> main() async {
     //     groupId: currentGroupId,
     //   );
     // }
+
+    // Recurring expenses: periodic background generation (Android only; iOS
+    // has no BGTask configured, there the foreground path is used).
+    // Never blocks the startup.
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        await BackgroundTasks.initialize();
+        await BackgroundTasks.registerAllTasks();
+      } catch (e) {
+        print('Main: Error registering background tasks: $e');
+      }
+    }
 
     // Widget initialization (only in non-demo mode)
     try {

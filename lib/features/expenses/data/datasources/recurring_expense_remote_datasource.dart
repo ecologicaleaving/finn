@@ -109,11 +109,12 @@ class RecurringExpenseRemoteDataSourceImpl
     bool? budgetReservationEnabled,
   }) async {
     try {
+      // Filters first: `order` returns a transform builder without `eq`.
       var query = supabaseClient
           .from('recurring_expenses')
           .select()
           .eq('user_id', userId)
-          .order('created_at', ascending: false);
+          .isFilter('deleted_at', null);
 
       // Apply filters if provided
       if (isPaused != null) {
@@ -123,7 +124,7 @@ class RecurringExpenseRemoteDataSourceImpl
         query = query.eq('budget_reservation_enabled', budgetReservationEnabled);
       }
 
-      final response = await query;
+      final response = await query.order('created_at', ascending: false);
 
       return (response as List)
           .map((json) => RecurringExpenseEntity.fromJson(json))
@@ -357,5 +358,89 @@ class RecurringExpenseRemoteDataSourceImpl
         'recurring_expense_watch_error',
       );
     }
+  }
+}
+
+// ===========================================================================
+// Template sync (issue #69)
+// ===========================================================================
+
+/// The remote table does not exist yet (migration not applied): PGRST205 /
+/// 42P01. The template sync treats it as a no-op.
+class RemoteTableMissing implements Exception {
+  const RemoteTableMissing([this.message = '']);
+  final String message;
+
+  @override
+  String toString() => 'RemoteTableMissing($message)';
+
+  /// Whether a PostgREST error code means "table not found".
+  static bool isMissingTableCode(String? code) =>
+      code == 'PGRST205' || code == '42P01';
+}
+
+/// Narrow remote interface used by the template sync service.
+abstract class RecurringTemplateSyncRemote {
+  /// All templates of [userId] on the server, soft-deleted included.
+  /// Throws [RemoteTableMissing] when the table does not exist.
+  Future<List<Map<String, dynamic>>> fetchOwnTemplatesForSync(String userId);
+
+  /// Insert-or-update one template row (upsert on id).
+  /// Throws [RemoteTableMissing] when the table does not exist.
+  Future<void> upsertTemplateRow(Map<String, dynamic> row);
+
+  /// Group id of the user's profile (null if none).
+  Future<String?> fetchUserGroupId(String userId);
+}
+
+/// Supabase implementation of [RecurringTemplateSyncRemote].
+class RecurringTemplateSyncRemoteImpl implements RecurringTemplateSyncRemote {
+  RecurringTemplateSyncRemoteImpl({required this.supabaseClient});
+
+  final SupabaseClient supabaseClient;
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchOwnTemplatesForSync(
+      String userId) async {
+    try {
+      final response = await supabaseClient
+          .from('recurring_expenses')
+          .select()
+          .eq('user_id', userId);
+      return (response as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+    } on PostgrestException catch (e) {
+      if (RemoteTableMissing.isMissingTableCode(e.code)) {
+        throw RemoteTableMissing(e.message);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> upsertTemplateRow(Map<String, dynamic> row) async {
+    try {
+      await supabaseClient
+          .from('recurring_expenses')
+          .upsert(row, onConflict: 'id')
+          .select('id')
+          .single();
+    } on PostgrestException catch (e) {
+      if (RemoteTableMissing.isMissingTableCode(e.code)) {
+        throw RemoteTableMissing(e.message);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String?> fetchUserGroupId(String userId) async {
+    final row = await supabaseClient
+        .from('profiles')
+        .select('group_id')
+        .eq('id', userId)
+        .maybeSingle();
+    return row?['group_id'] as String?;
   }
 }

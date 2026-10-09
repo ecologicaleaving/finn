@@ -6,23 +6,7 @@ import 'package:family_expense_tracker/core/enums/recurrence_frequency.dart';
 import 'package:family_expense_tracker/core/enums/reimbursement_status.dart';
 import 'package:family_expense_tracker/features/budgets/presentation/providers/budget_reservation_provider.dart';
 import 'package:family_expense_tracker/features/expenses/domain/entities/recurring_expense.dart';
-import 'package:family_expense_tracker/features/expenses/domain/repositories/recurring_expense_repository.dart';
 import 'package:family_expense_tracker/features/expenses/presentation/providers/recurring_expense_provider.dart';
-
-class _FakeRecurringExpenseRepository implements RecurringExpenseRepository {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _FakeRecurringExpenseListNotifier extends RecurringExpenseListNotifier {
-  _FakeRecurringExpenseListNotifier(List<RecurringExpense> templates)
-      : super(_FakeRecurringExpenseRepository()) {
-    state = RecurringExpenseListState(
-      status: RecurringExpenseListStatus.loaded,
-      templates: templates,
-    );
-  }
-}
 
 RecurringExpense _monthlyTemplate({
   required DateTime anchorDate,
@@ -46,15 +30,17 @@ RecurringExpense _monthlyTemplate({
   );
 }
 
-ProviderContainer _containerWith(List<RecurringExpense> templates) {
+// Issue #69: the reservation reads the templates from Drift
+// (activeRecurringTemplatesProvider), not from the list screen state.
+Future<ProviderContainer> _containerWith(List<RecurringExpense> templates) async {
   final container = ProviderContainer(
     overrides: [
-      recurringExpenseListProvider.overrideWith(
-        (ref) => _FakeRecurringExpenseListNotifier(templates),
-      ),
+      activeRecurringTemplatesProvider
+          .overrideWith((ref) => Stream.value(templates)),
     ],
   );
   addTearDown(container.dispose);
+  await container.read(activeRecurringTemplatesProvider.future);
   return container;
 }
 
@@ -65,33 +51,38 @@ void main() {
   });
 
   group('reservedBudgetForMonthProvider (issue #50)', () {
-    test('uses the requested month instead of DateTime.now()', () {
-      // Monthly template anchored on 15 Jan 2030: next due date 15 Feb 2030.
-      final container =
-          _containerWith([_monthlyTemplate(anchorDate: DateTime(2030, 1, 15))]);
+    test('uses the requested month instead of DateTime.now()', () async {
+      // Monthly template anchored on 15 Jan 2030, first occurrence not yet
+      // generated: counted in January and in the following months.
+      final container = await _containerWith(
+          [_monthlyTemplate(anchorDate: DateTime(2030, 1, 15))]);
 
-      final beforeDue = container
-          .read(reservedBudgetForMonthProvider((year: 2030, month: 1)));
+      final beforeAnchor = container
+          .read(reservedBudgetForMonthProvider((year: 2029, month: 12)));
       final dueMonth = container
           .read(reservedBudgetForMonthProvider((year: 2030, month: 2)));
 
-      expect(beforeDue, 0);
+      expect(beforeAnchor, 0);
+      expect(
+        container.read(reservedBudgetForMonthProvider((year: 2030, month: 1))),
+        5000,
+      );
       expect(dueMonth, 5000); // 50 EUR in cents
-      expect(dueMonth, isNot(beforeDue));
+      expect(dueMonth, isNot(beforeAnchor));
 
       // The current month (2026) is not the due month: the "current month"
       // provider must not return the reservation for Feb 2030.
       expect(container.read(currentMonthReservedBudgetProvider), 0);
     });
 
-    test('handles the December -> January year boundary', () {
-      // Anchored on 15 Dec 2030: next due date 15 Jan 2031.
-      final container =
-          _containerWith([_monthlyTemplate(anchorDate: DateTime(2030, 12, 15))]);
+    test('handles the December -> January year boundary', () async {
+      // Anchored on 15 Dec 2030: 15 Dec 2030, then 15 Jan 2031.
+      final container = await _containerWith(
+          [_monthlyTemplate(anchorDate: DateTime(2030, 12, 15))]);
 
       expect(
         container.read(reservedBudgetForMonthProvider((year: 2030, month: 12))),
-        0,
+        5000,
       );
       expect(
         container.read(reservedBudgetForMonthProvider((year: 2031, month: 1))),
@@ -99,8 +90,8 @@ void main() {
       );
     });
 
-    test('returns 0 when there are no recurring expenses', () {
-      final container = _containerWith(const []);
+    test('returns 0 when there are no recurring expenses', () async {
+      final container = await _containerWith(const []);
 
       expect(
         container.read(reservedBudgetForMonthProvider((year: 2030, month: 2))),

@@ -244,7 +244,35 @@ class BatchSyncService {
       // Same as the online path: only sent for income
       if (transactionType != null && transactionType != 'expense')
         'transaction_type': transactionType,
+      // Recurring instances (issue #69): only when present in the payload
+      if (payload['recurring_expense_id'] != null)
+        'recurring_expense_id': payload['recurring_expense_id'],
+      if (payload['is_recurring_instance'] != null)
+        'is_recurring_instance': payload['is_recurring_instance'],
     };
+  }
+
+  /// Columns added by migration 20261009_69 on `expenses`.
+  static const recurringColumns = [
+    'recurring_expense_id',
+    'is_recurring_instance',
+  ];
+
+  /// Whether [e] is a PGRST204 ("column not found in the schema cache") that
+  /// names one of the recurring columns: the migration is not applied yet.
+  @visibleForTesting
+  static bool isMissingRecurringColumn(PostgrestException e) {
+    if (e.code != 'PGRST204') return false;
+    final text = '${e.message} ${e.details ?? ''}';
+    return recurringColumns.any(text.contains);
+  }
+
+  /// Copy of [row] without the recurring columns.
+  @visibleForTesting
+  static Map<String, dynamic> withoutRecurringColumns(
+      Map<String, dynamic> row) {
+    return Map<String, dynamic>.from(row)
+      ..removeWhere((k, _) => recurringColumns.contains(k));
   }
 
   /// Copy of the update payload with 'date' normalized to yyyy-MM-dd.
@@ -279,11 +307,23 @@ class BatchSyncService {
         paymentMethodName: await _paymentMethodName(paymentMethodId, context),
       );
 
-      final response = await _supabase
-          .from('expenses')
-          .insert(row)
-          .select('id, updated_at')
-          .single();
+      Map<String, dynamic> response;
+      try {
+        response = await _supabase
+            .from('expenses')
+            .insert(row)
+            .select('id, updated_at')
+            .single();
+      } on PostgrestException catch (e) {
+        // Migration 20261009_69 not applied yet: retry once without the
+        // recurring columns, so the instance is synced anyway.
+        if (!isMissingRecurringColumn(e)) rethrow;
+        response = await _supabase
+            .from('expenses')
+            .insert(withoutRecurringColumns(row))
+            .select('id, updated_at')
+            .single();
+      }
 
       return SyncItemResult(
         id: item.entityId,
