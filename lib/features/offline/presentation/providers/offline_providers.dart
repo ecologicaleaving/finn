@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' as legacy;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/database/daos/recurring_expenses_dao.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../expenses/data/datasources/recurring_expense_remote_datasource.dart';
+import '../../../expenses/data/services/recurring_template_sync_service.dart';
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
 import '../../data/local/offline_database.dart';
@@ -163,6 +166,24 @@ class SyncTrigger extends _$SyncTrigger {
     state = const AsyncLoading();
 
     try {
+      // Recurring templates first (issue #69). An error here never touches
+      // the sync of the expenses below.
+      try {
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          final db = ref.read(offlineDatabaseProvider);
+          final templateSync = RecurringTemplateSyncService(
+            dao: RecurringExpensesDao(db),
+            remote: RecurringTemplateSyncRemoteImpl(
+              supabaseClient: Supabase.instance.client,
+            ),
+          );
+          await templateSync.sync(userId);
+        }
+      } catch (e) {
+        print('Recurring template sync failed: $e');
+      }
+
       final processor = ref.read(syncQueueProcessorProvider);
       final result = await processor.processQueue();
 

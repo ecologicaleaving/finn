@@ -19,6 +19,11 @@ class BackgroundSyncService {
   static const Duration syncInterval = Duration(minutes: 15);
 
   /// T120: Initialize WorkManager for background sync
+  ///
+  /// NOTE (issue #69): this service is not used. Workmanager accepts a single
+  /// callback dispatcher: the app's only one is
+  /// `backgroundCallbackDispatcher` in lib/app/background_tasks.dart. Do NOT
+  /// call this `initialize` together with `BackgroundTasks.initialize`.
   static Future<void> initialize() async {
     await Workmanager().initialize(
       callbackDispatcher,

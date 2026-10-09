@@ -62,7 +62,7 @@ abstract class RecurringExpenseLocalDataSource {
     required DateTime nextDueDate,
   });
 
-  /// Delete a recurring expense template
+  /// Delete a recurring expense template (soft delete: sets a tombstone)
   Future<void> deleteRecurringExpense({required String id});
 
   /// Get all recurring expenses for a user
@@ -329,8 +329,10 @@ class RecurringExpenseLocalDataSourceImpl
   @override
   Future<void> deleteRecurringExpense({required String id}) async {
     try {
-      final deleted = await dao.deleteRecurringExpense(id);
-      if (deleted == 0) {
+      // Soft delete (issue #69): the row stays as a tombstone so the deletion
+      // can reach the server. Expenses and instance mappings are untouched.
+      final deleted = await dao.softDeleteRecurringExpense(id, DateTime.now());
+      if (!deleted) {
         throw const CacheException(
           'Recurring expense not found',
           'not_found',

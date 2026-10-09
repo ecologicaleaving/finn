@@ -341,33 +341,17 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
     bool deleteInstances = false,
   }) async {
     try {
-      if (deleteInstances) {
-        // Get all instance IDs
-        final instanceIds = await localDataSource.getInstanceIdsForTemplate(
-          recurringExpenseId: id,
-        );
-
-        // Delete all expense instances
-        // TODO: Implement expense deletion through expense repository
-        // for (final expenseId in instanceIds) {
-        //   await expenseRepository.deleteExpense(expenseId: expenseId);
-        // }
-
-        // Delete instance mappings
-        await localDataSource.deleteInstanceMappingsForTemplate(
-          recurringExpenseId: id,
-        );
-      }
-
-      // Delete template (cascade deletes mappings automatically)
+      // Issue #69: deleting a template is a soft delete (tombstone). It never
+      // removes expenses or instance mappings, so [deleteInstances] is
+      // intentionally ignored: user data is never lost by this operation.
       await localDataSource.deleteRecurringExpense(id: id);
 
-      // T031: Queue sync operation
+      // Pending-change marker: the template sync pushes the tombstone.
       await localDataSource.addToSyncQueue(
         userId: _currentUserId,
-        operation: 'delete',
+        operation: 'update',
         entityId: id,
-        payload: {'id': id},
+        payload: {'id': id, 'deleted': true},
       );
 
       return const Right(unit);

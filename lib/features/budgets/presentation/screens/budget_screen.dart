@@ -21,6 +21,7 @@ import '../widgets/validation_alert_banner.dart';
 import 'group_budget_detail_screen.dart';
 import 'personal_budget_detail_screen.dart';
 import '../../../../app/app_theme.dart';
+import '../../../expenses/domain/entities/recurring_expense.dart';
 import '../../../expenses/presentation/providers/recurring_expense_provider.dart';
 import '../../../expenses/presentation/widgets/budget_reservation_display.dart';
 /// Unified budget management screen
@@ -105,8 +106,9 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     );
 
     // Get recurring expenses for budget reservation display
-    final recurringExpensesState = ref.watch(recurringExpenseListProvider);
-    final recurringExpenses = recurringExpensesState.templates;
+    final recurringExpenses =
+        ref.watch(activeRecurringTemplatesProvider).valueOrNull ??
+            const <RecurringExpense>[];
 
     return Scaffold(
       appBar: AppBar(

@@ -71,6 +71,10 @@ class RecurringExpenses extends Table {
   /// Last modification timestamp
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// Soft-delete tombstone (nullable). Rows are never physically deleted so the
+  /// deletion can be propagated to the server and other devices (issue #69).
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
