@@ -20,7 +20,7 @@ class FamilyGroupModel extends FamilyGroupEntity {
     return FamilyGroupModel(
       id: json['id'] as String,
       name: json['name'] as String,
-      createdBy: json['created_by'] as String,
+      createdBy: json['created_by'] as String? ?? '',
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,

@@ -42,12 +42,18 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   }
 
   Future<void> _handleLeaveGroup() async {
+    final isLastMember = ref.read(groupMembersProvider).length <= 1;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Lascia il gruppo'),
-        content: const Text(
-          'Sei sicuro di voler lasciare il gruppo? Le tue spese rimarranno visibili agli altri membri.',
+        content: Text(
+          isLastMember
+              ? 'Sei l\'ultimo membro. Il gruppo non verrà eliminato: le spese '
+                  'restano salvate e non verranno cancellate. Dopo l\'uscita '
+                  'non potrai più rientrare in questo gruppo.'
+              : 'Sei sicuro di voler lasciare il gruppo? Le spese che hai '
+                  'inserito restano nel gruppo e non verranno cancellate.',
         ),
         actions: [
           TextButton(
@@ -64,11 +70,14 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 
     if (confirmed == true) {
       final success = await ref.read(groupProvider.notifier).leaveGroup();
-      if (mounted && success) {
+      if (!mounted) return;
+      if (success) {
         await ref.read(authProvider.notifier).refreshUser();
         if (mounted) {
           context.go('/no-group');
         }
+      } else {
+        _showErrorSnackBar('Impossibile lasciare il gruppo');
       }
     }
   }
@@ -79,7 +88,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Elimina il gruppo'),
         content: const Text(
-          'Sei sicuro di voler eliminare il gruppo? Questa azione non può essere annullata.',
+          'Il gruppo si può eliminare solo se non contiene spese. Se ce ne '
+          'sono ancora, eliminale prima una per una. Questa azione non può '
+          'essere annullata.',
         ),
         actions: [
           TextButton(
@@ -99,11 +110,14 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 
     if (confirmed == true) {
       final success = await ref.read(groupProvider.notifier).deleteGroup();
-      if (mounted && success) {
+      if (!mounted) return;
+      if (success) {
         await ref.read(authProvider.notifier).refreshUser();
         if (mounted) {
           context.go('/no-group');
         }
+      } else {
+        _showErrorSnackBar('Il gruppo non è stato eliminato');
       }
     }
   }
@@ -130,8 +144,32 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     );
 
     if (confirmed == true) {
-      await ref.read(groupProvider.notifier).removeMember(userId: userId);
+      final success =
+          await ref.read(groupProvider.notifier).removeMember(userId: userId);
+      if (!mounted) return;
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$displayName è stato rimosso dal gruppo'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        _showErrorSnackBar('Impossibile rimuovere $displayName dal gruppo');
+      }
     }
+  }
+
+  /// Show the error of the last group operation (or [fallback]) in a red
+  /// SnackBar.
+  void _showErrorSnackBar(String fallback) {
+    final errorMessage = ref.read(groupProvider).errorMessage;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(errorMessage ?? fallback),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   Future<void> _handleGenerateInvite() async {
@@ -268,6 +306,15 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                 onPressed: _handleDeleteGroup,
                 label: 'Elimina gruppo',
                 icon: Icons.delete_forever,
+                isLoading: groupState.isLoading,
+              ),
+              // Con spese nel gruppo "Elimina" non e' ammessa: l'ultimo
+              // membro deve poter comunque uscire (le spese restano).
+              const SizedBox(height: 12),
+              SecondaryButton(
+                onPressed: _handleLeaveGroup,
+                label: 'Lascia il gruppo',
+                icon: Icons.exit_to_app,
                 isLoading: groupState.isLoading,
               ),
             ] else ...[
