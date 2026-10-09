@@ -592,6 +592,24 @@ GRANT EXECUTE ON FUNCTION public.delete_family_group() TO authenticated;
 -- su expenses.group_id, cancellerebbe tutte le spese aggirando
 -- delete_family_group(). Viene eliminata e NON ricreata. La policy DELETE su
 -- expenses resta: e' la cancellazione singola, ammessa dalla regola.
-DROP POLICY IF EXISTS "Admins can delete their group" ON public.family_groups;
+-- In produzione (verificato il 09/10/2026) esistono DUE policy DELETE su
+-- family_groups: "Admins can delete their group" e "Members can delete their
+-- group". Si eliminano TUTTE le policy DELETE, qualunque sia il nome, cosi un
+-- membro non puo cancellare il gruppo (e le spese in CASCADE) con una DELETE
+-- diretta via REST. delete_family_group() e SECURITY DEFINER e non ne ha bisogno.
+DO $
+DECLARE
+  pol record;
+BEGIN
+  FOR pol IN
+    SELECT policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'family_groups'
+      AND cmd = 'DELETE'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.family_groups', pol.policyname);
+  END LOOP;
+END $;
 
 COMMIT;
