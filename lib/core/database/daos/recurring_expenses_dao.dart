@@ -35,7 +35,8 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
   /// Get all recurring expenses for a user
   Future<List<RecurringExpenseData>> getAllRecurringExpenses(String userId) {
     return (select(recurringExpenses)
-          ..where((tbl) => tbl.userId.equals(userId)))
+          ..where((tbl) =>
+              tbl.userId.equals(userId) & tbl.deletedAt.isNull()))
         .get();
   }
 
@@ -44,7 +45,9 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
       String userId) {
     return (select(recurringExpenses)
           ..where((tbl) =>
-              tbl.userId.equals(userId) & tbl.isPaused.equals(false)))
+              tbl.userId.equals(userId) &
+              tbl.isPaused.equals(false) &
+              tbl.deletedAt.isNull()))
         .get();
   }
 
@@ -52,7 +55,10 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
   Future<List<RecurringExpenseData>> getPausedRecurringExpenses(
       String userId) {
     return (select(recurringExpenses)
-          ..where((tbl) => tbl.userId.equals(userId) & tbl.isPaused.equals(true)))
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              tbl.isPaused.equals(true) &
+              tbl.deletedAt.isNull()))
         .get();
   }
 
@@ -63,7 +69,8 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
           ..where((tbl) =>
               tbl.userId.equals(userId) &
               tbl.budgetReservationEnabled.equals(true) &
-              tbl.isPaused.equals(false)))
+              tbl.isPaused.equals(false) &
+              tbl.deletedAt.isNull()))
         .get();
   }
 
@@ -81,7 +88,8 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
     final countExpr = recurringExpenses.id.count();
     final query = selectOnly(recurringExpenses)
       ..addColumns([countExpr])
-      ..where(recurringExpenses.categoryId.equals(categoryId));
+      ..where(recurringExpenses.categoryId.equals(categoryId) &
+          recurringExpenses.deletedAt.isNull());
     final row = await query.getSingle();
     return row.read(countExpr) ?? 0;
   }
@@ -93,6 +101,7 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
     return (select(recurringExpenses)
           ..where((tbl) =>
               tbl.isPaused.equals(false) &
+              tbl.deletedAt.isNull() &
               tbl.nextDueDate.isSmallerOrEqualValue(now)))
         .get();
   }
@@ -174,6 +183,72 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
   }
 
   // =========================================================================
+  // SOFT DELETE & SYNC (issue #69)
+  // =========================================================================
+
+  /// Soft-delete a template: sets the tombstone and pauses it. The row is
+  /// kept so the deletion can reach the server; expenses and instance
+  /// mappings are never touched.
+  Future<bool> softDeleteRecurringExpense(String id, DateTime now) async {
+    final updated = await (update(recurringExpenses)
+          ..where((tbl) => tbl.id.equals(id) & tbl.deletedAt.isNull()))
+        .write(
+      RecurringExpensesCompanion(
+        deletedAt: Value(now),
+        isPaused: const Value(true),
+        updatedAt: Value(now),
+      ),
+    );
+    return updated > 0;
+  }
+
+  /// All templates of a user including soft-deleted ones (for sync).
+  Future<List<RecurringExpenseData>> getAllForSync(String userId) {
+    return (select(recurringExpenses)
+          ..where((tbl) => tbl.userId.equals(userId)))
+        .get();
+  }
+
+  /// Insert or update a template coming from the server. Never deletes.
+  Future<void> upsertFromRemote(RecurringExpensesCompanion entry) {
+    return into(recurringExpenses).insertOnConflictUpdate(entry);
+  }
+
+  /// Whether the template has local changes not yet pushed (queue entries of
+  /// type 'recurring_expense').
+  Future<bool> hasPendingTemplateChanges(String templateId) async {
+    final row = await (select(attachedDatabase.syncQueueItems)
+          ..where((q) =>
+              q.entityType.equals('recurring_expense') &
+              q.entityId.equals(templateId))
+          ..limit(1))
+        .getSingleOrNull();
+    return row != null;
+  }
+
+  /// Queue entries of type 'recurring_expense' of a user.
+  Future<List<SyncQueueItem>> getTemplateQueueItems(String userId) {
+    return (select(attachedDatabase.syncQueueItems)
+          ..where((q) =>
+              q.entityType.equals('recurring_expense') &
+              q.userId.equals(userId)))
+        .get();
+  }
+
+  /// Removes the 'recurring_expense' queue entries of a template created
+  /// before [createdBefore] (those already covered by a successful push).
+  /// Never touches 'expense' entries.
+  Future<int> deleteTemplateQueueItems(
+      String templateId, DateTime createdBefore) {
+    return (delete(attachedDatabase.syncQueueItems)
+          ..where((q) =>
+              q.entityType.equals('recurring_expense') &
+              q.entityId.equals(templateId) &
+              q.createdAt.isSmallerOrEqualValue(createdBefore)))
+        .go();
+  }
+
+  // =========================================================================
   // DELETE
   // =========================================================================
 
@@ -207,7 +282,8 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
   /// Watch all recurring expenses for a user (reactive)
   Stream<List<RecurringExpenseData>> watchRecurringExpenses(String userId) {
     return (select(recurringExpenses)
-          ..where((tbl) => tbl.userId.equals(userId)))
+          ..where((tbl) =>
+              tbl.userId.equals(userId) & tbl.deletedAt.isNull()))
         .watch();
   }
 
@@ -222,7 +298,9 @@ class RecurringExpensesDao extends DatabaseAccessor<OfflineDatabase>
       String userId) {
     return (select(recurringExpenses)
           ..where((tbl) =>
-              tbl.userId.equals(userId) & tbl.isPaused.equals(false)))
+              tbl.userId.equals(userId) &
+              tbl.isPaused.equals(false) &
+              tbl.deletedAt.isNull()))
         .watch();
   }
 }

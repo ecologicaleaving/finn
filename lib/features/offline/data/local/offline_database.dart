@@ -201,7 +201,7 @@ class OfflineDatabase extends _$OfflineDatabase {
   OfflineDatabase.forTesting(QueryExecutor executor) : super(executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -227,6 +227,11 @@ class OfflineDatabase extends _$OfflineDatabase {
         // Add recurring expense fields to OfflineExpenses
         await m.addColumn(offlineExpenses, offlineExpenses.recurringExpenseId);
         await m.addColumn(offlineExpenses, offlineExpenses.isRecurringInstance);
+      }
+      if (from < 5) {
+        // Soft-delete tombstone for recurring templates (issue #69).
+        // Nullable column: no existing row is touched.
+        await m.addColumn(recurringExpenses, recurringExpenses.deletedAt);
       }
     },
   );

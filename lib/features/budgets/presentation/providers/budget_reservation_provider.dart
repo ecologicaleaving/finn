@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/utils/budget_calculator.dart';
+import '../../../expenses/domain/entities/recurring_expense.dart';
 import '../../../expenses/presentation/providers/recurring_expense_provider.dart';
 
 /// Provider for the reserved budget of a specific month/year.
@@ -11,10 +12,12 @@ import '../../../expenses/presentation/providers/recurring_expense_provider.dart
 /// the current one (issue #50).
 final reservedBudgetForMonthProvider =
     Provider.family<int, ({int year, int month})>((ref, period) {
-  final recurringExpensesState = ref.watch(recurringExpenseListProvider);
+  // Templates straight from Drift (issue #69), not from the list screen.
+  final templates = ref.watch(activeRecurringTemplatesProvider).valueOrNull ??
+      const <RecurringExpense>[];
 
   return BudgetCalculator.calculateReservedBudget(
-    recurringExpenses: recurringExpensesState.templates,
+    recurringExpenses: templates,
     month: period.month,
     year: period.year,
   );
