@@ -258,7 +258,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', groupId)
           .single();
 
-      final adminId = groupResponse['created_by'] as String;
+      final adminId = groupResponse['created_by'] as String? ?? '';
 
       // Get all members (profiles with this group_id)
       final membersResponse = await supabaseClient
@@ -345,7 +345,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', groupId)
           .single();
 
-      final adminId = groupResponse['created_by'] as String;
+      final adminId = groupResponse['created_by'] as String? ?? '';
       if (adminId != userId) {
         throw const GroupException(
           'Solo l\'amministratore può modificare il nome del gruppo',

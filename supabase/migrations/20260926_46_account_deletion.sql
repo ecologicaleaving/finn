@@ -2,49 +2,129 @@
 -- Issue: #46 - «Elimina account» elimina davvero l'utente (AC7)
 --
 -- DA APPLICARE A MANO su Supabase (SQL editor), DOPO
--- 20260926_46_secure_group_membership.sql.
--- Idempotente: solo CREATE OR REPLACE FUNCTION / REVOKE / GRANT.
+-- 20260926_46_secure_group_membership.sql (che definisce
+-- public._dispose_group_if_abandoned, usata qui).
+-- Idempotente: blocco DO sullo schema (rieseguito non fa nulla) +
+-- CREATE OR REPLACE FUNCTION / REVOKE / GRANT. Avvolta in BEGIN/COMMIT.
+-- Il blocco DO prende un lock ACCESS EXCLUSIVE breve su tabelle piccole:
+-- meglio applicarla con poco traffico.
+--
+-- REGOLA DI DAVIDE (assoluta): le spese di un membro RESTANO nel gruppo quando
+-- il membro viene rimosso, esce o elimina l'account. Le spese si cancellano
+-- SOLO se eliminate una per una. Questa migration non fa MAI una DELETE su
+-- expenses e non elimina MAI un gruppo che contiene spese
+-- (expenses.group_id e' ON DELETE CASCADE).
 --
 -- delete_my_account(p_anonymize) elimina la riga auth.users del chiamante.
 -- DELETE auth.users -> CASCADE su profiles (001). Da profiles/auth.users:
 --   - CASCADE (dati PERSONALI dell'utente, corretto): income_sources,
---     savings_goals, recurring_expenses (solo se la tabella esiste: in
---     produzione NON esiste), group_expense_assignments, personal_budgets,
+--     savings_goals, group_expense_assignments, personal_budgets,
 --     category_budgets(user_id), budget_percentage_history(user_id),
 --     user_category_usage, ...
---   - CASCADE PERICOLOSI (dati di GRUPPO creati dall'utente), riassegnati dal
---     passo 2b PRIMA del DELETE: category_budgets.created_by,
---     group_budgets.created_by, budget_percentage_history.changed_by
---     (tutte NOT NULL, ON DELETE CASCADE)
---   - SET NULL: expenses.created_by, expenses.paid_by,
+--     recurring_expenses (#69, migration 20261009_69): user_id ON DELETE
+--     CASCADE porta via i TEMPLATI di ricorrenza dell'utente (anche di
+--     gruppo); le spese gia' generate restano (recurring_expense_id e' senza
+--     FK). group_id e' SET NULL.
+--   - SET NULL (questa migration, blocco DO): family_groups.created_by,
+--     category_budgets.created_by, group_budgets.created_by,
+--     budget_percentage_history.changed_by. Prima erano NOT NULL (le tre
+--     ultime con CASCADE: avrebbero cancellato i dati di gruppo creati
+--     dall'utente; family_groups.created_by senza ON DELETE: avrebbe
+--     bloccato la cancellazione). Ora un gruppo senza membri puo' restare con
+--     created_by NULL e le righe di gruppo non si perdono. Le funzioni che
+--     decidono l'admin con fg.created_by gestiscono NULL (il confronto da'
+--     NULL = false).
+--   - SET NULL (gia' in produzione): expenses.created_by, expenses.paid_by,
 --     expense_categories.created_by, profiles.group_id
 --   - NESSUNA AZIONE (bloccherebbero la DELETE, gestite qui prima):
---     family_groups.created_by, invites.created_by, invites.used_by,
---     expenses.last_modified_by
+--     invites.created_by, invites.used_by, expenses.last_modified_by
 --
 -- Regole:
 --   - admin di un gruppo con altri membri -> errore 'admin_has_members'
---     (deve prima rimuovere i membri o eliminare il gruppo)
---   - admin/ultimo membro del proprio gruppo -> il gruppo viene eliminato
---   - gruppi "legacy" creati dall'utente ma di cui non fa piu' parte:
---     eliminati se vuoti, altrimenti created_by passa al membro piu' anziano
---     (che diventa admin)
+--     (deve prima rimuovere i membri; le loro spese restano nel gruppo)
+--   - ultimo membro del proprio gruppo: se il gruppo ha spese il gruppo
+--     RESTA (senza membri, created_by NULL); senza spese si elimina
+--   - gruppi "legacy" creati dall'utente ma di cui non fa piu' parte: stessa
+--     regola; con altri membri created_by passa al membro admin (altrimenti
+--     al piu' anziano), senza membri il gruppo resta se ha spese
 --   - passo 2b: per i gruppi che CONTINUANO a esistere, created_by/changed_by
 --     delle righe di gruppo create dall'utente passano a un altro membro:
---     admin attuale, poi membro piu' anziano, poi family_groups.created_by,
---     altrimenti errore 'group_data_owner_not_found' (rollback completo).
+--     admin attuale, poi membro piu' anziano, poi family_groups.created_by.
+--     Se nessuno e' disponibile (gruppo tenuto senza membri) le righe restano
+--     e created_by/changed_by diventano NULL grazie al blocco DO; se il blocco
+--     DO non e' stato applicato, 'group_data_owner_not_found' (rollback
+--     completo) invece di perdere dati.
 --     I budget personali di altri utenti creati dall'utente passano a
---     created_by = user_id. Se il gruppo viene eliminato le righe vanno via
---     col gruppo (corretto). NOTA: per budget_percentage_history l'attribuzione
---     dell'audit (changed_by) passa al nuovo owner, perche' la colonna e'
---     NOT NULL.
+--     created_by = user_id.
 --   - p_anonymize = true -> sulle spese rimaste nei gruppi il nome diventa
 --     'Utente eliminato'; con false il nome resta (keep name)
---
--- NOTA (comportamento invariato, da confermare): expenses.group_id ha
--- ON DELETE CASCADE, quindi l'eliminazione di un gruppo nei passi 1 e 2
--- cancella anche le spese ancora presenti in quel gruppo. Le spese non
--- vengono toccate da questa migration oltre a quanto sopra.
+
+BEGIN;
+
+-- Schema: created_by / changed_by nullable con FK ON DELETE SET NULL verso
+-- public.profiles. Il nome del vincolo si legge dal catalogo; se la FK punta a
+-- una tabella diversa da public.profiles ci si ferma con un'eccezione.
+DO $$
+DECLARE
+  v_pair text[];
+  v_tbl text;
+  v_col text;
+  v_attnum smallint;
+  v_con RECORD;
+  v_has_set_null boolean;
+BEGIN
+  FOREACH v_pair SLICE 1 IN ARRAY ARRAY[
+    ARRAY['family_groups', 'created_by'],
+    ARRAY['category_budgets', 'created_by'],
+    ARRAY['group_budgets', 'created_by'],
+    ARRAY['budget_percentage_history', 'changed_by']
+  ]
+  LOOP
+    v_tbl := v_pair[1];
+    v_col := v_pair[2];
+
+    CONTINUE WHEN to_regclass('public.' || v_tbl) IS NULL;
+
+    EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I DROP NOT NULL', v_tbl, v_col);
+
+    SELECT a.attnum INTO v_attnum
+    FROM pg_attribute a
+    WHERE a.attrelid = ('public.' || v_tbl)::regclass
+      AND a.attname = v_col
+      AND NOT a.attisdropped;
+
+    v_has_set_null := false;
+
+    FOR v_con IN
+      SELECT c.conname, c.confrelid, c.confdeltype
+      FROM pg_constraint c
+      WHERE c.contype = 'f'
+        AND c.conrelid = ('public.' || v_tbl)::regclass
+        AND array_length(c.conkey, 1) = 1
+        AND c.conkey[1] = v_attnum
+    LOOP
+      IF v_con.confrelid <> 'public.profiles'::regclass THEN
+        RAISE EXCEPTION 'FK % su %.% punta a % (atteso public.profiles): mi fermo',
+          v_con.conname, v_tbl, v_col, v_con.confrelid::regclass;
+      END IF;
+
+      IF v_con.confdeltype = 'n' THEN
+        v_has_set_null := true;
+      ELSE
+        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', v_tbl, v_con.conname);
+        RAISE NOTICE 'eliminata FK % su %.% (azione %)', v_con.conname, v_tbl, v_col, v_con.confdeltype;
+      END IF;
+    END LOOP;
+
+    IF NOT v_has_set_null THEN
+      EXECUTE format(
+        'ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.profiles(id) ON DELETE SET NULL',
+        v_tbl, v_tbl || '_' || v_col || '_fkey', v_col);
+      RAISE NOTICE 'creata FK %_%_fkey ON DELETE SET NULL', v_tbl, v_col;
+    END IF;
+  END LOOP;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.delete_my_account(p_anonymize boolean DEFAULT false)
 RETURNS void
@@ -76,6 +156,10 @@ BEGIN
 
   -- 1. Gruppo attuale
   IF v_group_id IS NOT NULL THEN
+    -- Serializza con uscite/ingressi concorrenti nello stesso gruppo
+    PERFORM 1 FROM public.family_groups WHERE id = v_group_id FOR UPDATE;
+
+    -- created_by NULL (gruppo tenuto senza membri) -> confronto NULL = false
     v_is_admin := v_is_admin OR EXISTS (
       SELECT 1 FROM public.family_groups fg
       WHERE fg.id = v_group_id AND fg.created_by = v_uid
@@ -94,22 +178,29 @@ BEGIN
     WHERE id = v_uid;
 
     IF v_others = 0 THEN
-      DELETE FROM public.family_groups WHERE id = v_group_id;
+      -- Il gruppo si elimina solo se non ha spese; altrimenti resta
+      -- (senza membri, created_by NULL dopo la cancellazione dell'utente).
+      PERFORM public._dispose_group_if_abandoned(v_group_id);
     END IF;
   END IF;
 
   -- 2. Gruppi creati dall'utente di cui non fa piu' parte (dati legacy)
+  -- Mai DELETE di un gruppo con spese: senza membri si usa l'helper, che
+  -- elimina solo i gruppi vuoti di spese.
   FOR v_legacy IN
     SELECT fg.id FROM public.family_groups fg WHERE fg.created_by = v_uid
+    FOR UPDATE
   LOOP
+    -- Nuovo owner: prima un membro gia' admin (per non creare due admin),
+    -- poi il piu' anziano.
     SELECT p.id INTO v_new_owner
     FROM public.profiles p
     WHERE p.group_id = v_legacy.id AND p.id <> v_uid
-    ORDER BY p.created_at NULLS LAST, p.id
+    ORDER BY COALESCE(p.is_group_admin, false) DESC, p.created_at NULLS LAST, p.id
     LIMIT 1;
 
     IF v_new_owner IS NULL THEN
-      DELETE FROM public.family_groups WHERE id = v_legacy.id;
+      PERFORM public._dispose_group_if_abandoned(v_legacy.id);
     ELSE
       UPDATE public.family_groups SET created_by = v_new_owner WHERE id = v_legacy.id;
       UPDATE public.profiles SET is_group_admin = true WHERE id = v_new_owner;
@@ -164,7 +255,29 @@ BEGIN
     END IF;
 
     IF v_owner IS NULL THEN
-      RAISE EXCEPTION 'group_data_owner_not_found';
+      -- Gruppo tenuto senza membri: le righe di gruppo restano e
+      -- created_by/changed_by diventano NULL alla DELETE dell'utente
+      -- (FK SET NULL del blocco DO). Rete di sicurezza: se il blocco DO non
+      -- e' stato applicato e una di queste colonne ha ancora un'azione
+      -- diversa da SET NULL, ci si ferma invece di perdere dati.
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+        WHERE c.contype = 'f'
+          AND array_length(c.conkey, 1) = 1
+          AND c.confdeltype <> 'n'
+          AND (
+            (c.conrelid = 'public.category_budgets'::regclass AND a.attname = 'created_by')
+            OR (to_regclass('public.group_budgets') IS NOT NULL
+                AND c.conrelid = 'public.group_budgets'::regclass AND a.attname = 'created_by')
+            OR (to_regclass('public.budget_percentage_history') IS NOT NULL
+                AND c.conrelid = 'public.budget_percentage_history'::regclass AND a.attname = 'changed_by')
+          )
+      ) THEN
+        RAISE EXCEPTION 'group_data_owner_not_found';
+      END IF;
+      CONTINUE;
     END IF;
 
     UPDATE public.category_budgets
@@ -244,3 +357,5 @@ $$;
 REVOKE ALL ON FUNCTION public.delete_my_account(boolean) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.delete_my_account(boolean) FROM anon;
 GRANT EXECUTE ON FUNCTION public.delete_my_account(boolean) TO authenticated;
+
+COMMIT;

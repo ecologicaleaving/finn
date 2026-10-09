@@ -40,7 +40,7 @@ class ExpenseModel extends ExpenseEntity {
     return ExpenseModel(
       id: json['id'] as String,
       groupId: json['group_id'] as String,
-      createdBy: json['created_by'] as String,
+      createdBy: json['created_by'] as String? ?? '',
       amount: (json['amount'] as num).toDouble(),
       date: DateTime.parse(json['date'] as String),
       categoryId: json['category_id'] as String?,

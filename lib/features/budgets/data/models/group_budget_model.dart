@@ -23,7 +23,7 @@ class GroupBudgetModel extends GroupBudgetEntity {
       amount: json['amount'] as int,
       month: json['month'] as int,
       year: json['year'] as int,
-      createdBy: json['created_by'] as String,
+      createdBy: json['created_by'] as String? ?? '',
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );

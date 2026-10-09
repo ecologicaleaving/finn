@@ -32,7 +32,7 @@ class CategoryBudgetModel extends CategoryBudgetEntity {
       amount: json['amount'] as int,
       month: json['month'] as int,
       year: json['year'] as int,
-      createdBy: json['created_by'] as String,
+      createdBy: json['created_by'] as String? ?? '',
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       isGroupBudget: json['is_group_budget'] as bool? ?? true,

@@ -197,8 +197,101 @@ void main() {
         for (final m in RegExp(r'CREATE TRIGGER (\w+)').allMatches(sql)) {
           expect(sql, contains('DROP TRIGGER IF EXISTS ${m.group(1)}'));
         }
-        expect(sql, isNot(contains('ALTER TABLE')));
       }
+      // Nessun ALTER TABLE nella migration di membership.
+      expect(membership, isNot(contains('ALTER TABLE')));
+      // In account_deletion ogni ALTER TABLE sta dentro il blocco DO idempotente.
+      final doStart = account.indexOf('DO \$\$');
+      final doEnd = account.indexOf('\$\$;', doStart + 5);
+      expect(doStart, isNot(-1));
+      expect(doEnd, isNot(-1));
+      final doBlock = account.substring(doStart, doEnd);
+      for (final m in RegExp('ALTER TABLE').allMatches(account)) {
+        expect(m.start > doStart && m.start < doEnd, isTrue,
+            reason: 'ALTER TABLE fuori dal blocco DO');
+      }
+      for (final token in [
+        'pg_constraint',
+        'confdeltype',
+        'DROP NOT NULL',
+        'ON DELETE SET NULL',
+        'family_groups',
+        'to_regclass',
+      ]) {
+        expect(doBlock, contains(token), reason: token);
+      }
+    });
+
+    test('regola di Davide: nessuna DELETE su expenses, mai spese in blocco', () {
+      for (final sql in [membership, account]) {
+        expect(sql, isNot(contains('DELETE FROM public.expenses')));
+        expect(sql, contains('RESTANO'));
+      }
+    });
+
+    test('remove_group_member non tocca le spese', () {
+      final body = _functionBody(membership, 'remove_group_member');
+      expect(body, isNot(contains('expenses')));
+      expect(body, isNot(contains('DELETE')));
+    });
+
+    test('delete_family_group e\' ammessa solo senza spese', () {
+      final body = _functionBody(membership, 'delete_family_group');
+      expect(body, contains("RAISE EXCEPTION 'group_has_expenses'"));
+      expect(body, contains('FROM public.expenses'));
+      expect(body.indexOf('group_has_expenses'),
+          lessThan(body.indexOf('DELETE FROM public.family_groups')));
+      expect(body, contains("RAISE EXCEPTION 'has_members'"));
+      expect(body, contains("RAISE EXCEPTION 'not_admin'"));
+    });
+
+    test('leave_group e delete_my_account non eliminano gruppi in modo diretto', () {
+      for (final entry in {
+        'leave_group': membership,
+        'delete_my_account': account,
+      }.entries) {
+        final body = _functionBody(entry.value, entry.key);
+        expect(body, isNot(contains('DELETE FROM public.family_groups')),
+            reason: entry.key);
+        expect(body, contains('_dispose_group_if_abandoned'), reason: entry.key);
+      }
+    });
+
+    test('helper _dispose_group_if_abandoned: controlla le spese prima di eliminare', () {
+      final body = _functionBody(membership, '_dispose_group_if_abandoned');
+      expect(body, contains('FOR UPDATE'));
+      expect(body, contains('FROM public.expenses'));
+      expect(body.indexOf('FROM public.expenses'),
+          lessThan(body.indexOf('DELETE FROM public.family_groups')));
+      expect(membership,
+          contains('REVOKE ALL ON FUNCTION public._dispose_group_if_abandoned(uuid) FROM authenticated'));
+      expect(membership,
+          isNot(contains('GRANT EXECUTE ON FUNCTION public._dispose_group_if_abandoned')));
+    });
+
+    test('la policy DELETE diretta su family_groups e\' eliminata', () {
+      expect(
+          membership,
+          contains(
+              'DROP POLICY IF EXISTS "Admins can delete their group" ON public.family_groups'));
+      expect(membership,
+          isNot(contains('CREATE POLICY "Admins can delete their group"')));
+    });
+
+    test('i gruppi abbandonati non si possono raggiungere con un invito', () {
+      for (final name in ['join_group_with_code', 'validate_invite_code']) {
+        final body = _functionBody(membership, name);
+        expect(body, contains('NOT EXISTS (SELECT 1 FROM public.profiles'),
+            reason: name);
+      }
+    });
+
+    test('delete_my_account: group_data_owner_not_found solo come rete di sicurezza', () {
+      final body = _functionBody(account, 'delete_my_account');
+      final idx = body.indexOf("RAISE EXCEPTION 'group_data_owner_not_found'");
+      expect(idx, isNot(-1));
+      final before = body.substring(0, idx);
+      expect(before.lastIndexOf('confdeltype'), isNot(-1));
     });
   });
 }

@@ -27,6 +27,25 @@ void main() {
       }
     });
 
+    test('group_has_expenses maps to the exact Italian message', () {
+      final e = mapGroupRpcError(_pg('group_has_expenses'));
+      expect(e, isA<GroupException>());
+      expect(e.code, 'group_has_expenses');
+      expect(e.message,
+          'Il gruppo contiene ancora delle spese: eliminale prima una per una');
+    });
+
+    test('group_has_expenses is recognised with a prefix', () {
+      final e = mapGroupRpcError(_pg('ERROR: group_has_expenses'));
+      expect(e.code, 'group_has_expenses');
+    });
+
+    test('admin_has_members does not suggest deleting the group', () {
+      final e = mapGroupRpcError(_pg('admin_has_members'));
+      expect(e.message, isNot(contains('elimina il gruppo')));
+      expect(e.message, contains('restano nel gruppo'));
+    });
+
     test('member_not_found is an error, not a success', () {
       final e = mapGroupRpcError(_pg('member_not_found'));
       expect(e, isA<GroupException>());

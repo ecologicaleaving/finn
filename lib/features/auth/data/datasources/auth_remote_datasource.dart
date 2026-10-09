@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
+import '../../../groups/data/datasources/group_rpc_result.dart';
 import '../models/user_model.dart';
 
 /// Remote data source for authentication operations using Supabase Auth.
@@ -291,8 +292,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   /// Map the error codes raised by delete_my_account to Italian messages.
   String _mapDeleteAccountError(String message) {
     if (message.contains('admin_has_members')) {
-      return 'Sei amministratore di un gruppo con altri membri: rimuovi i membri '
-          'o elimina il gruppo prima di eliminare l\'account';
+      return groupRpcErrorMessages['admin_has_members']!;
     }
     if (message.contains('not_authenticated')) {
       return 'Sessione scaduta: effettua di nuovo l\'accesso';

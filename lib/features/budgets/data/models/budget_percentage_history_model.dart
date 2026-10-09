@@ -34,7 +34,7 @@ class BudgetPercentageHistoryModel extends BudgetPercentageHistoryEntity {
       groupBudgetAmount: json['group_budget_amount'] as int,
       calculatedAmount: json['calculated_amount'] as int,
       changedAt: DateTime.parse(json['changed_at'] as String),
-      changedBy: json['changed_by'] as String,
+      changedBy: json['changed_by'] as String? ?? '',
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }

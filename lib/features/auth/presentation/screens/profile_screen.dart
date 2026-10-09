@@ -120,7 +120,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Dati delle spese'),
         content: const Text(
-          'Le tue spese verranno conservate per il gruppo.\n\n'
+          'Le tue spese verranno conservate per il gruppo, anche se sei '
+          'l\'ultimo membro.\n\n'
           'Vuoi mantenere il tuo nome visibile sulle spese passate '
           'o renderle anonime?',
         ),

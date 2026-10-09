@@ -30,9 +30,12 @@ const Map<String, String> groupRpcErrorMessages = {
   'cannot_remove_admin': 'Non puoi rimuovere l\'amministratore del gruppo',
   'group_not_deleted': 'Il gruppo non è stato eliminato',
   'invalid_group_name': 'Il nome del gruppo deve avere tra 2 e 30 caratteri',
+  'group_has_expenses':
+      'Il gruppo contiene ancora delle spese: eliminale prima una per una',
   'admin_has_members':
-      'Sei amministratore di un gruppo con altri membri: rimuovi i membri o '
-          'elimina il gruppo prima di eliminare l\'account',
+      'Sei amministratore di un gruppo con altri membri: rimuovi prima gli '
+          'altri membri (le loro spese restano nel gruppo), poi potrai '
+          'eliminare l\'account',
   'account_not_deleted': 'L\'account non è stato eliminato',
   'membership_change_not_allowed': 'Operazione non consentita',
 };

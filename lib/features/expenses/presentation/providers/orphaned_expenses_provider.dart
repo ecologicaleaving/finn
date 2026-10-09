@@ -107,7 +107,7 @@ class OrphanedExpensesNotifier extends StateNotifier<OrphanedExpensesState> {
     return ExpenseEntity(
       id: json['id'] as String,
       groupId: json['group_id'] as String,
-      createdBy: json['created_by'] as String,
+      createdBy: json['created_by'] as String? ?? '',
       amount: (json['amount'] as num).toDouble() / 100, // Convert from cents
       date: DateTime.parse(json['date'] as String),
       categoryId: json['category_id'] as String? ?? '', // Orphaned will be NULL
