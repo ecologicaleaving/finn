@@ -20,6 +20,12 @@
 -- ---------------------------------------------------------------------------
 -- get_category_expense_count(TEXT)
 -- ---------------------------------------------------------------------------
+-- In produzione esiste la versione (uuid) della 019: CREATE OR REPLACE con un tipo
+-- diverso non la sostituirebbe ma creerebbe un secondo overload ambiguo, che
+-- continuerebbe a contare sulla colonna legacy. Si rimuove solo quell'overload
+-- (nessun dato toccato; nessuna dipendenza oltre a PostgREST).
+DROP FUNCTION IF EXISTS public.get_category_expense_count(UUID);
+
 CREATE OR REPLACE FUNCTION public.get_category_expense_count(
   p_category_id TEXT
 )
