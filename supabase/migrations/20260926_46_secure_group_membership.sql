@@ -597,7 +597,7 @@ GRANT EXECUTE ON FUNCTION public.delete_family_group() TO authenticated;
 -- group". Si eliminano TUTTE le policy DELETE, qualunque sia il nome, cosi un
 -- membro non puo cancellare il gruppo (e le spese in CASCADE) con una DELETE
 -- diretta via REST. delete_family_group() e SECURITY DEFINER e non ne ha bisogno.
-DO $
+DO $$
 DECLARE
   pol record;
 BEGIN
@@ -610,6 +610,6 @@ BEGIN
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.family_groups', pol.policyname);
   END LOOP;
-END $;
+END $$;
 
 COMMIT;
