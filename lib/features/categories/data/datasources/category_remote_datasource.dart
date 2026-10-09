@@ -335,6 +335,9 @@ class CategoryRemoteDataSourceImpl implements CategoryRemoteDataSource {
           .from('recurring_expenses')
           .select('id')
           .eq('category_id', categoryId)
+          // Template eliminati (soft delete, #69) non devono bloccare
+          // l'eliminazione della categoria.
+          .isFilter('deleted_at', null)
           .count(CountOption.exact);
 
       return response.count;
