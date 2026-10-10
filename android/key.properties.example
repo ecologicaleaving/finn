@@ -1,0 +1,7 @@
+# Copia questo file in android/key.properties (ignorato da git) e compila i valori veri.
+# Con PKCS12 keyPassword e' uguale a storePassword. In alternativa si usano le variabili
+# d'ambiente ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+storeFile=C:/percorso/fuori/dal/repo/finn-release.p12
+storePassword=CAMBIAMI
+keyAlias=finn
+keyPassword=CAMBIAMI
