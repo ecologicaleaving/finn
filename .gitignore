@@ -80,6 +80,10 @@ coverage/
 # Secrets
 *.jks
 *.keystore
+key.properties
+**/key.properties
+*.p12
+*.pfx
 google-services.json
 GoogleService-Info.plist
 run_with_supabase.ps1

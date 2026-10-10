@@ -64,6 +64,15 @@ This skill provides step-by-step guidance for:
 - Hotfix workflow
 - Troubleshooting
 
+## Firma release Android
+
+La release di produzione (`--flavor production`) si firma con la chiave dedicata e MAI con quella di debug: senza firma configurata la build fallisce. Il flavor dev ripiega sulla chiave di debug.
+
+- Locale: `android/key.properties` (vedi `android/key.properties.example`) oppure variabili `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+- CI (push su master): secret `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Opzionale: repo variable `ANDROID_CERT_SHA256`.
+- Base64 su una riga (PowerShell): `[Convert]::ToBase64String([IO.File]::ReadAllBytes('...\finn-release.p12'))`. Mai `certutil -encode` (aggiunge intestazioni).
+- Se si perde il keystore l'app non si aggiorna piu: tenere un backup in un secondo posto sicuro.
+
 ## Important Rules
 
 ⚠️ **ALWAYS use `--flavor dev` for development**

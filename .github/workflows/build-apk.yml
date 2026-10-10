@@ -11,6 +11,9 @@ name: Build & Deploy APK
 #   TELEGRAM_CHAT_ID    — chat ID Telegram
 #   SUPABASE_URL        — URL progetto Supabase (per .env)
 #   SUPABASE_ANON_KEY   — anon key Supabase (per .env)
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#                       — firma release, solo per push su master/main (produzione)
 #
 # Flusso:
 #   - push master  → build --release --flavor production → APK + GitHub Release
@@ -94,11 +97,33 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Decode release keystore
+        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo '::error::Secret ANDROID_KEYSTORE_BASE64 non configurato: la release di produzione non puo essere firmata (issue #78)'
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/finn-release.p12"
+          [ -s "$RUNNER_TEMP/finn-release.p12" ] || { echo '::error::keystore decodificato vuoto'; exit 1; }
+
       - name: Build APK (production release)
         if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
         run: flutter build apk --release --flavor production --target-platform android-arm64
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/finn-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Remove release keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/finn-release.p12"
 
       - name: Build APK (debug)
         if: steps.info.outputs.is_prod != 'true' || github.event_name != 'push'
@@ -121,6 +146,30 @@ jobs:
           fi
           cp "$APK_PATH" "$APK_NAME"
           echo "name=$APK_NAME" >> $GITHUB_OUTPUT
+
+      - name: Verify release signature
+        if: steps.info.outputs.is_prod == 'true' && github.event_name == 'push'
+        env:
+          EXPECTED_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          CERTS=$("$APKSIGNER" verify --print-certs "${{ steps.apk.outputs.name }}") || {
+            echo '::error::apksigner verify fallita'; exit 1; }
+          if echo "$CERTS" | grep -q 'CN=Android Debug'; then
+            echo '::error::APK firmato con la chiave di debug: release rifiutata (issue #78)'
+            exit 1
+          fi
+          DIGEST=$(echo "$CERTS" | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print tolower($NF)}')
+          echo "Certificato release SHA-256: $DIGEST"
+          echo "Certificato release SHA-256: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${EXPECTED_SHA256:-}" ]; then
+            EXP=$(echo "$EXPECTED_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')
+            if [ "$DIGEST" != "$EXP" ]; then
+              echo '::error::Impronta del certificato diversa da ANDROID_CERT_SHA256'
+              exit 1
+            fi
+          fi
 
       - name: Deploy APK to app-hub
         run: |
