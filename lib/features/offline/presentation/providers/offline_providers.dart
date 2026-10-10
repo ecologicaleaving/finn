@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' as legacy;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/database/daos/recurring_expenses_dao.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../expenses/data/datasources/recurring_expense_remote_datasource.dart';
+import '../../../expenses/data/services/recurring_template_sync_service.dart';
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
 import '../../data/local/offline_database.dart';
@@ -111,8 +115,14 @@ Future<DateTime?> lastSyncTime(LastSyncTimeRef ref) async {
 }
 
 /// Provider to trigger manual sync
+///
+/// Kept alive by a listener in the app root, so the connectivity listener
+/// below runs for the whole app lifetime and offline expenses are uploaded
+/// as soon as the connection is back (and at startup).
 @riverpod
 class SyncTrigger extends _$SyncTrigger {
+  bool _running = false;
+
   @override
   FutureOr<void> build() async {
     // Auto-sync when connectivity changes to online
@@ -128,25 +138,66 @@ class SyncTrigger extends _$SyncTrigger {
         });
       },
     );
+
+    // Sync after login too: at startup the connection may come up before
+    // the session is restored, when there is no user to sync for yet.
+    ref.listen(
+      // Id solo quando autenticato: logout -> login dello stesso utente
+      // produce null -> id e rilancia la sync della coda pending (issue #64).
+      authProvider.select(authenticatedUserId),
+      (previous, next) {
+        if (next != null &&
+            next != previous &&
+            ref.read(connectivityServiceProvider).value ==
+                NetworkStatus.online) {
+          sync();
+        }
+      },
+    );
   }
 
   /// Manually trigger sync
   Future<void> sync() async {
+    // The processor provider is auto-disposed, so its own "already syncing"
+    // guard does not survive between calls: guard here instead to avoid
+    // uploading the same queue twice in parallel.
+    if (_running) return;
+    _running = true;
     state = const AsyncLoading();
 
     try {
+      // Recurring templates first (issue #69). An error here never touches
+      // the sync of the expenses below.
+      try {
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          final db = ref.read(offlineDatabaseProvider);
+          final templateSync = RecurringTemplateSyncService(
+            dao: RecurringExpensesDao(db),
+            remote: RecurringTemplateSyncRemoteImpl(
+              supabaseClient: Supabase.instance.client,
+            ),
+          );
+          await templateSync.sync(userId);
+        }
+      } catch (e) {
+        print('Recurring template sync failed: $e');
+      }
+
       final processor = ref.read(syncQueueProcessorProvider);
       final result = await processor.processQueue();
 
       // Refresh pending count
       ref.invalidate(pendingSyncCountProvider);
 
-      state = AsyncData(null);
+      state = const AsyncData(null);
 
       // Log result
       print('Sync completed: $result');
     } catch (e, stack) {
       state = AsyncError(e, stack);
+    } finally {
+      _running = false;
     }
   }
 }

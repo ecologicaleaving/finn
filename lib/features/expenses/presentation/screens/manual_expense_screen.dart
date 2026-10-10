@@ -16,15 +16,14 @@ import '../../../budgets/presentation/providers/budget_repository_provider.dart'
 import '../../../categories/presentation/providers/category_provider.dart';
 import '../../../categories/presentation/providers/category_repository_provider.dart';
 import '../../../categories/presentation/widgets/budget_prompt_dialog.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
-import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
-import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../payment_methods/presentation/providers/payment_method_provider.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../providers/expense_provider.dart';
 import '../providers/recurring_expense_provider.dart';
 import '../widgets/category_selector.dart';
+import 'expense_edit_changes.dart';
 import '../widgets/expense_type_toggle.dart';
 import '../widgets/member_selector.dart';
 import '../widgets/payment_method_selector.dart';
@@ -61,6 +60,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
 
   // T013: Member selection for admin creating expenses on behalf of members
   String? _selectedMemberIdForExpense; // null = current user, non-null = admin creating for member
+  String? _initialSelectedMemberId; // Edit mode: selector value loaded from paidBy
 
   // T016: Edit mode tracking
   bool _isEditMode = false;
@@ -148,6 +148,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
   /// T016: Load expense data for editing
   Future<void> _loadExpenseForEditing(String expenseId) async {
     final repository = ref.read(expenseRepositoryProvider);
+    final currentUserId = ref.read(currentUserIdProvider);
     final result = await repository.getExpense(expenseId: expenseId);
 
     result.fold(
@@ -178,7 +179,11 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
             _notesController.text = expense.notes ?? '';
             _isGroupExpense = expense.isGroupExpense;
             _selectedReimbursementStatus = expense.reimbursementStatus;
-            _selectedMemberIdForExpense = expense.createdBy; // Show who the expense is for
+            // Issue #48: show who PAID the expense (not who created it).
+            // null = "Me stesso", same convention as create mode.
+            _selectedMemberIdForExpense =
+                ExpenseEditChanges.initialSelectedMemberId(expense, currentUserId);
+            _initialSelectedMemberId = _selectedMemberIdForExpense;
           });
         }
       },
@@ -200,6 +205,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
         _selectedCategoryId != _initialCategoryId ||
         _selectedPaymentMethodId != _initialPaymentMethodId ||
         _isGroupExpense != _initialIsGroupExpense ||
+        (_isEditMode && _selectedMemberIdForExpense != _initialSelectedMemberId) ||
         _selectedReimbursementStatus != _initialReimbursementStatus || // T035
         _isRecurring != _initialIsRecurring || // T025
         _recurrenceFrequency != _initialRecurrenceFrequency || // T025
@@ -257,34 +263,47 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
     final listNotifier = ref.read(expenseListProvider.notifier);
     final currentUserId = ref.read(currentUserIdProvider);
 
+    final original = _originalExpense!;
+    final changes = ExpenseEditChanges.compute(
+      original: original,
+      currentUserId: currentUserId,
+      amount: amount,
+      date: _selectedDate,
+      categoryId: _selectedCategoryId,
+      paymentMethodId: _selectedPaymentMethodId,
+      notes: _notesController.text,
+      reimbursementStatus: _selectedReimbursementStatus,
+      isGroupExpense: _isGroupExpense,
+      selectedMemberId: _selectedMemberIdForExpense,
+    );
+
     final updatedExpense = await formNotifier.updateExpenseWithLock(
-      expenseId: _originalExpense!.id,
+      expenseId: original.id,
       originalUpdatedAt: _originalUpdatedAt!,
       lastModifiedBy: currentUserId,
-      amount: amount != _originalExpense!.amount ? amount : null,
-      date: _selectedDate != _originalExpense!.date ? _selectedDate : null,
-      categoryId: _selectedCategoryId != _originalExpense!.categoryId ? _selectedCategoryId : null,
-      paymentMethodId: _selectedPaymentMethodId != _originalExpense!.paymentMethodId ? _selectedPaymentMethodId : null,
-      notes: _notesController.text.trim() != (_originalExpense!.notes ?? '')
-          ? (_notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null)
-          : null,
-      reimbursementStatus: _selectedReimbursementStatus != _originalExpense!.reimbursementStatus
-          ? _selectedReimbursementStatus
-          : null,
+      amount: changes.amount,
+      date: changes.date,
+      categoryId: changes.categoryId,
+      paymentMethodId: changes.paymentMethodId,
+      notes: changes.notes,
+      reimbursementStatus: changes.reimbursementStatus,
+      isGroupExpense: changes.isGroupExpense,
+      paidBy: changes.paidBy,
     );
 
     if (updatedExpense != null && mounted) {
-      listNotifier.updateExpenseInList(updatedExpense);
+      // If the group/personal classification changed while a tab filter is
+      // active, the expense may no longer belong to the current list.
+      if (changes.isGroupExpense != null &&
+          ref.read(expenseListProvider).filterIsGroupExpense != null) {
+        listNotifier.refresh();
+      } else {
+        listNotifier.updateExpenseInList(updatedExpense);
+      }
+      ref.invalidate(expenseProvider(updatedExpense.id));
 
       // Refresh dashboard to reflect the updated expense
-      ref.read(dashboardProvider.notifier).refresh();
-
-      // Invalidate all dashboard providers to refresh totals
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      refreshPersonalDashboard(ref);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -353,14 +372,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       await _checkAndPromptForVirginCategory();
 
       // Refresh dashboard to reflect the new expense
-      await ref.read(dashboardProvider.notifier).refresh();
-
-      // Invalidate all dashboard providers to refresh totals
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      if (mounted) await refreshPersonalDashboard(ref);
 
       if (mounted) {
         if (expense.isPendingSync) {
@@ -430,12 +442,7 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
       await _checkAndPromptForVirginCategory();
 
       // Refresh dashboard
-      ref.read(dashboardProvider.notifier).refresh();
-      ref.invalidate(personalExpensesByCategoryProvider);
-      ref.invalidate(expensesByPeriodProvider);
-      ref.invalidate(recentPersonalExpensesProvider);
-      ref.invalidate(groupMembersExpensesProvider);
-      ref.invalidate(groupExpensesByCategoryProvider);
+      if (mounted) refreshPersonalDashboard(ref);
 
       // Show success message
       if (mounted) {
@@ -656,8 +663,14 @@ class _ManualExpenseScreenState extends ConsumerState<ManualExpenseScreen>
                       _isGroupExpense = value;
                     });
                   },
-                  // Disable toggle when admin creates for another member (must be group expense)
-                  enabled: !formState.isSubmitting && _selectedMemberIdForExpense == null,
+                  // Disable toggle when admin creates for another member (must be group expense).
+                  // In edit mode only the creator can change the classification
+                  // (RLS lets admins update only group expenses of others).
+                  enabled: !formState.isSubmitting &&
+                      _selectedMemberIdForExpense == null &&
+                      (!_isEditMode ||
+                          _originalExpense == null ||
+                          _originalExpense!.createdBy == ref.read(currentUserIdProvider)),
                 ),
                 const SizedBox(height: 8),
                 Text(

@@ -8,6 +8,7 @@ import '../../../../core/enums/reimbursement_status.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../offline/presentation/providers/offline_providers.dart';
 import '../../data/datasources/recurring_expense_local_datasource.dart';
+import '../../data/models/recurring_expense_entity.dart';
 import '../../data/repositories/recurring_expense_repository_impl.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../../domain/entities/recurring_expense.dart';
@@ -37,6 +38,23 @@ final recurringExpenseRepositoryProvider =
     expenseRemoteDataSource: ref.watch(expenseRemoteDataSourceProvider),
     supabaseClient: Supabase.instance.client,
   );
+});
+
+/// Own, non-deleted recurring templates read straight from Drift (issue #69).
+///
+/// Independent from [recurringExpenseListProvider] (which only fills when the
+/// recurring screen is opened and applies the screen's filters): used for the
+/// budget reservation.
+final activeRecurringTemplatesProvider =
+    StreamProvider<List<RecurringExpense>>((ref) {
+  final userId = ref.watch(authProvider.select(authenticatedUserId));
+  if (userId == null) return Stream.value(const <RecurringExpense>[]);
+  final dao = ref.watch(recurringExpenseDaoProvider);
+  return dao.watchRecurringExpenses(userId).map(
+        (rows) => rows
+            .map<RecurringExpense>(RecurringExpenseEntity.fromDrift)
+            .toList(),
+      );
 });
 
 /// Recurring expense list state status
@@ -317,6 +335,7 @@ class RecurringExpenseFormNotifier
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
   }) async {
     state = state.copyWith(
         status: RecurringExpenseFormStatus.submitting, errorMessage: null);
@@ -334,6 +353,7 @@ class RecurringExpenseFormNotifier
       defaultReimbursementStatus: defaultReimbursementStatus,
       paymentMethodId: paymentMethodId,
       paymentMethodName: paymentMethodName,
+      anchorDate: anchorDate,
     );
 
     return result.fold(

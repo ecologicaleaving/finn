@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 
+import 'package:dartz/dartz.dart' show Either, Left;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../offline/presentation/providers/offline_providers.dart';
 import '../../../../shared/services/connectivity_service.dart';
@@ -14,6 +16,7 @@ import '../../data/datasources/expense_remote_datasource.dart';
 import '../../data/repositories/expense_repository_impl.dart';
 import '../../domain/entities/expense_entity.dart';
 import '../../domain/repositories/expense_repository.dart';
+import '../../domain/utils/expense_ordering.dart';
 import '../widgets/reimbursement_status_change_dialog.dart';
 
 /// Provider for expense remote data source
@@ -48,6 +51,10 @@ enum ExpenseListStatus {
   error,
 }
 
+/// Sentinel used by [ExpenseListState.copyWith] to distinguish "parameter not
+/// passed" from "explicitly set to null".
+const Object _unset = Object();
+
 /// Expense list state class
 class ExpenseListState {
   const ExpenseListState({
@@ -74,29 +81,46 @@ class ExpenseListState {
   final ReimbursementStatus? filterReimbursementStatus; // T044
   final bool? filterIsGroupExpense;
 
+  /// Returns a copy of this state.
+  ///
+  /// Filter parameters use a sentinel default so that passing an explicit
+  /// `null` clears the filter, while omitting the parameter keeps the
+  /// current value (issue #48).
   ExpenseListState copyWith({
     ExpenseListStatus? status,
     List<ExpenseEntity>? expenses,
     bool? hasMore,
     String? errorMessage,
-    String? filterCategoryId,
-    DateTime? filterStartDate,
-    DateTime? filterEndDate,
-    String? filterCreatedBy,
-    ReimbursementStatus? filterReimbursementStatus, // T044
-    bool? filterIsGroupExpense,
+    Object? filterCategoryId = _unset,
+    Object? filterStartDate = _unset,
+    Object? filterEndDate = _unset,
+    Object? filterCreatedBy = _unset,
+    Object? filterReimbursementStatus = _unset, // T044
+    Object? filterIsGroupExpense = _unset,
   }) {
     return ExpenseListState(
       status: status ?? this.status,
       expenses: expenses ?? this.expenses,
       hasMore: hasMore ?? this.hasMore,
       errorMessage: errorMessage,
-      filterCategoryId: filterCategoryId ?? this.filterCategoryId,
-      filterStartDate: filterStartDate ?? this.filterStartDate,
-      filterEndDate: filterEndDate ?? this.filterEndDate,
-      filterCreatedBy: filterCreatedBy ?? this.filterCreatedBy,
-      filterReimbursementStatus: filterReimbursementStatus ?? this.filterReimbursementStatus, // T044
-      filterIsGroupExpense: filterIsGroupExpense ?? this.filterIsGroupExpense,
+      filterCategoryId: identical(filterCategoryId, _unset)
+          ? this.filterCategoryId
+          : filterCategoryId as String?,
+      filterStartDate: identical(filterStartDate, _unset)
+          ? this.filterStartDate
+          : filterStartDate as DateTime?,
+      filterEndDate: identical(filterEndDate, _unset)
+          ? this.filterEndDate
+          : filterEndDate as DateTime?,
+      filterCreatedBy: identical(filterCreatedBy, _unset)
+          ? this.filterCreatedBy
+          : filterCreatedBy as String?,
+      filterReimbursementStatus: identical(filterReimbursementStatus, _unset)
+          ? this.filterReimbursementStatus
+          : filterReimbursementStatus as ReimbursementStatus?, // T044
+      filterIsGroupExpense: identical(filterIsGroupExpense, _unset)
+          ? this.filterIsGroupExpense
+          : filterIsGroupExpense as bool?,
     );
   }
 
@@ -136,7 +160,9 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
       reimbursementStatus: state.filterReimbursementStatus, // T045, T046
       isGroupExpense: state.filterIsGroupExpense,
       limit: _pageSize,
-      offset: refresh ? 0 : state.expenses.length,
+      // The offset counts only synced expenses: pending ones are not on the
+      // server and are returned once, with the first page.
+      offset: refresh ? 0 : state.expenses.where((e) => !e.isPendingSync).length,
     );
 
     result.fold(
@@ -147,10 +173,21 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
         );
       },
       (expenses) {
+        final List<ExpenseEntity> combined;
+        if (refresh) {
+          combined = [...expenses]..sort(compareExpensesNewestFirst);
+        } else {
+          // Merge by id (the new copy wins) and keep the global order.
+          final byId = <String, ExpenseEntity>{
+            for (final e in state.expenses) e.id: e,
+            for (final e in expenses) e.id: e,
+          };
+          combined = byId.values.toList()..sort(compareExpensesNewestFirst);
+        }
         state = state.copyWith(
           status: ExpenseListStatus.loaded,
-          expenses: refresh ? expenses : [...state.expenses, ...expenses],
-          hasMore: expenses.length >= _pageSize,
+          expenses: combined,
+          hasMore: expenses.where((e) => !e.isPendingSync).length >= _pageSize,
         );
       },
     );
@@ -244,53 +281,72 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
     }
   }
 
-  /// Update reimbursement status of an expense (T038, T039)
+  /// Change the reimbursement status of [expense] and persist it (issue #47).
   ///
-  /// Handles confirmation dialog for reversions from reimbursed state
-  /// Updates the expense locally and persists to repository
-  Future<void> updateReimbursementStatus({
-    required BuildContext context,
-    required String expenseId,
+  /// Works for any expense, even when it is not part of the loaded page of
+  /// the list (e.g. detail opened from dashboard or notifications).
+  /// Does not need a [BuildContext]: no dialogs or snackbars are shown here.
+  ///
+  /// On success the list entry (if present) is replaced with the entity
+  /// returned by the server.
+  Future<Either<Failure, ExpenseEntity>> changeReimbursementStatus({
+    required ExpenseEntity expense,
     required ReimbursementStatus newStatus,
   }) async {
-    final expense = getExpenseById(expenseId);
-    if (expense == null) return;
-
-    // Check if confirmation needed (T039)
-    if (expense.requiresConfirmation(newStatus)) {
-      final confirmed = await ReimbursementStatusChangeDialog.show(
-        context,
-        expenseName: expense.categoryName ?? 'Questa spesa',
-        currentStatus: expense.reimbursementStatus,
-        newStatus: newStatus,
-      );
-
-      if (confirmed != true) return; // User cancelled
-    }
-
-    // Validate transition
     if (!expense.canTransitionTo(newStatus)) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Transizione di stato non valida'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-      return;
+      return const Left(ValidationFailure('Transizione di stato non valida'));
     }
 
-    // Update expense using entity method
-    final updatedExpense = expense.updateReimbursementStatus(newStatus);
-
-    // Persist to repository
     final result = await _expenseRepository.updateExpense(
-      expenseId: expenseId,
+      expenseId: expense.id,
       reimbursementStatus: newStatus,
     );
 
     result.fold(
+      (_) {},
+      (updated) {
+        if (mounted) updateExpenseInList(updated);
+      },
+    );
+
+    return result;
+  }
+
+  /// Update reimbursement status of an expense (T038, T039)
+  ///
+  /// Handles confirmation dialog for reversions from reimbursed state and
+  /// shows feedback snackbars. [expense] can be passed when the caller
+  /// already has the entity (e.g. detail screen); otherwise it is looked up
+  /// in the loaded list.
+  ///
+  /// Returns true when the status was updated successfully.
+  Future<bool> updateReimbursementStatus({
+    required BuildContext context,
+    required String expenseId,
+    required ReimbursementStatus newStatus,
+    ExpenseEntity? expense,
+  }) async {
+    final target = expense ?? getExpenseById(expenseId);
+    if (target == null) return false;
+
+    // Check if confirmation needed (T039)
+    if (target.requiresConfirmation(newStatus)) {
+      final confirmed = await ReimbursementStatusChangeDialog.show(
+        context,
+        expenseName: target.categoryName ?? 'Questa spesa',
+        currentStatus: target.reimbursementStatus,
+        newStatus: newStatus,
+      );
+
+      if (confirmed != true) return false; // User cancelled
+    }
+
+    final result = await changeReimbursementStatus(
+      expense: target,
+      newStatus: newStatus,
+    );
+
+    return result.fold(
       (failure) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -300,11 +356,9 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
             ),
           );
         }
+        return false;
       },
       (_) {
-        // Update local state
-        updateExpenseInList(updatedExpense);
-
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -312,6 +366,7 @@ class ExpenseListNotifier extends StateNotifier<ExpenseListState> {
             ),
           );
         }
+        return true;
       },
     );
   }
@@ -503,6 +558,8 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     state = state.copyWith(status: ExpenseFormStatus.submitting, errorMessage: null);
 
@@ -517,6 +574,8 @@ class ExpenseFormNotifier extends StateNotifier<ExpenseFormState> {
       merchant: merchant,
       notes: notes,
       reimbursementStatus: reimbursementStatus,
+      isGroupExpense: isGroupExpense,
+      paidBy: paidBy,
     );
 
     return result.fold(
@@ -621,7 +680,9 @@ final expenseFormProvider =
 });
 
 /// Provider for a single expense
-final expenseProvider = FutureProvider.family<ExpenseEntity?, String>((ref, expenseId) async {
+// autoDispose: the detail screen must reload the expense every time it is
+// opened, otherwise edits (e.g. a description added later) never show up.
+final expenseProvider = FutureProvider.autoDispose.family<ExpenseEntity?, String>((ref, expenseId) async {
   final repository = ref.watch(expenseRepositoryProvider);
   final result = await repository.getExpense(expenseId: expenseId);
   return result.fold((_) => null, (expense) => expense);

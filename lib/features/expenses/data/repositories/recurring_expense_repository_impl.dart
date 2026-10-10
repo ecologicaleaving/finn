@@ -37,6 +37,12 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
     return userId;
   }
 
+  static bool _isSameDay(DateTime a, DateTime b) {
+    final la = a.toLocal();
+    final lb = b.toLocal();
+    return la.year == lb.year && la.month == lb.month && la.day == lb.day;
+  }
+
   String? get _currentGroupId {
     // TODO: Implement group ID retrieval from user profile
     // For now, return null
@@ -141,6 +147,7 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
   }) async {
     try {
       // Validate amount if provided
@@ -158,6 +165,43 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
         return Left(ValidationFailure('Notes too long (max 500 characters)'));
       }
 
+      // Load the current template to detect real schedule changes
+      final existing = await localDataSource.getRecurringExpense(id: id);
+
+      final DateTime? changedAnchor =
+          anchorDate != null && !_isSameDay(anchorDate, existing.anchorDate)
+              ? anchorDate
+              : null;
+      final RecurrenceFrequency? changedFrequency =
+          frequency != null && frequency != existing.frequency
+              ? frequency
+              : null;
+
+      // Recalculate nextDueDate ONLY when the schedule actually changed.
+      // Saving unchanged values must not touch nextDueDate or
+      // lastInstanceCreatedAt (otherwise the first due date is skipped).
+      DateTime? newNextDueDate;
+      if (changedAnchor != null || changedFrequency != null) {
+        final effectiveAnchor = changedAnchor ?? existing.anchorDate;
+        final effectiveFrequency = changedFrequency ?? existing.frequency;
+        final lastCreated = existing.lastInstanceCreatedAt;
+
+        if (lastCreated == null) {
+          // No instance generated yet: same semantics as creation,
+          // the first due date is the anchor itself.
+          newNextDueDate = effectiveAnchor;
+        } else {
+          final calculated = RecurrenceCalculator.calculateNextDueDate(
+            anchorDate: effectiveAnchor,
+            frequency: effectiveFrequency,
+            lastCreated: lastCreated,
+          );
+          newNextDueDate = effectiveAnchor.isAfter(lastCreated)
+              ? effectiveAnchor
+              : calculated;
+        }
+      }
+
       final entity = await localDataSource.updateRecurringExpense(
         id: id,
         amount: amount,
@@ -170,30 +214,21 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
         defaultReimbursementStatus: defaultReimbursementStatus,
         paymentMethodId: paymentMethodId,
         paymentMethodName: paymentMethodName,
+        anchorDate: changedAnchor,
+        nextDueDate: newNextDueDate,
       );
-
-      // Recalculate nextDueDate if frequency changed
-      if (frequency != null) {
-        final newNextDueDate = RecurrenceCalculator.calculateNextDueDate(
-          anchorDate: entity.anchorDate,
-          frequency: entity.frequency,
-          lastCreated: entity.lastInstanceCreatedAt,
-        );
-
-        if (newNextDueDate != null) {
-          await localDataSource.updateAfterInstanceCreation(
-            id: id,
-            lastInstanceCreatedAt: entity.lastInstanceCreatedAt ?? entity.createdAt,
-            nextDueDate: newNextDueDate,
-          );
-        }
-      }
 
       // T031: Queue sync operation
       final updatePayload = <String, dynamic>{};
       if (amount != null) updatePayload['amount'] = amount;
       if (categoryId != null) updatePayload['category_id'] = categoryId;
       if (frequency != null) updatePayload['frequency'] = frequency.name;
+      if (changedAnchor != null) {
+        updatePayload['anchor_date'] = changedAnchor.toIso8601String();
+      }
+      if (newNextDueDate != null) {
+        updatePayload['next_due_date'] = newNextDueDate.toIso8601String();
+      }
       if (merchant != null) updatePayload['merchant'] = merchant;
       if (notes != null) updatePayload['notes'] = notes;
       if (budgetReservationEnabled != null) {
@@ -306,33 +341,17 @@ class RecurringExpenseRepositoryImpl implements RecurringExpenseRepository {
     bool deleteInstances = false,
   }) async {
     try {
-      if (deleteInstances) {
-        // Get all instance IDs
-        final instanceIds = await localDataSource.getInstanceIdsForTemplate(
-          recurringExpenseId: id,
-        );
-
-        // Delete all expense instances
-        // TODO: Implement expense deletion through expense repository
-        // for (final expenseId in instanceIds) {
-        //   await expenseRepository.deleteExpense(expenseId: expenseId);
-        // }
-
-        // Delete instance mappings
-        await localDataSource.deleteInstanceMappingsForTemplate(
-          recurringExpenseId: id,
-        );
-      }
-
-      // Delete template (cascade deletes mappings automatically)
+      // Issue #69: deleting a template is a soft delete (tombstone). It never
+      // removes expenses or instance mappings, so [deleteInstances] is
+      // intentionally ignored: user data is never lost by this operation.
       await localDataSource.deleteRecurringExpense(id: id);
 
-      // T031: Queue sync operation
+      // Pending-change marker: the template sync pushes the tombstone.
       await localDataSource.addToSyncQueue(
         userId: _currentUserId,
-        operation: 'delete',
+        operation: 'update',
         entityId: id,
-        payload: {'id': id},
+        payload: {'id': id, 'deleted': true},
       );
 
       return const Right(unit);

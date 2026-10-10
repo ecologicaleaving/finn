@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
@@ -22,6 +26,7 @@ class SyncQueueProcessor {
   // Retry delays in seconds (30s, 2min, 5min)
   static const List<int> _retryDelays = [30, 120, 300];
   static const int _batchSize = 10;
+  static const int _maxItemsPerRun = 500;
 
   bool _isSyncing = false;
 
@@ -58,28 +63,27 @@ class SyncQueueProcessor {
     var totalFailed = 0;
     var totalConflicts = 0;
 
-    // Keep processing batches until queue is empty
-    while (true) {
-      // Get next batch of pending items
-      final pendingItems = await _localDataSource.getPendingSyncItems(
-        _userId,
-        limit: _batchSize,
+    // Load the whole pending queue and keep only the items whose backoff has
+    // expired. Fetching a single page and stopping when it had no ready items
+    // meant a few items waiting for a retry could block every newer expense.
+    final pendingItems = await _localDataSource.getPendingSyncItems(
+      _userId,
+      limit: _maxItemsPerRun,
+    );
+    final readyItems = pendingItems
+        .where((item) => SyncQueueItemModel(item).isReadyToRetry())
+        .toList();
+
+    for (var start = 0; start < readyItems.length; start += _batchSize) {
+      final batch = readyItems.sublist(
+        start,
+        min(start + _batchSize, readyItems.length),
       );
 
-      if (pendingItems.isEmpty) break;
-
-      // Filter items ready to retry (check exponential backoff)
-      final readyItems = pendingItems.where((item) {
-        final model = SyncQueueItemModel(item);
-        return model.isReadyToRetry();
-      }).toList();
-
-      if (readyItems.isEmpty) break;
-
       // Group by operation type
-      final creates = readyItems.where((i) => i.operation == 'create').toList();
-      final updates = readyItems.where((i) => i.operation == 'update').toList();
-      final deletes = readyItems.where((i) => i.operation == 'delete').toList();
+      final creates = batch.where((i) => i.operation == 'create').toList();
+      final updates = batch.where((i) => i.operation == 'update').toList();
+      final deletes = batch.where((i) => i.operation == 'delete').toList();
 
       // Process each operation type
       final batchResults = <String, SyncItemResult>{};
@@ -97,17 +101,18 @@ class SyncQueueProcessor {
       }
 
       // Update queue items based on results
-      await _updateQueueItems(readyItems, batchResults);
+      await _updateQueueItems(batch, batchResults);
 
       // Update statistics
       totalProcessed += batchResults.length;
       totalSuccessful += batchResults.values.where((r) => r.success).length;
       totalFailed += batchResults.values.where((r) => !r.success && !r.isConflict).length;
       totalConflicts += batchResults.values.where((r) => r.isConflict).length;
-
-      // If batch was not full, we're done
-      if (readyItems.length < _batchSize) break;
     }
+
+    // Receipts saved offline are uploaded after the expense exists on the
+    // server. Never affects the queue outcome.
+    await _uploadPendingReceipts();
 
     return SyncQueueResult(
       processed: totalProcessed,
@@ -115,6 +120,60 @@ class SyncQueueProcessor {
       failed: totalFailed,
       conflicts: totalConflicts,
     );
+  }
+
+  Future<void> _uploadPendingReceipts() async {
+    try {
+      final rows = await _localDataSource.getExpensesWithPendingReceipt(_userId);
+      for (final row in rows) {
+        final localPath = row.localReceiptPath;
+        if (localPath == null) continue;
+        try {
+          final storagePath = await _batchSyncService.uploadPendingReceipt(
+            expenseId: row.id,
+            localPath: localPath,
+          );
+          await _localDataSource.clearLocalReceiptPath(row.id);
+          await _deleteFileQuietly(localPath);
+          await _updateCachedReceipt(row.id, storagePath);
+        } on ReceiptFileMissing catch (e) {
+          debugPrint('Receipt file missing, giving up: $e');
+          await _localDataSource.clearLocalReceiptPath(row.id);
+        } on ReceiptUploadPermanentError catch (e) {
+          debugPrint('Receipt rejected by server, giving up: $e');
+          await _localDataSource.clearLocalReceiptPath(row.id);
+          await _deleteFileQuietly(localPath);
+        } catch (e) {
+          // Transient: keep path and file, retried on the next sync.
+          debugPrint('Receipt upload for ${row.id} failed, will retry: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Receipt upload pass failed: $e');
+    }
+  }
+
+  Future<void> _updateCachedReceipt(String expenseId, String storagePath) async {
+    final cache = _localCacheDataSource;
+    if (cache == null) return;
+    try {
+      final cached = await cache.getCachedExpenses(_userId);
+      for (final e in cached) {
+        if (e.id == expenseId) {
+          await cache.upsertExpense(_userId, e.copyWith(receiptUrl: storagePath));
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint('Receipt cache update failed for $expenseId: $e');
+    }
+  }
+
+  Future<void> _deleteFileQuietly(String path) async {
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   Future<void> _updateQueueItems(

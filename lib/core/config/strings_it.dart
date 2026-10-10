@@ -80,9 +80,9 @@ class StringsIt {
   static const inviteCodeInvalid = 'Codice non valido';
   static const inviteCodeExpired = 'Codice scaduto';
   static const leaveGroupConfirm =
-      'Sei sicuro di voler abbandonare questo gruppo?';
+      'Sei sicuro di voler abbandonare questo gruppo? Le spese che hai inserito restano nel gruppo e non vengono cancellate.';
   static const deleteGroupConfirm =
-      'Sei sicuro di voler eliminare questo gruppo? Questa azione non può essere annullata.';
+      'Il gruppo si può eliminare solo se non contiene spese: se ce ne sono ancora, eliminale prima una per una. Questa azione non può essere annullata.';
   static const admin = 'Admin';
   static const member = 'Membro';
   static const removeMember = 'Rimuovi membro';

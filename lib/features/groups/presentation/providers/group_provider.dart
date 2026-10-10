@@ -322,8 +322,9 @@ class GroupNotifier extends StateNotifier<GroupState> {
 
 /// Provider for group state
 final groupProvider = StateNotifierProvider<GroupNotifier, GroupState>((ref) {
-  // Watch auth state to reload group when user changes
-  ref.watch(authProvider);
+  // Si ricrea solo quando cambia l'utente (id), non a ogni emissione di auth
+  // (cambio nome, loading): issue #64 AC3/AC4.
+  ref.watch(currentUserProvider.select((u) => u?.id));
   return GroupNotifier(ref.watch(groupRepositoryProvider));
 });
 

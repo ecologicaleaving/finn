@@ -1,7 +1,7 @@
 name: family_expense_tracker
 description: Family expense tracking app with AI-powered receipt scanning.
 publish_to: 'none'
-version: 1.5.0+8
+version: 1.6.0+9
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -46,13 +46,15 @@ dependencies:
   # Utils
   equatable: ^2.0.5
   dartz: ^0.10.1
+  rxdart: ^0.28.0
   uuid: ^4.0.0
   json_annotation: ^4.8.1
   flutter_dotenv: ^5.1.0
   connectivity_plus: ^6.1.0
-  workmanager: ^0.9.0
+  workmanager: 0.9.0+3 # exact: see dependency_overrides below
   path_provider: ^2.1.0
   path: ^1.9.0
+  pdfx: ^2.9.2
 
   # Timezone Support
   flutter_timezone: ^5.0.1
@@ -68,6 +70,16 @@ dependencies:
   # Widget support
   home_widget: ^0.6.0
   app_links: ^6.4.1
+
+# Issue #69: workmanager is now actually compiled into the app. Without a
+# lock file CI resolved workmanager_apple 0.9.4 against
+# workmanager_platform_interface 0.9.4, which are mutually incompatible and
+# break the build. Keep the federated packages on the set that goes with
+# workmanager 0.9.0+3.
+dependency_overrides:
+  workmanager_android: 0.9.0+2
+  workmanager_apple: 0.9.1+2
+  workmanager_platform_interface: 0.9.1+1
 
 dev_dependencies:
   flutter_test:

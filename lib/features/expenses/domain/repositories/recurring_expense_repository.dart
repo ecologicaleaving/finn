@@ -37,7 +37,9 @@ abstract class RecurringExpenseRepository {
 
   /// Update an existing recurring expense template.
   ///
-  /// Only updates provided fields. Recalculates nextDueDate if frequency changed.
+  /// Only updates provided fields. Recalculates nextDueDate only when the
+  /// anchor date (calendar day) or the frequency actually changes; saving
+  /// unchanged values never alters nextDueDate or lastInstanceCreatedAt.
   ///
   /// Note: Updating a template does NOT affect already-generated instances.
   ///
@@ -57,6 +59,7 @@ abstract class RecurringExpenseRepository {
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
   });
 
   /// Pause a recurring expense template (stops generating instances).

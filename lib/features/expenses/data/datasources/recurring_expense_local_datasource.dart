@@ -34,6 +34,9 @@ abstract class RecurringExpenseLocalDataSource {
   });
 
   /// Update a recurring expense template
+  ///
+  /// [anchorDate] and [nextDueDate] are written only when non-null.
+  /// `lastInstanceCreatedAt` is never modified by this method.
   Future<RecurringExpenseEntity> updateRecurringExpense({
     required String id,
     double? amount,
@@ -46,6 +49,8 @@ abstract class RecurringExpenseLocalDataSource {
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
+    DateTime? nextDueDate,
   });
 
   /// Pause a recurring expense
@@ -57,7 +62,7 @@ abstract class RecurringExpenseLocalDataSource {
     required DateTime nextDueDate,
   });
 
-  /// Delete a recurring expense template
+  /// Delete a recurring expense template (soft delete: sets a tombstone)
   Future<void> deleteRecurringExpense({required String id});
 
   /// Get all recurring expenses for a user
@@ -200,6 +205,8 @@ class RecurringExpenseLocalDataSourceImpl
     ReimbursementStatus? defaultReimbursementStatus,
     String? paymentMethodId,
     String? paymentMethodName,
+    DateTime? anchorDate,
+    DateTime? nextDueDate,
   }) async {
     try {
       final companion = RecurringExpensesCompanion(
@@ -222,6 +229,10 @@ class RecurringExpenseLocalDataSourceImpl
         paymentMethodName: paymentMethodName != null
             ? Value(paymentMethodName)
             : const Value.absent(),
+        anchorDate:
+            anchorDate != null ? Value(anchorDate) : const Value.absent(),
+        nextDueDate:
+            nextDueDate != null ? Value(nextDueDate) : const Value.absent(),
         updatedAt: Value(DateTime.now()),
       );
 
@@ -318,8 +329,10 @@ class RecurringExpenseLocalDataSourceImpl
   @override
   Future<void> deleteRecurringExpense({required String id}) async {
     try {
-      final deleted = await dao.deleteRecurringExpense(id);
-      if (deleted == 0) {
+      // Soft delete (issue #69): the row stays as a tombstone so the deletion
+      // can reach the server. Expenses and instance mappings are untouched.
+      final deleted = await dao.softDeleteRecurringExpense(id, DateTime.now());
+      if (!deleted) {
         throw const CacheException(
           'Recurring expense not found',
           'not_found',

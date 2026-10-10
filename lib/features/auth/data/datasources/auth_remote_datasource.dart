@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
+import '../../../groups/data/datasources/group_rpc_result.dart';
 import '../models/user_model.dart';
 
 /// Remote data source for authentication operations using Supabase Auth.
@@ -258,25 +259,48 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
       }
 
-      // If anonymizing, update expenses with "Utente eliminato"
-      if (anonymizeExpenses) {
-        await supabaseClient
-            .from('expenses')
-            .update({'created_by_name': 'Utente eliminato'})
-            .eq('created_by', user.id);
+      // Server-side (SECURITY DEFINER): checks group/admin constraints,
+      // anonymizes expenses if requested, clears the non-cascading FKs and
+      // deletes the auth.users row (which cascades to the profile).
+      await supabaseClient.rpc(
+        'delete_my_account',
+        params: {'p_anonymize': anonymizeExpenses},
+      );
+
+      // Only after a successful deletion: clear the local cache and sign out.
+      try {
+        final box = Hive.box<String>('expense_cache');
+        await box.delete(_cachedProfileKey);
+      } catch (_) {
+        // Ignore cache errors
       }
 
-      // Delete profile (will cascade or be handled by RLS)
-      await supabaseClient.from('profiles').delete().eq('id', user.id);
-
-      // Sign out
-      await supabaseClient.auth.signOut();
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (_) {
+        // The account is already deleted: a failing sign out (the session
+        // refers to a user that no longer exists) is not an error.
+      }
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw ServerException(_mapDeleteAccountError(e.message), e.code);
     } catch (e) {
       if (e is AppAuthException) rethrow;
       throw ServerException(e.toString());
     }
+  }
+
+  /// Map the error codes raised by delete_my_account to Italian messages.
+  String _mapDeleteAccountError(String message) {
+    if (message.contains('admin_has_members')) {
+      return groupRpcErrorMessages['admin_has_members']!;
+    }
+    if (message.contains('not_authenticated')) {
+      return 'Sessione scaduta: effettua di nuovo l\'accesso';
+    }
+    if (message.contains('account_not_deleted')) {
+      return 'L\'account non è stato eliminato';
+    }
+    return 'Errore nell\'eliminazione dell\'account';
   }
 
   @override

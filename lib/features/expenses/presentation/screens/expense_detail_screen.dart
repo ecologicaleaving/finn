@@ -4,19 +4,22 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/utils/date_formatter.dart';
+import '../../../../core/utils/receipt_file_type.dart';
+import '../../../../shared/widgets/receipt_pdf_viewer.dart';
 import '../../../../shared/widgets/error_display.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../shared/widgets/receipt_image_viewer.dart';
 import '../../../../shared/widgets/reimbursement_status_badge.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../dashboard/presentation/providers/dashboard_provider.dart';
-import '../../../dashboard/presentation/widgets/expenses_chart_widget.dart';
-import '../../../dashboard/presentation/widgets/personal_dashboard_view.dart';
+import '../../../dashboard/presentation/providers/dashboard_refresh.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../domain/entities/expense_entity.dart';
 import '../providers/expense_provider.dart';
 import '../providers/receipt_image_provider.dart';
+import '../providers/reimbursements_provider.dart';
 import '../widgets/budget_context_widget.dart';
 import '../widgets/delete_confirmation_dialog.dart';
+import '../widgets/receipt_pdf_screen.dart';
 
 /// Screen showing full expense details with receipt image.
 class ExpenseDetailScreen extends ConsumerWidget {
@@ -288,10 +291,11 @@ class ExpenseDetailScreen extends ConsumerWidget {
                               checkmarkColor: color,
                               onSelected: (selected) {
                                 if (selected && !isSelected) {
-                                  ref.read(expenseListProvider.notifier).updateReimbursementStatus(
-                                    context: context,
-                                    expenseId: expense.id,
-                                    newStatus: status,
+                                  _changeReimbursementStatus(
+                                    context,
+                                    ref,
+                                    expense,
+                                    status,
                                   );
                                 }
                               },
@@ -357,6 +361,34 @@ class ExpenseDetailScreen extends ConsumerWidget {
     );
   }
 
+  /// Change reimbursement status from the detail screen (issue #47).
+  ///
+  /// Passes the entity loaded by [expenseProvider] so the update works even
+  /// when the expense is not in the loaded page of the list, then refreshes
+  /// the detail so the badge and chips reflect the new status.
+  Future<void> _changeReimbursementStatus(
+    BuildContext context,
+    WidgetRef ref,
+    ExpenseEntity expense,
+    ReimbursementStatus status,
+  ) async {
+    final ok = await ref.read(expenseListProvider.notifier).updateReimbursementStatus(
+          context: context,
+          expenseId: expense.id,
+          newStatus: status,
+          expense: expense,
+        );
+
+    if (!ok || !context.mounted) return;
+
+    ref.invalidate(expenseProvider(expense.id));
+    ref.invalidate(recentGroupExpensesProvider);
+    ref.invalidate(recentPersonalExpensesProvider);
+    if (ref.exists(reimbursementsListProvider)) {
+      ref.read(reimbursementsListProvider.notifier).refresh();
+    }
+  }
+
   Future<void> _handleDelete(BuildContext context, WidgetRef ref) async {
     // Get the expense to check if it's reimbursable
     final expenseAsync = await ref.read(expenseProvider(expenseId).future);
@@ -378,14 +410,7 @@ class ExpenseDetailScreen extends ConsumerWidget {
       if (success && context.mounted) {
         ref.read(expenseListProvider.notifier).removeExpenseFromList(expenseId);
 
-        // Invalidate providers to refresh totals
-        ref.invalidate(recentGroupExpensesProvider);
-        ref.invalidate(recentPersonalExpensesProvider);
-        ref.invalidate(personalExpensesByCategoryProvider);
-        ref.invalidate(expensesByPeriodProvider);
-        ref.invalidate(groupMembersExpensesProvider);
-        ref.invalidate(groupExpensesByCategoryProvider);
-        ref.read(dashboardProvider.notifier).refresh();
+        refreshPersonalDashboard(ref);
 
         context.pop();
       }
@@ -456,6 +481,22 @@ class _ReceiptImageSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+
+    if (receiptPath.toLowerCase().endsWith('.pdf')) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.picture_as_pdf, size: 32),
+          title: const Text('Scontrino PDF'),
+          subtitle: const Text('Documento allegato alla spesa'),
+          trailing: FilledButton(
+            onPressed: () => ReceiptPdfScreen.show(context, receiptPath),
+            child: const Text('Apri'),
+          ),
+          onTap: () => ReceiptPdfScreen.show(context, receiptPath),
+        ),
+      );
+    }
+
     final receiptUrlAsync = ref.watch(receiptImageUrlProvider(receiptPath));
 
     return Card(
@@ -483,7 +524,10 @@ class _ReceiptImageSection extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             receiptUrlAsync.when(
-              data: (imageUrl) => _ReceiptPreview(imageUrl: imageUrl),
+              data: (imageUrl) => _ReceiptPreview(
+                imageUrl: imageUrl,
+                receiptPath: receiptPath,
+              ),
               loading: () => _ReceiptPlaceholder(
                 theme: theme,
                 child: const LoadingIndicator(
@@ -549,13 +593,41 @@ class _ReceiptPlaceholder extends StatelessWidget {
 }
 
 /// Receipt image preview that opens full-screen viewer on tap.
-class _ReceiptPreview extends StatelessWidget {
-  const _ReceiptPreview({required this.imageUrl});
+class _ReceiptPreview extends ConsumerWidget {
+  const _ReceiptPreview({required this.imageUrl, required this.receiptPath});
 
   final String imageUrl;
+  final String receiptPath;
+
+  /// Legacy receipts: PDFs uploaded before the fix are stored as '.jpg'.
+  /// Download the bytes and open them as a PDF if they really are one.
+  Future<void> _openAsDocument(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      final bytes =
+          await ref.read(receiptFileBytesProvider(receiptPath).future);
+      if (ReceiptFileType.isPdfBytes(bytes)) {
+        await navigator.push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ReceiptPdfViewer(bytes: bytes),
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Il file non e\' un PDF valido')),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Impossibile scaricare il file')),
+      );
+    }
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
 
     return GestureDetector(
@@ -601,6 +673,12 @@ class _ReceiptPreview extends StatelessWidget {
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        TextButton.icon(
+                          onPressed: () => _openAsDocument(context, ref),
+                          icon: const Icon(Icons.picture_as_pdf, size: 16),
+                          label: const Text('Apri come documento'),
                         ),
                       ],
                     ),

@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/enums/transaction_type.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../../core/utils/date_only.dart';
+import '../../../../core/utils/receipt_file_type.dart';
 import '../models/expense_model.dart';
 
 /// Remote data source for expense operations using Supabase.
@@ -74,6 +76,8 @@ abstract class ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   });
 
   /// Delete an expense.
@@ -93,6 +97,9 @@ abstract class ExpenseRemoteDataSource {
 
   /// Get signed URL for a receipt.
   Future<String> getReceiptUrl({required String receiptPath});
+
+  /// Download the raw bytes of a receipt.
+  Future<Uint8List> downloadReceipt({required String receiptPath});
 }
 
 /// Implementation of [ExpenseRemoteDataSource] using Supabase.
@@ -100,6 +107,58 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   ExpenseRemoteDataSourceImpl({required this.supabaseClient});
 
   final SupabaseClient supabaseClient;
+
+  /// Ordering of the expense list query: (column, ascending). Mirrors
+  /// `compareExpensesNewestFirst` in the domain layer.
+  @visibleForTesting
+  static const List<(String, bool)> expenseListOrdering = [
+    ('date', false),
+    ('created_at', false),
+    ('id', false),
+  ];
+
+  /// Builds the reimbursement columns for a write (issue #47).
+  ///
+  /// The DB constraint `check_reimbursed_at_consistency` requires
+  /// `reimbursed_at` to be NOT NULL when status is `reimbursed` and NULL
+  /// otherwise, so both columns must always be written together.
+  static Map<String, dynamic> reimbursementFields(
+    ReimbursementStatus status, {
+    DateTime? now,
+  }) {
+    return <String, dynamic>{
+      'reimbursement_status': status.value,
+      'reimbursed_at': status == ReimbursementStatus.reimbursed
+          ? (now ?? DateTime.now()).toUtc().toIso8601String()
+          : null,
+    };
+  }
+
+  /// Builds the update payload for the simple (non-lookup) expense fields.
+  ///
+  /// Payment method fields and `last_modified_by` are added by the callers.
+  /// When [reimbursementStatus] is null neither `reimbursement_status` nor
+  /// `reimbursed_at` is included, so the existing values stay untouched.
+  static Map<String, dynamic> buildUpdatePayload({
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+    DateTime? now,
+  }) {
+    final updates = <String, dynamic>{};
+    if (amount != null) updates['amount'] = amount;
+    if (date != null) updates['date'] = toServerDate(date);
+    if (categoryId != null) updates['category_id'] = categoryId;
+    if (merchant != null) updates['merchant'] = merchant;
+    if (notes != null) updates['notes'] = notes;
+    if (reimbursementStatus != null) {
+      updates.addAll(reimbursementFields(reimbursementStatus, now: now));
+    }
+    return updates;
+  }
 
   String get _currentUserId {
     final userId = supabaseClient.auth.currentUser?.id;
@@ -167,7 +226,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
       }
 
       // Apply ordering and pagination
-      var orderedQuery = filterQuery.order('date', ascending: false);
+      // The order is total (see compareExpensesNewestFirst), so range()
+      // pagination is deterministic even with equal dates.
+      var orderedQuery = filterQuery.order(
+        ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$1,
+        ascending: ExpenseRemoteDataSourceImpl.expenseListOrdering.first.$2,
+      );
+      for (final (column, ascending)
+          in ExpenseRemoteDataSourceImpl.expenseListOrdering.skip(1)) {
+        orderedQuery = orderedQuery.order(column, ascending: ascending);
+      }
 
       if (offset != null && limit != null) {
         orderedQuery = orderedQuery.range(offset, offset + limit - 1);
@@ -287,9 +355,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           .single();
       final paymentMethodName = paymentMethodResponse['name'] as String;
 
-      // Normalize date to UTC date only (no time component)
-      final normalizedDate = DateTime.utc(date.year, date.month, date.day);
-
       // DEBUG: Log the amount being saved
       debugPrint('🔍 SAVE EXPENSE: Saving to DB amount=$amount (type: ${amount.runtimeType})');
       debugPrint('🔍 SAVE EXPENSE: is_group_expense=$isGroupExpense, group_id=$groupId');
@@ -303,14 +368,14 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             'paid_by': effectivePaidBy, // Who paid for the expense (may be different)
             'paid_by_name': paidByDisplayName ?? 'Utente',
             'amount': amount,
-            'date': normalizedDate.toIso8601String().split('T')[0],
+            'date': toServerDate(date),
             'category_id': categoryId,
             'payment_method_id': finalPaymentMethodId,
             'payment_method_name': paymentMethodName,
             'merchant': merchant,
             'notes': notes,
             'is_group_expense': isGroupExpense,
-            'reimbursement_status': reimbursementStatus.value, // T048
+            ...reimbursementFields(reimbursementStatus), // T048, #47
             'last_modified_by': lastModifiedBy ?? effectiveCreatedBy, // T014: Set last_modified_by
             // Only include transaction_type for income (backward compatible: column may not exist yet)
             if (transactionType != TransactionType.expense)
@@ -354,11 +419,15 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     ReimbursementStatus? reimbursementStatus, // T048
   }) async {
     try {
-      final updates = <String, dynamic>{};
+      final updates = buildUpdatePayload(
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus, // T048, #47
+      );
 
-      if (amount != null) updates['amount'] = amount;
-      if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
-      if (categoryId != null) updates['category_id'] = categoryId;
       if (paymentMethodId != null) {
         // Get payment method name for denormalization
         final paymentMethodResponse = await supabaseClient
@@ -370,9 +439,6 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
         updates['payment_method_id'] = paymentMethodId;
         updates['payment_method_name'] = paymentMethodName;
       }
-      if (merchant != null) updates['merchant'] = merchant;
-      if (notes != null) updates['notes'] = notes;
-      if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value; // T048
 
       if (updates.isEmpty) {
         return await getExpense(expenseId: expenseId);
@@ -398,6 +464,55 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     }
   }
 
+  /// Builds the column map sent by [updateExpenseWithTimestamp].
+  ///
+  /// Only non-null fields are included; `last_modified_by` is always present.
+  /// Kept pure so the payload can be unit-tested without Supabase.
+  @visibleForTesting
+  static Map<String, dynamic> buildTimestampUpdatePayload({
+    required String lastModifiedBy,
+    double? amount,
+    DateTime? date,
+    String? categoryId,
+    String? paymentMethodId,
+    String? paymentMethodName,
+    String? merchant,
+    String? notes,
+    ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
+    String? paidByName,
+    DateTime? now,
+  }) {
+    final updates = <String, dynamic>{
+      // Add last_modified_by for audit trail
+      'last_modified_by': lastModifiedBy,
+    };
+
+    if (amount != null) updates['amount'] = amount;
+    if (date != null) updates['date'] = toServerDate(date);
+    if (categoryId != null) updates['category_id'] = categoryId;
+    if (paymentMethodId != null) {
+      updates['payment_method_id'] = paymentMethodId;
+      if (paymentMethodName != null) {
+        updates['payment_method_name'] = paymentMethodName;
+      }
+    }
+    if (merchant != null) updates['merchant'] = merchant;
+    if (notes != null) updates['notes'] = notes;
+    if (reimbursementStatus != null) {
+      // #47: reimbursed_at must follow the status (check constraint)
+      updates.addAll(reimbursementFields(reimbursementStatus, now: now));
+    }
+    if (isGroupExpense != null) updates['is_group_expense'] = isGroupExpense;
+    if (paidBy != null) {
+      updates['paid_by'] = paidBy;
+      updates['paid_by_name'] = paidByName ?? 'Utente';
+    }
+
+    return updates;
+  }
+
   @override
   Future<ExpenseModel> updateExpenseWithTimestamp({
     required String expenseId,
@@ -410,16 +525,11 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
     String? merchant,
     String? notes,
     ReimbursementStatus? reimbursementStatus,
+    bool? isGroupExpense,
+    String? paidBy,
   }) async {
     try {
-      final updates = <String, dynamic>{};
-
-      // Add last_modified_by for audit trail
-      updates['last_modified_by'] = lastModifiedBy;
-
-      if (amount != null) updates['amount'] = amount;
-      if (date != null) updates['date'] = date.toIso8601String().split('T')[0];
-      if (categoryId != null) updates['category_id'] = categoryId;
+      String? paymentMethodName;
       if (paymentMethodId != null) {
         // Get payment method name for denormalization
         final paymentMethodResponse = await supabaseClient
@@ -427,13 +537,34 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
             .select('name')
             .eq('id', paymentMethodId)
             .single();
-        final paymentMethodName = paymentMethodResponse['name'] as String;
-        updates['payment_method_id'] = paymentMethodId;
-        updates['payment_method_name'] = paymentMethodName;
+        paymentMethodName = paymentMethodResponse['name'] as String;
       }
-      if (merchant != null) updates['merchant'] = merchant;
-      if (notes != null) updates['notes'] = notes;
-      if (reimbursementStatus != null) updates['reimbursement_status'] = reimbursementStatus.value;
+
+      String? paidByName;
+      if (paidBy != null) {
+        // Get paid_by user's display name for denormalization
+        final paidByProfileResponse = await supabaseClient
+            .from('profiles')
+            .select('display_name')
+            .eq('id', paidBy)
+            .maybeSingle();
+        paidByName = paidByProfileResponse?['display_name'] as String?;
+      }
+
+      final updates = buildTimestampUpdatePayload(
+        lastModifiedBy: lastModifiedBy,
+        amount: amount,
+        date: date,
+        categoryId: categoryId,
+        paymentMethodId: paymentMethodId,
+        paymentMethodName: paymentMethodName,
+        merchant: merchant,
+        notes: notes,
+        reimbursementStatus: reimbursementStatus,
+        isGroupExpense: isGroupExpense,
+        paidBy: paidBy,
+        paidByName: paidByName,
+      );
 
       // Optimistic locking: only update if updated_at matches the original timestamp
       final response = await supabaseClient
@@ -517,15 +648,16 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
   }) async {
     try {
       final userId = _currentUserId;
-      final path = '$userId/$expenseId.jpg';
+      final type = ReceiptFileType.detect(imageData);
+      final path = ReceiptFileType.storagePath(userId, expenseId, imageData);
 
       await supabaseClient.storage
           .from('receipts')
           .uploadBinary(
             path,
             imageData,
-            fileOptions: const FileOptions(
-              contentType: 'image/jpeg',
+            fileOptions: FileOptions(
+              contentType: type.contentType,
               upsert: true,
             ),
           );
@@ -552,6 +684,17 @@ class ExpenseRemoteDataSourceImpl implements ExpenseRemoteDataSource {
           .createSignedUrl(receiptPath, 3600); // 1 hour expiry
 
       return signedUrl;
+    } on StorageException catch (e) {
+      throw ServerException(e.message, e.statusCode);
+    } catch (e) {
+      throw ServerException(e.toString());
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadReceipt({required String receiptPath}) async {
+    try {
+      return await supabaseClient.storage.from('receipts').download(receiptPath);
     } on StorageException catch (e) {
       throw ServerException(e.message, e.statusCode);
     } catch (e) {

@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+import { extractAmount, isAmountOnlyLine } from "./amount_parser.ts";
 
 const GOOGLE_VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -46,99 +47,6 @@ const monthMap: Record<string, string> = {
   'DIC': '12', 'DICEMBRE': '12',
 };
 
-// Patterns to EXCLUDE (subtotals, not final totals)
-const excludePatterns = [
-  /(?:SUB[\s\-]?TOTALE|SUBTOT|IMPONIBILE|IVA\s+ESCLUSA|IVA\s+ESCL|TOTALE\s+PARZIALE)\s*[:=]?\s*(?:EUR|€)?\s*\d+[,\.]\d{2}/gi,
-];
-
-// Amount patterns for Italian receipts - ordered by priority (most specific first)
-const amountPatterns = [
-  // PRIORITY 0: Total with "IVA INCLUSA" or "IVA COMPRESA" (absolute highest priority)
-  /(?:TOTALE|TOT\.?|TOTAL|DA PAGARE|IMPORTO)\s+(?:IVA\s+INCLUSA|IVA\s+COMPRESA|IVA\s+INCL|COMPRENSIVO|CON\s+IVA)\s*[:=]?\s*(?:EUR|€|EURO)?\s*(\d+[,\.]\d{2})/gi,
-
-  // PRIORITY 1: Explicit total with currency
-  /(?:TOTALE|TOT\.?|TOTAL|DA PAGARE|IMPORTO)\s+(?:COMPLESSIVO|GENERALE|FINALE?)?\s*(?:EUR|€|EURO)\s*(\d+[,\.]\d{2})/gi,
-
-  // PRIORITY 2: Total keywords without explicit currency
-  /(?:TOTALE|TOT\.?|TOTAL|DA PAGARE|IMPORTO)\s*[:=]?\s*(\d+[,\.]\d{2})/gi,
-
-  // PRIORITY 3: Payment keywords
-  /(?:PAGATO|CONTANTI|CONTANTE|CARTA|BANCOMAT|POS)\s*[:=]?\s*(?:EUR|€)?\s*(\d+[,\.]\d{2})/gi,
-
-  // PRIORITY 4: Currency symbols with amount
-  /(?:EUR|€)\s*(\d+[,\.]\d{2})/gi,
-
-  // PRIORITY 5: Amount followed by currency
-  /(\d+[,\.]\d{2})\s*(?:EUR|€)/gi,
-
-  // PRIORITY 6: Standalone amount at end of line (least specific)
-  /^\s*(\d+[,\.]\d{2})\s*$/gm,
-];
-
-function extractAmount(text: string): number | null {
-  // First, identify positions of subtotals to exclude
-  const excludePositions = new Set<number>();
-  excludePatterns.forEach(pattern => {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      // Mark this position range as excluded
-      for (let i = match.index; i < match.index + match[0].length; i++) {
-        excludePositions.add(i);
-      }
-    }
-  });
-
-  const candidates: Array<{ amount: number; priority: number; position: number }> = [];
-
-  // Search with all patterns and collect candidates
-  amountPatterns.forEach((pattern, priority) => {
-    // Reset regex state
-    pattern.lastIndex = 0;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      // Skip if this match overlaps with an excluded region
-      const isExcluded = excludePositions.has(match.index);
-      if (isExcluded) {
-        continue;
-      }
-
-      const amountStr = match[1].replace(',', '.');
-      const amount = parseFloat(amountStr);
-
-      if (!isNaN(amount) && amount > 0 && amount < 100000) {
-        candidates.push({
-          amount,
-          priority,
-          position: match.index
-        });
-      }
-    }
-  });
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  // Sort by priority (lower is better), then by position (later in text), then by amount (higher)
-  candidates.sort((a, b) => {
-    // First sort by priority
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
-    }
-    // Then by position (later in text is better for totals)
-    if (a.position !== b.position) {
-      return b.position - a.position;
-    }
-    // Finally by amount (higher is better when same priority and position)
-    return b.amount - a.amount;
-  });
-
-  // Return the best candidate (highest priority, latest in text, highest amount)
-  return candidates[0].amount;
-}
-
 function extractDate(text: string): string | null {
   for (const pattern of datePatterns) {
     const match = text.match(pattern);
@@ -178,13 +86,12 @@ function extractMerchant(text: string): string | null {
     /^(P\.IVA|P\.I\.|C\.F\.|REG\.)/i,
     /^(DATA|ORA|CASSA)/i,
     /^(TOTALE|TOT|SUBTOT|RESTO)/i,
-    /^\d+[,\.]\d{2}$/,
     /^[\d\/\-\.]+$/,
   ];
 
   // First few non-skipped lines are likely the merchant name
   for (const line of lines.slice(0, 5)) {
-    const shouldSkip = skipPatterns.some(p => p.test(line));
+    const shouldSkip = isAmountOnlyLine(line) || skipPatterns.some(p => p.test(line));
     if (!shouldSkip && line.length >= 3 && line.length <= 50) {
       // Clean up the merchant name
       const cleaned = line

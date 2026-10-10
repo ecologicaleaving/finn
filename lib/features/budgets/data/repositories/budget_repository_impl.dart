@@ -1,4 +1,5 @@
 import 'package:dartz/dartz.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
@@ -30,6 +31,10 @@ class BudgetRepositoryImpl implements BudgetRepository {
 
   final BudgetRemoteDataSource remoteDataSource;
   final BudgetLocalDataSource localDataSource;
+
+  /// Last background income-sources sync (lets tests await it).
+  @visibleForTesting
+  Future<void>? lastIncomeSourcesSync;
 
   // ========== Group Budget Operations ==========
 
@@ -638,8 +643,9 @@ class BudgetRepositoryImpl implements BudgetRepository {
         // Return local data immediately (optimistic UI)
         final entities = localIncomeSources.map((model) => model.toEntity()).toList();
 
-        // Sync with remote in background
-        _syncIncomeSourcesInBackground(userId);
+        // Sync with remote in background: a source deleted on another device
+        // disappears from the next call (the cache is aligned to the server).
+        lastIncomeSourcesSync = _syncIncomeSourcesInBackground(userId);
 
         return Right(entities);
       }
@@ -647,8 +653,8 @@ class BudgetRepositoryImpl implements BudgetRepository {
       // If no local data, fetch from remote
       final remoteModels = await remoteDataSource.fetchIncomeSources(userId);
 
-      // Cache locally
-      await localDataSource.upsertLocalIncomeSources(remoteModels);
+      // Align the local cache to the server (also drops rows deleted elsewhere)
+      await localDataSource.replaceLocalIncomeSources(userId, remoteModels);
 
       return Right(remoteModels.map((model) => model.toEntity()).toList());
     } on AppAuthException catch (e) {
@@ -663,9 +669,9 @@ class BudgetRepositoryImpl implements BudgetRepository {
   Future<void> _syncIncomeSourcesInBackground(String userId) async {
     try {
       final remoteModels = await remoteDataSource.fetchIncomeSources(userId);
-      await localDataSource.upsertLocalIncomeSources(remoteModels);
+      await localDataSource.replaceLocalIncomeSources(userId, remoteModels);
     } catch (e) {
-      // Silent fail for background sync
+      // Silent fail for background sync: the cache stays as it is
     }
   }
 

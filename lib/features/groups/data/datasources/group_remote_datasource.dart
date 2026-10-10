@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/family_group_model.dart';
 import '../models/member_model.dart';
+import 'group_rpc_result.dart';
 
 /// Remote data source for group operations using Supabase.
 abstract class GroupRemoteDataSource {
@@ -30,6 +31,10 @@ abstract class GroupRemoteDataSource {
 
   /// Delete the group.
   Future<void> deleteGroup();
+
+  /// Cancella la cache locale del gruppo (logout / cambio account).
+  /// Non tocca altri dati nello storage sicuro.
+  Future<void> clearCachedGroup({String? userId});
 }
 
 /// Implementation of [GroupRemoteDataSource] using Supabase.
@@ -53,38 +58,53 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     return userId;
   }
 
+  void _ensureAuthenticated() {
+    if (supabaseClient.auth.currentUser == null) {
+      throw const AppAuthException('Nessun utente autenticato', 'not_authenticated');
+    }
+  }
+
+  /// Chiave di cache legata all'utente (issue #64): la cache del gruppo di A
+  /// non deve mai essere letta da B sullo stesso dispositivo.
+  String _userKey(String base, String userId) => '${base}_$userId';
+
+  String? get _currentUserIdOrNull => supabaseClient.auth.currentUser?.id;
+
   /// Cache group ID in secure storage
   Future<void> _cacheGroupId(String groupId) async {
     try {
-      await _secureStorage.write(key: _groupIdKey, value: groupId);
+      await _secureStorage.write(
+        key: _userKey(_groupIdKey, _currentUserId),
+        value: groupId,
+      );
     } catch (e) {
       // Ignore cache errors
       print('Failed to cache group ID: $e');
     }
   }
 
-  /// Get cached group ID
-  Future<String?> _getCachedGroupId() async {
-    try {
-      return await _secureStorage.read(key: _groupIdKey);
-    } catch (e) {
-      return null;
-    }
-  }
-
   /// Cache group data
   Future<void> _cacheGroupData(FamilyGroupModel group) async {
     try {
-      await _secureStorage.write(key: _groupDataKey, value: group.toJsonString());
+      await _secureStorage.write(
+        key: _userKey(_groupDataKey, _currentUserId),
+        value: group.toJsonString(),
+      );
     } catch (e) {
       print('Failed to cache group data: $e');
     }
   }
 
-  /// Get cached group data
+  /// Get cached group data: prima la chiave dell'utente, poi (solo per non
+  /// rompere l'uso offline subito dopo l'aggiornamento) quella legacy.
   Future<FamilyGroupModel?> _getCachedGroupData() async {
     try {
-      final data = await _secureStorage.read(key: _groupDataKey);
+      final userId = _currentUserIdOrNull;
+      String? data;
+      if (userId != null) {
+        data = await _secureStorage.read(key: _userKey(_groupDataKey, userId));
+      }
+      data ??= await _secureStorage.read(key: _groupDataKey);
       if (data != null) {
         return FamilyGroupModel.fromJsonString(data);
       }
@@ -92,6 +112,36 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
       return null;
     }
     return null;
+  }
+
+  /// Rimuove le chiavi legacy (senza suffisso utente) dopo un caricamento
+  /// online riuscito.
+  Future<void> _deleteLegacyCache() async {
+    for (final key in [_groupIdKey, _groupDataKey]) {
+      try {
+        await _secureStorage.delete(key: key);
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<void> clearCachedGroup({String? userId}) async {
+    final keys = <String>[
+      _groupIdKey,
+      _groupDataKey,
+      if (userId != null) ...[
+        _userKey(_groupIdKey, userId),
+        _userKey(_groupDataKey, userId),
+      ],
+    ];
+    // Mai deleteAll(): nello storage ci sono anche i token di sessione.
+    for (final key in keys) {
+      try {
+        await _secureStorage.delete(key: key);
+      } catch (e) {
+        print('Failed to clear $key: $e');
+      }
+    }
   }
 
   @override
@@ -107,9 +157,9 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
       return FamilyGroupModel.fromJson(groupResponse as Map<String, dynamic>);
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -156,6 +206,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
       // Cache the group data for offline use
       await _cacheGroupData(groupWithCount);
+      await _deleteLegacyCache();
 
       return groupWithCount;
     } catch (e) {
@@ -207,7 +258,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', groupId)
           .single();
 
-      final adminId = groupResponse['created_by'] as String;
+      final adminId = groupResponse['created_by'] as String? ?? '';
 
       // Get all members (profiles with this group_id)
       final membersResponse = await supabaseClient
@@ -229,53 +280,17 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   @override
   Future<void> leaveGroup() async {
     try {
-      final userId = _currentUserId;
+      _ensureAuthenticated();
 
-      // Get user's current group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', userId)
-          .single();
+      // Server-side: checks membership/admin, clears group_id and
+      // is_group_admin, deletes the group if the caller was the last member.
+      await supabaseClient.rpc('leave_group');
 
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
-
-      // Check if user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId == userId) {
-        // Check if there are other members
-        final memberCount = await supabaseClient
-            .from('profiles')
-            .select()
-            .eq('group_id', groupId)
-            .count(CountOption.exact);
-
-        if (memberCount.count > 1) {
-          throw const GroupException(
-            'L\'amministratore non può lasciare il gruppo se ci sono altri membri',
-            'admin_cannot_leave',
-          );
-        }
-      }
-
-      // Leave the group
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId);
+      await clearCachedGroup(userId: _currentUserIdOrNull);
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -285,48 +300,23 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     try {
       final currentUserId = _currentUserId;
 
-      // Get current user's group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', currentUserId)
-          .single();
-
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
-
-      // Check if current user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId != currentUserId) {
-        throw const GroupException(
-          'Solo l\'amministratore può rimuovere membri',
-          'not_admin',
-        );
-      }
-
-      // Cannot remove yourself
+      // Fast path: the server enforces the same rule.
       if (userId == currentUserId) {
         throw const GroupException('Non puoi rimuovere te stesso', 'cannot_remove_self');
       }
 
-      // Remove the member
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId)
-          .eq('group_id', groupId);
+      // Server-side: verifies the caller is admin of the same group and
+      // raises member_not_found if no row was updated.
+      final result = await supabaseClient.rpc(
+        'remove_group_member',
+        params: {'p_user_id': userId},
+      );
+
+      ensureAffected(result, 'member_not_found');
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }
@@ -355,7 +345,7 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', groupId)
           .single();
 
-      final adminId = groupResponse['created_by'] as String;
+      final adminId = groupResponse['created_by'] as String? ?? '';
       if (adminId != userId) {
         throw const GroupException(
           'Solo l\'amministratore può modificare il nome del gruppo',
@@ -383,64 +373,19 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   @override
   Future<void> deleteGroup() async {
     try {
-      final userId = _currentUserId;
+      _ensureAuthenticated();
 
-      // Get user's group
-      final profileResponse = await supabaseClient
-          .from('profiles')
-          .select('group_id')
-          .eq('id', userId)
-          .single();
+      // Server-side: only the admin, only without other members; raises
+      // group_not_deleted if nothing was deleted.
+      final result = await supabaseClient.rpc('delete_family_group');
 
-      final groupId = profileResponse['group_id'] as String?;
-      if (groupId == null) {
-        throw const GroupException('Non fai parte di nessun gruppo', 'not_in_group');
-      }
+      ensureAffected(result, 'group_not_deleted');
 
-      // Check if user is admin
-      final groupResponse = await supabaseClient
-          .from('family_groups')
-          .select('created_by')
-          .eq('id', groupId)
-          .single();
-
-      final adminId = groupResponse['created_by'] as String;
-      if (adminId != userId) {
-        throw const GroupException(
-          'Solo l\'amministratore può eliminare il gruppo',
-          'not_admin',
-        );
-      }
-
-      // Check if there are other members
-      final memberCount = await supabaseClient
-          .from('profiles')
-          .select()
-          .eq('group_id', groupId)
-          .count(CountOption.exact);
-
-      if (memberCount.count > 1) {
-        throw const GroupException(
-          'Il gruppo non può essere eliminato se ci sono altri membri',
-          'has_members',
-        );
-      }
-
-      // Remove user from group
-      await supabaseClient
-          .from('profiles')
-          .update({'group_id': null})
-          .eq('id', userId);
-
-      // Delete the group
-      await supabaseClient
-          .from('family_groups')
-          .delete()
-          .eq('id', groupId);
+      await clearCachedGroup(userId: _currentUserIdOrNull);
     } on PostgrestException catch (e) {
-      throw ServerException(e.message, e.code);
+      throw mapGroupRpcError(e);
     } catch (e) {
-      if (e is AppAuthException || e is GroupException) rethrow;
+      if (e is AppException) rethrow;
       throw ServerException(e.toString());
     }
   }

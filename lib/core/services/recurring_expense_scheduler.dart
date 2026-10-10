@@ -29,10 +29,10 @@ class RecurringExpenseScheduler {
       taskName,
       frequency: checkInterval,
       constraints: Constraints(
-        networkType: NetworkType.not_required, // Can work offline
+        networkType: NetworkType.notRequired, // Can work offline
         requiresBatteryNotLow: true, // Don't drain battery
       ),
-      existingWorkPolicy: ExistingWorkPolicy.keep, // Don't duplicate
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep, // Don't duplicate
     );
   }
 
@@ -60,7 +60,7 @@ class RecurringExpenseScheduler {
       '${taskName}_immediate',
       taskName,
       constraints: Constraints(
-        networkType: NetworkType.not_required,
+        networkType: NetworkType.notRequired,
       ),
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );

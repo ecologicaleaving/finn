@@ -17,4 +17,8 @@ abstract class WidgetLocalDataSource {
 
   /// Update native widget via home_widget plugin
   Future<void> updateNativeWidget(WidgetDataModel data);
+
+  /// Remove the widget data of the previous user (logout / account switch).
+  /// Keeps the device-level widget configuration.
+  Future<void> clearWidgetData();
 }

@@ -1,8 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/utils/receipt_file_type.dart';
 import '../local/offline_database.dart';
 import '../models/offline_expense_model.dart';
 import '../models/sync_queue_item_model.dart';
@@ -24,7 +30,19 @@ abstract class OfflineExpenseLocalDataSource {
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
+    Uint8List? receiptBytes,
   });
+
+  /// Offline expenses already synced (status 'completed') whose receipt file
+  /// is still stored locally and must be uploaded.
+  Future<List<OfflineExpenseEntity>> getExpensesWithPendingReceipt(
+    String userId,
+  );
+
+  /// Forget the local receipt of an expense (receipt uploaded or given up).
+  /// The local file is NOT deleted here: the caller decides.
+  Future<void> clearLocalReceiptPath(String expenseId);
 
   /// Get all offline expenses for current user
   Future<List<OfflineExpenseEntity>> getAllOfflineExpenses(String userId);
@@ -58,7 +76,11 @@ abstract class OfflineExpenseLocalDataSource {
     int priority = 0,
   });
 
-  /// Get pending sync queue items (max batch size)
+  /// Get pending expense sync queue items (max [limit])
+  ///
+  /// Only `entity_type = 'expense'` items are returned: the same table also
+  /// stores recurring expense template operations, which must not be sent
+  /// to the expense sync RPCs.
   Future<List<SyncQueueItem>> getPendingSyncItems(
     String userId, {
     int limit = 10,
@@ -72,18 +94,90 @@ abstract class OfflineExpenseLocalDataSource {
 
   /// Get count of pending sync items
   Future<int> getPendingSyncCount(String userId);
+
+  /// Discard an expense that was saved offline and never synced.
+  ///
+  /// An expense has never reached the server only while its offline 'create'
+  /// is still in the sync queue (the sync processor removes the queue item
+  /// once the create succeeds). Only in that case the offline row, every sync
+  /// queue item for the expense and any pending offline receipt image are
+  /// removed, without enqueuing a remote 'delete'.
+  ///
+  /// Returns `true` if the expense was discarded. Returns `false`, and leaves
+  /// local data untouched, for an expense that already exists on the server
+  /// (e.g. created offline and later synced, or synced and then edited
+  /// offline): the caller must delete it remotely.
+  Future<bool> discardUnsyncedExpense({
+    required String expenseId,
+    required String userId,
+  });
+
+  /// Remove every local offline trace of an expense (offline row, sync queue
+  /// items, offline receipt images) without enqueuing anything.
+  ///
+  /// Used after the expense has been deleted on the server, so that stale
+  /// queue items (e.g. a pending offline 'update') are not replayed.
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  });
+
+  /// Ids of the user's expenses that still have local work to do: offline
+  /// rows whose sync status is not 'completed' (pending, syncing, failed,
+  /// conflict) plus every expense sync queue item still pending, failed or
+  /// syncing (any operation).
+  ///
+  /// Used to protect those expenses from any cache cleanup (issue #65).
+  Future<Set<String>> getUnsyncedExpenseIds(String userId);
 }
 
 class OfflineExpenseLocalDataSourceImpl
     implements OfflineExpenseLocalDataSource {
   final OfflineDatabase _db;
   final Uuid _uuid;
+  final Future<Directory> Function()? _receiptsDirectory;
 
   OfflineExpenseLocalDataSourceImpl({
     required OfflineDatabase database,
     Uuid? uuid,
+    Future<Directory> Function()? receiptsDirectory,
   })  : _db = database,
-        _uuid = uuid ?? const Uuid();
+        _uuid = uuid ?? const Uuid(),
+        _receiptsDirectory = receiptsDirectory;
+
+  Future<Directory> _resolveReceiptsDirectory() async {
+    if (_receiptsDirectory != null) return _receiptsDirectory!();
+    final docs = await getApplicationDocumentsDirectory();
+    return Directory('${docs.path}${Platform.pathSeparator}pending_receipts');
+  }
+
+  /// Writes the receipt to disk. Never throws: an expense must never be lost
+  /// because of its receipt. Returns the file path, or null on failure.
+  Future<String?> _writeReceiptFile(String expenseId, Uint8List bytes) async {
+    try {
+      final dir = await _resolveReceiptsDirectory();
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final ext = ReceiptFileType.detect(bytes).extension;
+      final file = File('${dir.path}${Platform.pathSeparator}$expenseId.$ext');
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    } catch (e) {
+      debugPrint('Offline receipt write failed for $expenseId: $e');
+      return null;
+    }
+  }
+
+  Future<void> _deleteFileQuietly(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    } catch (e) {
+      debugPrint('Offline receipt delete failed for $path: $e');
+    }
+  }
 
   @override
   Future<OfflineExpenseEntity> createOfflineExpense({
@@ -94,9 +188,17 @@ class OfflineExpenseLocalDataSourceImpl
     String? merchant,
     String? notes,
     bool isGroupExpense = true,
+    Map<String, dynamic>? extraPayload,
+    Uint8List? receiptBytes,
   }) async {
     final expenseId = _uuid.v4();
     final now = DateTime.now();
+
+    // Receipt first (best effort): if it fails the expense is saved anyway.
+    String? receiptPath;
+    if (receiptBytes != null && receiptBytes.isNotEmpty) {
+      receiptPath = await _writeReceiptFile(expenseId, receiptBytes);
+    }
 
     // Create offline expense record
     final companion = OfflineExpensesCompanion.insert(
@@ -111,9 +213,10 @@ class OfflineExpenseLocalDataSourceImpl
       syncStatus: 'pending',
       localCreatedAt: now,
       localUpdatedAt: now,
+      localReceiptPath: Value(receiptPath),
+      receiptImageSize:
+          Value(receiptPath != null ? receiptBytes!.length : null),
     );
-
-    await _db.into(_db.offlineExpenses).insert(companion);
 
     // Add to sync queue
     final payload = {
@@ -125,15 +228,25 @@ class OfflineExpenseLocalDataSourceImpl
       'notes': notes,
       'is_group_expense': isGroupExpense,
       'created_at': now.toIso8601String(),
+      if (receiptPath != null) 'local_receipt_path': receiptPath,
+      ...?extraPayload,
     };
 
-    await addToSyncQueue(
-      userId: userId,
-      operation: 'create',
-      entityType: 'expense',
-      entityId: expenseId,
-      payload: payload,
-    );
+    try {
+      await _db.transaction(() async {
+        await _db.into(_db.offlineExpenses).insert(companion);
+        await addToSyncQueue(
+          userId: userId,
+          operation: 'create',
+          entityType: 'expense',
+          entityId: expenseId,
+          payload: payload,
+        );
+      });
+    } catch (_) {
+      await _deleteFileQuietly(receiptPath);
+      rethrow;
+    }
 
     // Return created entity
     final created = await (_db.select(_db.offlineExpenses)
@@ -141,6 +254,32 @@ class OfflineExpenseLocalDataSourceImpl
         .getSingle();
 
     return OfflineExpenseModel(created).toEntity();
+  }
+
+  @override
+  Future<List<OfflineExpenseEntity>> getExpensesWithPendingReceipt(
+    String userId,
+  ) async {
+    final rows = await (_db.select(_db.offlineExpenses)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              tbl.syncStatus.equals('completed') &
+              tbl.localReceiptPath.isNotNull())
+          ..orderBy([(tbl) => OrderingTerm.asc(tbl.localCreatedAt)]))
+        .get();
+    return rows.map((e) => OfflineExpenseModel(e).toEntity()).toList();
+  }
+
+  @override
+  Future<void> clearLocalReceiptPath(String expenseId) async {
+    await (_db.update(_db.offlineExpenses)
+          ..where((tbl) => tbl.id.equals(expenseId)))
+        .write(
+      const OfflineExpensesCompanion(
+        localReceiptPath: Value(null),
+        receiptImageSize: Value(null),
+      ),
+    );
   }
 
   @override
@@ -186,6 +325,26 @@ class OfflineExpenseLocalDataSourceImpl
         .get();
 
     return expenses.map((e) => OfflineExpenseModel(e).toEntity()).toList();
+  }
+
+  @override
+  Future<Set<String>> getUnsyncedExpenseIds(String userId) async {
+    final rows = await (_db.select(_db.offlineExpenses)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) & tbl.syncStatus.equals('completed').not()))
+        .get();
+    final items = await (_db.select(_db.syncQueueItems)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              tbl.entityType.equals('expense') &
+              (tbl.syncStatus.equals('pending') |
+                  tbl.syncStatus.equals('failed') |
+                  tbl.syncStatus.equals('syncing'))))
+        .get();
+    return {
+      for (final r in rows) r.id,
+      for (final i in items) i.entityId,
+    };
   }
 
   @override
@@ -245,6 +404,7 @@ class OfflineExpenseLocalDataSourceImpl
     return await (_db.select(_db.syncQueueItems)
           ..where((tbl) =>
               tbl.userId.equals(userId) &
+              tbl.entityType.equals('expense') &
               (tbl.syncStatus.equals('pending') |
                   tbl.syncStatus.equals('failed')))
           ..orderBy([
@@ -274,6 +434,7 @@ class OfflineExpenseLocalDataSourceImpl
     final query = _db.selectOnly(_db.syncQueueItems)
       ..addColumns([_db.syncQueueItems.id.count()])
       ..where(_db.syncQueueItems.userId.equals(userId) &
+          _db.syncQueueItems.entityType.equals('expense') &
           (_db.syncQueueItems.syncStatus.equals('pending') |
               _db.syncQueueItems.syncStatus.equals('failed')));
 
@@ -338,6 +499,72 @@ class OfflineExpenseLocalDataSourceImpl
     );
 
     return OfflineExpenseModel(updated).toEntity();
+  }
+
+  @override
+  Future<bool> discardUnsyncedExpense({
+    required String expenseId,
+    required String userId,
+  }) {
+    return _db.transaction(() async {
+      // A still-queued 'create' is the only proof that the expense never
+      // reached the server. Synced expenses keep their offline row (status
+      // 'completed') and may have a queued 'update': those must go through
+      // the remote delete instead.
+      final pendingCreates = await (_db.select(_db.syncQueueItems)
+            ..where((tbl) =>
+                tbl.userId.equals(userId) &
+                tbl.entityType.equals('expense') &
+                tbl.entityId.equals(expenseId) &
+                tbl.operation.equals('create') &
+                tbl.syncStatus.isIn(const ['pending', 'failed', 'syncing'])))
+          .get();
+
+      if (pendingCreates.isEmpty) return false;
+
+      await _removeLocalExpenseData(expenseId: expenseId, userId: userId);
+      return true;
+    });
+  }
+
+  @override
+  Future<void> removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) {
+    return _db.transaction(
+      () => _removeLocalExpenseData(expenseId: expenseId, userId: userId),
+    );
+  }
+
+  Future<void> _removeLocalExpenseData({
+    required String expenseId,
+    required String userId,
+  }) async {
+    final existing = await (_db.select(_db.offlineExpenses)
+          ..where(
+              (tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
+        .getSingleOrNull();
+    final receiptPath = existing?.localReceiptPath;
+
+    await (_db.delete(_db.offlineExpenses)
+          ..where(
+              (tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
+        .go();
+
+    await _deleteFileQuietly(receiptPath);
+
+    await (_db.delete(_db.syncQueueItems)
+          ..where((tbl) =>
+              tbl.userId.equals(userId) &
+              tbl.entityType.equals('expense') &
+              tbl.entityId.equals(expenseId)))
+        .go();
+
+    await (_db.delete(_db.offlineExpenseImages)
+          ..where((tbl) =>
+              tbl.expenseId.equals(expenseId) & tbl.userId.equals(userId)))
+        .go();
   }
 
   /// T070: Delete offline expense (with user isolation)

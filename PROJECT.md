@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.4.0
+- **Version**: v1.6.0
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -40,8 +40,8 @@
 ### ⚙️ CI/CD
 - **Pipeline**: github-actions (unit tests)
 - **Trigger**: push to main
-- **CI Status**: passing (offline tests)
-- **Last Deploy**: 2026-02-14T20:47:00Z
+- **CI Status**: passing (build APK; Flutter fissato a 3.35.7 in CI)
+- **Last Deploy**: 2026-10-10 (v1.6.0)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -128,6 +128,7 @@
 - **DONE**: #21 Feature — Entrate una tantum (income transactions)
 - **DONE**: #26 Feature - Le mie spese divise per mese con navigazione e dettaglio per categoria
 - **DONE**: #28 Feature - Supporto offline con cache locale e sync automatico
+- **DONE**: v1.6.0 — fix del check generale (#45 offline, #46 sicurezza gruppi, #47 rimborsi, #48 lista/modifica spese, #49 categorie, #50 budget, #51 dashboard, #52 importi, #61 CI, #64 cambio account, #65 paginazione/cache, #66 data a mezzanotte, #67 scontrini, #68 riquadro GRUPPO) e #69 spese ricorrenti sul database
 - **IN PROGRESS**: Advanced analytics e spending insights
 - **TODO**: #11 Bug — Visualizzazione per mese nella dashboard mostra tutti zero
 - **TODO**: Machine learning categorization automatica spese ricorrenti
@@ -138,4 +139,4 @@
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-04-10T12:00:00Z*
+*Last Updated: 2026-10-10T12:00:00Z*
