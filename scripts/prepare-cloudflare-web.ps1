@@ -10,8 +10,8 @@ if (-not $match.Success) {
 }
 $resources = $match.Groups[2].Value | ConvertFrom-Json
 foreach ($metadata in @('_headers', '_redirects', '.assetsignore')) {
-    # Cloudflare consumes these files as configuration and never serves them.
-    # Requesting them in downloadOffline would fail the full offline preload.
+    # Hosting metadata is not public content. The Nginx site returns 404 for it.
+    # Requesting it in downloadOffline would fail the full offline preload.
     $resources.PSObject.Properties.Remove($metadata)
 }
 $json = $resources | ConvertTo-Json -Compress -Depth 8
@@ -20,4 +20,4 @@ $updated = $worker.Substring(0, $match.Index) +
     $worker.Substring($match.Index + $match.Length)
 [IO.File]::WriteAllText((Resolve-Path -LiteralPath $workerPath), $updated,
     (New-Object Text.UTF8Encoding($false)))
-Write-Output 'Cache offline allineata agli asset serviti da Cloudflare.'
+Write-Output 'Cache offline allineata agli asset pubblici del sito.'

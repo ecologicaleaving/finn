@@ -16,9 +16,9 @@ pubblicata. Toolchain locale: Flutter 3.35.7 / Dart 3.9.2.
   al ripristino; l'implementazione ora converte esplicitamente gli elementi.
 - **Build web release riuscita** con risorse locali per CanvasKit, SQLite e
   PDF.js, service worker offline-first e soli valori client pubblici Supabase.
-- **Cloudflare Wrangler 4.158.0 dry-run riuscito**, senza login o deploy.
-  Verificati 222 riferimenti della cache offline: nessun file mancante e
-  nessun metafile Cloudflare richiesto come risorsa. Il bundle contiene solo
+- **Pacchetto statico verificato**: 222 riferimenti della cache offline,
+  nessun file mancante e nessun metafile di hosting richiesto come risorsa.
+  Il bundle contiene solo
   `SUPABASE_URL` e `SUPABASE_ANON_KEY` come configurazione d'ambiente.
 - **Analisi dei file Dart modificati: 0 errori**. Restano 3 warning preesistenti
   per import/campi/variabili non utilizzati e segnalazioni informative nel
@@ -32,11 +32,47 @@ export condizionale dall'implementazione nativa. Il primo tentativo con
 `flutter test --platform chrome` non ha eseguito il test per un timeout del
 bootstrap grafico; non viene conteggiato come test superato.
 
-## Da provare dopo il deploy
+## Deploy e prove residue
 
-L'accesso Cloudflare non è stato completato: nessun Worker, binding DNS o
-certificato è dichiarato attivo da questa lavorazione. La configurazione e
-le istruzioni sono in [CLOUDFLARE.md](CLOUDFLARE.md).
+La destinazione è Nginx sul VPS `46.225.60.101`, con Cloudflare come DNS e
+proxy. L'utente ha creato `A finn → 46.225.60.101`, proxy attivo e TTL automatico.
+La release iniziale è `/var/www/finn/releases/20261109-db42319`, pubblicata
+tramite il symlink `/var/www/finn/current`. L'estrazione dell'archivio Windows
+normalizza i separatori delle entry e verifica il contenimento nella release.
+
+La CI web [42679724414](https://github.com/ecologicaleaving/finn/actions/runs/42679724414)
+è riuscita. Archivio locale `finn-web-v1.6.1-issue81.zip`: 17.313.974 byte,
+SHA-256 `DC437CCF632B17CD5490D82E2F8220967F8F2E3899660DFF8424ADD369A59C96`.
+
+Configurazioni HTTP iniziale, HTTPS e snippet statico sono in
+[`deploy/nginx`](../deploy/nginx/). Certbot ha emesso il certificato per Finn,
+con scadenza 2027-02-07; il timer di rinnovo risulta attivo. L'hook dedicato
+[`finn-nginx-reload.sh`](../deploy/certbot/finn-nginx-reload.sh) ricarica Nginx
+solo per questa lineage dopo `nginx -t`.
+
+Il sito è online: HTTPS restituisce HTTP 200 tramite Cloudflare e HTTP 200
+direttamente sull'origine, con validazione TLS riuscita. Nginx ha caricato la
+configurazione HTTPS dopo `nginx -t`. La configurazione del repository allinea
+HTTP/2 ai virtual host già presenti sul VPS.
+
+Verifiche sul deploy completate:
+
+- `nginx -t` e reload riusciti; i warning residui appartengono a configurazioni
+  preesistenti di altri host.
+- Rinnovo simulato del solo certificato Finn con `--dry-run --run-deploy-hooks
+  --no-random-sleep-on-renew`: uscita 0, tutti i rinnovi simulati riusciti;
+  anche `nginx -t` e il reload dell'hook sono riusciti.
+- Tutti i 222 file del manifest offline sul VPS hanno MD5 uguale alla build.
+- Asset critici HTTP 200 con MIME corretti, inclusi moduli PDF.js, SQLite e
+  CanvasKit; `main.dart.js` e il service worker hanno le direttive
+  `no-store, no-cache, max-age=0, must-revalidate` e Cloudflare `BYPASS`.
+- HTTP reindirizza con 301 a HTTPS; il vecchio app-hub continua a rispondere 200.
+- Controllo indipendente: metafile di hosting, `/.env` e asset JavaScript
+  inesistente restituiscono 404; `/assets/.env` pubblico e la rotta SPA
+  `/expenses` restituiscono 200.
+
+Le istruzioni sono in [CLOUDFLARE.md](CLOUDFLARE.md). La prova grafica completa
+non è stata eseguita perché l'host di automazione UI non era disponibile.
 
 Restano da eseguire con un account di prova autorizzato: stesso login tra app
 e sito, confronto dei dati, CRUD effettivo tra i due client, apertura PDF nel

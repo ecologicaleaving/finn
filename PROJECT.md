@@ -29,9 +29,11 @@
 - **Distribuzione**: GitHub Releases (direct install)
 
 ### 🌐 Frontend Web
-- **URL Produzione**: prevista `https://finn.8020solutions.org` — non ancora deployata (accesso Cloudflare da completare)
+- **URL Produzione**: https://finn.8020solutions.org — online dal 2026-11-09, HTTPS verificato tramite Cloudflare e direttamente sull'origine
 - **Base web**: app non ancora pubblicata v1.6.1, `release/v1.6.1` (`586eace`), richiesta #81
-- **Hosting**: Cloudflare Workers Static Assets, Worker `finn-web`, Custom Domain con DNS/HTTPS gestiti da Cloudflare
+- **Hosting**: Nginx su VPS `46.225.60.101`, release statiche in `/var/www/finn/releases/` e symlink `/var/www/finn/current`
+- **DNS**: Cloudflare, record `A finn → 46.225.60.101`, proxy attivo, TTL automatico (creato dall'utente)
+- **HTTPS origine**: Let's Encrypt emesso il 2026-11-09, scadenza 2027-02-07, in `/etc/letsencrypt/live/finn.8020solutions.org/`; ACME webroot `/var/www/letsencrypt`, timer Certbot attivo
 - **Build Method**: `scripts/build-web.ps1` con Flutter 3.35.7 e configurazione client pubblica Supabase
 - **Istruzioni**: [deploy e DNS](docs/CLOUDFLARE.md), [parità e verifica funzionale](docs/WEB_PARITY.md)
 
@@ -41,10 +43,10 @@
 - **Admin URL**: https://supabase.com/dashboard/project/ofsnyaplaowbduujuucb
 
 ### ⚙️ CI/CD
-- **Pipeline**: github-actions (unit tests)
-- **Trigger**: push to main
-- **CI Status**: passing (build APK; Flutter fissato a 3.35.7 in CI)
-- **Last Deploy**: 2026-10-10 (v1.6.0)
+- **Pipeline**: github-actions (build APK, build web e test mirati)
+- **Trigger**: APK su push/PR; web su PR e workflow_dispatch
+- **CI Status**: web passing (run 42679724414); Flutter fissato a 3.35.7 in CI
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-09 (app v1.6.1, commit db42319)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -58,8 +60,8 @@
 **Ultimo aggiornamento secrets**: 2026-02-14
 
 ## Repository
-- **Main Branch**: main
-- **Development Branch**: feature/issue-7-bug-totale-dashboard-non-si-aggiorna-aut
+- **Main Branch**: master
+- **Development Branch**: test
 - **GitHub**: https://github.com/ecologicaleaving/finn
 
 ## Tech Stack
@@ -94,7 +96,7 @@
 - **Build Process**:
   1. `flutter build apk --release` (Android)
   2. `flutter build ios --release` (iOS)
-  3. `flutter build web --release` (Web PWA)
+  3. `scripts/build-web.ps1` (Web PWA, configurazione client pubblica)
   4. `flutter build windows/macos/linux` (Desktop)
 
 ## Testing
@@ -136,7 +138,7 @@
 - **TODO**: #11 Bug — Visualizzazione per mese nella dashboard mostra tutti zero
 - **TODO**: Machine learning categorization automatica spese ricorrenti
 - **TODO**: Dashboard web per amministrazione family accounts
-- **IN PROGRESS**: #81 — app web con gli stessi account e funzioni della v1.6.1; adattamenti browser e Cloudflare predisposti, deploy e prova autenticata da completare
+- **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
