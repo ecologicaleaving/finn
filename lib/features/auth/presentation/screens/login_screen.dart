@@ -64,103 +64,109 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Logo
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Image.asset(
-                      'assets/logo/icon_original.png',
-                      width: 120,
-                      height: 120,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Fin',
-                    style: theme.textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Accedi al tuo account',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 48),
-
-                  // Error message
-                  if (authState.hasError && authState.errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: InlineError(message: authState.errorMessage!),
-                    ),
-
-                  // Email field
-                  EmailTextField(
-                    controller: _emailController,
-                    focusNode: _emailFocusNode,
-                    enabled: !authState.isLoading,
-                    validator: Validators.validateEmail,
-                    onSubmitted: (_) => _passwordFocusNode.requestFocus(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Password field
-                  PasswordTextField(
-                    controller: _passwordController,
-                    focusNode: _passwordFocusNode,
-                    enabled: !authState.isLoading,
-                    validator: Validators.validatePassword,
-                    onSubmitted: (_) => _handleLogin(),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Forgot password link
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: authState.isLoading ? null : _navigateToForgotPassword,
-                      child: const Text('Password dimenticata?'),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Login button
-                  PrimaryButton(
-                    onPressed: _handleLogin,
-                    label: 'Accedi',
-                    isLoading: authState.isLoading,
-                    loadingLabel: 'Accesso in corso...',
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Register link
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Non hai un account?',
-                        style: theme.textTheme.bodyMedium,
+          child: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Logo
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'assets/logo/icon_original.png',
+                        width: 120,
+                        height: 120,
+                        fit: BoxFit.contain,
                       ),
-                      TextButton(
-                        onPressed: authState.isLoading ? null : _navigateToRegister,
-                        child: const Text('Registrati'),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Finn',
+                      style: theme.textTheme.headlineLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                    ],
-                  ),
-                ],
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Accedi al tuo account',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 48),
+
+                    // Error message
+                    if (authState.hasError && authState.errorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: InlineError(message: authState.errorMessage!),
+                      ),
+
+                    // Email field
+                    EmailTextField(
+                      controller: _emailController,
+                      focusNode: _emailFocusNode,
+                      enabled: !authState.isLoading,
+                      validator: Validators.validateEmail,
+                      onSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Password field
+                    PasswordTextField(
+                      controller: _passwordController,
+                      focusNode: _passwordFocusNode,
+                      enabled: !authState.isLoading,
+                      validator: Validators.validatePassword,
+                      onSubmitted: (_) => _handleLogin(),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Forgot password link
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: authState.isLoading
+                            ? null
+                            : _navigateToForgotPassword,
+                        child: const Text('Password dimenticata?'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Login button
+                    PrimaryButton(
+                      onPressed: _handleLogin,
+                      label: 'Accedi',
+                      isLoading: authState.isLoading,
+                      loadingLabel: 'Accesso in corso...',
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Register link
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Non hai un account?',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        TextButton(
+                          onPressed:
+                              authState.isLoading ? null : _navigateToRegister,
+                          child: const Text('Registrati'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

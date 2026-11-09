@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import '../../../../shared/services/receipt_storage.dart';
 
 import '../../../expenses/data/datasources/expense_local_cache_datasource.dart';
 import '../../data/datasources/offline_expense_local_datasource.dart';
@@ -89,15 +89,18 @@ class SyncQueueProcessor {
       final batchResults = <String, SyncItemResult>{};
 
       if (creates.isNotEmpty) {
-        batchResults.addAll(await _batchSyncService.batchCreateExpenses(creates));
+        batchResults
+            .addAll(await _batchSyncService.batchCreateExpenses(creates));
       }
 
       if (updates.isNotEmpty) {
-        batchResults.addAll(await _batchSyncService.batchUpdateExpenses(updates));
+        batchResults
+            .addAll(await _batchSyncService.batchUpdateExpenses(updates));
       }
 
       if (deletes.isNotEmpty) {
-        batchResults.addAll(await _batchSyncService.batchDeleteExpenses(deletes));
+        batchResults
+            .addAll(await _batchSyncService.batchDeleteExpenses(deletes));
       }
 
       // Update queue items based on results
@@ -106,7 +109,8 @@ class SyncQueueProcessor {
       // Update statistics
       totalProcessed += batchResults.length;
       totalSuccessful += batchResults.values.where((r) => r.success).length;
-      totalFailed += batchResults.values.where((r) => !r.success && !r.isConflict).length;
+      totalFailed +=
+          batchResults.values.where((r) => !r.success && !r.isConflict).length;
       totalConflicts += batchResults.values.where((r) => r.isConflict).length;
     }
 
@@ -124,7 +128,8 @@ class SyncQueueProcessor {
 
   Future<void> _uploadPendingReceipts() async {
     try {
-      final rows = await _localDataSource.getExpensesWithPendingReceipt(_userId);
+      final rows =
+          await _localDataSource.getExpensesWithPendingReceipt(_userId);
       for (final row in rows) {
         final localPath = row.localReceiptPath;
         if (localPath == null) continue;
@@ -153,14 +158,16 @@ class SyncQueueProcessor {
     }
   }
 
-  Future<void> _updateCachedReceipt(String expenseId, String storagePath) async {
+  Future<void> _updateCachedReceipt(
+      String expenseId, String storagePath) async {
     final cache = _localCacheDataSource;
     if (cache == null) return;
     try {
       final cached = await cache.getCachedExpenses(_userId);
       for (final e in cached) {
         if (e.id == expenseId) {
-          await cache.upsertExpense(_userId, e.copyWith(receiptUrl: storagePath));
+          await cache.upsertExpense(
+              _userId, e.copyWith(receiptUrl: storagePath));
           break;
         }
       }
@@ -171,8 +178,7 @@ class SyncQueueProcessor {
 
   Future<void> _deleteFileQuietly(String path) async {
     try {
-      final f = File(path);
-      if (await f.exists()) await f.delete();
+      await ReceiptStorage.delete(path);
     } catch (_) {}
   }
 

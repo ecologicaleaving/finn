@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
+import '../../../../shared/widgets/adaptive_app_scaffold.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
@@ -114,22 +115,15 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AdaptiveAppScaffold(
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: _onDestinationSelected,
-        destinations: _destinations,
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddExpenseOptions,
-        tooltip: 'Aggiungi spesa',
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add),
-      ),
+      selectedIndex: _currentIndex,
+      onDestinationSelected: _onDestinationSelected,
+      destinations: _destinations,
+      onAdd: _showAddExpenseOptions,
     );
   }
 }

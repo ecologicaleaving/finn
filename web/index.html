@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,21 +18,53 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Finn: spese, entrate e budget familiari. Accedi con lo stesso account dell’app e ritrova i tuoi dati.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2D4A3E">
 
   <!-- iOS meta tags & icons -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="fin">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="Finn">
+  <link rel="apple-touch-icon" href="icons/finn-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="icons/finn-192.png"/>
 
-  <title>fin</title>
+  <title>Finn · Le tue finanze, insieme</title>
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- PDFx's web renderer uses PDF.js. Keep the library and worker matched. -->
+  <script type="module">
+    import * as pdfjsLib from './pdfjs/pdf.min.mjs';
+    globalThis.pdfjsLib = pdfjsLib;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdfjs/pdf.worker.mjs', document.baseURI).href;
+    globalThis.pdfRenderOptions = {
+      cMapUrl: new URL('./pdfjs/cmaps/', document.baseURI).href,
+      cMapPacked: true,
+    };
+  </script>
+  <div id="loading" role="status" aria-live="polite"
+       style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#FAF8F4;color:#2D4A3E;font:18px system-ui,sans-serif">
+    <div style="text-align:center">
+      <strong style="font-size:42px;letter-spacing:-2px">Finn</strong>
+      <p>Le tue finanze, insieme.</p>
+      <p style="font-size:14px;opacity:.7">Caricamento in corso…</p>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', () => {
+      document.getElementById('loading')?.remove();
+      // Flutter 3.35's generated offline-first worker supports this message.
+      // Preload its assets, including PDF workers/maps, without delaying the UI.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready
+          .then(registration => registration.active?.postMessage('downloadOffline'))
+          .catch(() => {});
+      }
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

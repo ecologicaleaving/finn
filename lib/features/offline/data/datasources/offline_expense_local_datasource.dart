@@ -4,11 +4,10 @@ import 'dart:typed_data';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../../core/utils/receipt_file_type.dart';
+import '../../../../shared/services/receipt_storage.dart';
 import '../local/offline_database.dart';
 import '../models/offline_expense_model.dart';
 import '../models/sync_queue_item_model.dart';
@@ -145,24 +144,14 @@ class OfflineExpenseLocalDataSourceImpl
         _uuid = uuid ?? const Uuid(),
         _receiptsDirectory = receiptsDirectory;
 
-  Future<Directory> _resolveReceiptsDirectory() async {
-    if (_receiptsDirectory != null) return _receiptsDirectory!();
-    final docs = await getApplicationDocumentsDirectory();
-    return Directory('${docs.path}${Platform.pathSeparator}pending_receipts');
-  }
-
   /// Writes the receipt to disk. Never throws: an expense must never be lost
   /// because of its receipt. Returns the file path, or null on failure.
   Future<String?> _writeReceiptFile(String expenseId, Uint8List bytes) async {
     try {
-      final dir = await _resolveReceiptsDirectory();
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
-      final ext = ReceiptFileType.detect(bytes).extension;
-      final file = File('${dir.path}${Platform.pathSeparator}$expenseId.$ext');
-      await file.writeAsBytes(bytes, flush: true);
-      return file.path;
+      final directory = _receiptsDirectory == null || kIsWeb
+          ? null
+          : (await _receiptsDirectory!()).path;
+      return await ReceiptStorage.write(expenseId, bytes, directory: directory);
     } catch (e) {
       debugPrint('Offline receipt write failed for $expenseId: $e');
       return null;
@@ -172,8 +161,7 @@ class OfflineExpenseLocalDataSourceImpl
   Future<void> _deleteFileQuietly(String? path) async {
     if (path == null || path.isEmpty) return;
     try {
-      final f = File(path);
-      if (await f.exists()) await f.delete();
+      await ReceiptStorage.delete(path);
     } catch (e) {
       debugPrint('Offline receipt delete failed for $path: $e');
     }
@@ -331,7 +319,8 @@ class OfflineExpenseLocalDataSourceImpl
   Future<Set<String>> getUnsyncedExpenseIds(String userId) async {
     final rows = await (_db.select(_db.offlineExpenses)
           ..where((tbl) =>
-              tbl.userId.equals(userId) & tbl.syncStatus.equals('completed').not()))
+              tbl.userId.equals(userId) &
+              tbl.syncStatus.equals('completed').not()))
         .get();
     final items = await (_db.select(_db.syncQueueItems)
           ..where((tbl) =>
@@ -371,7 +360,8 @@ class OfflineExpenseLocalDataSourceImpl
     if (userId == null) return;
 
     await (_db.delete(_db.offlineExpenses)
-          ..where((tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
+          ..where(
+              (tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
         .go();
   }
 
@@ -424,8 +414,7 @@ class OfflineExpenseLocalDataSourceImpl
 
   @override
   Future<void> deleteCompletedSyncItems(List<int> itemIds) async {
-    await (_db.delete(_db.syncQueueItems)
-          ..where((tbl) => tbl.id.isIn(itemIds)))
+    await (_db.delete(_db.syncQueueItems)..where((tbl) => tbl.id.isIn(itemIds)))
         .go();
   }
 
@@ -466,14 +455,16 @@ class OfflineExpenseLocalDataSourceImpl
       categoryId: categoryId != null ? Value(categoryId) : const Value.absent(),
       merchant: merchant != null ? Value(merchant) : const Value.absent(),
       notes: notes != null ? Value(notes) : const Value.absent(),
-      isGroupExpense: isGroupExpense != null ? Value(isGroupExpense) : const Value.absent(),
+      isGroupExpense:
+          isGroupExpense != null ? Value(isGroupExpense) : const Value.absent(),
       localUpdatedAt: Value(now),
       syncStatus: const Value('pending'), // Reset to pending
     );
 
     // Update offline expense
     await (_db.update(_db.offlineExpenses)
-          ..where((tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
+          ..where(
+              (tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
         .write(companion);
 
     // Get updated expense
@@ -574,7 +565,8 @@ class OfflineExpenseLocalDataSourceImpl
   }) async {
     // Delete from offline expenses table
     await (_db.delete(_db.offlineExpenses)
-          ..where((tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
+          ..where(
+              (tbl) => tbl.id.equals(expenseId) & tbl.userId.equals(userId)))
         .go();
 
     // T071: Update sync queue to 'delete' operation (replace previous queue items)

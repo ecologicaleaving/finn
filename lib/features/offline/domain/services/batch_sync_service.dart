@@ -1,12 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/date_only.dart';
 import '../../../../core/utils/receipt_file_type.dart';
+import '../../../../shared/services/receipt_storage.dart';
 import '../../data/local/offline_database.dart';
 
 /// The receipt file saved offline no longer exists on the device.
@@ -138,17 +137,8 @@ class BatchSyncService {
     required String expenseId,
     required String localPath,
   }) async {
-    final file = File(localPath);
-    final Uint8List bytes;
-    try {
-      if (!await file.exists()) throw ReceiptFileMissing(localPath);
-      bytes = await file.readAsBytes();
-    } on ReceiptFileMissing {
-      rethrow;
-    } on FileSystemException {
-      throw ReceiptFileMissing(localPath);
-    }
-    if (bytes.isEmpty) throw ReceiptFileMissing(localPath);
+    final bytes = await ReceiptStorage.read(localPath);
+    if (bytes == null || bytes.isEmpty) throw ReceiptFileMissing(localPath);
 
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) {

@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/config/env.dart';
+import 'backend_reachability.dart';
 
 part 'connectivity_service.g.dart';
 
@@ -72,26 +73,11 @@ class ConnectivityService extends _$ConnectivityService {
     return hasInternet ? NetworkStatus.online : NetworkStatus.offline;
   }
 
-  /// Verifies actual internet access by attempting a Supabase query
-  ///
-  /// Uses a lightweight query with timeout to check if backend is reachable
-  Future<bool> _verifyInternetAccess() async {
-    try {
-      // Attempt to query Supabase with a timeout
-      final supabase = Supabase.instance.client;
-
-      // Simple ping-like query: check if we can reach the server
-      // Using a lightweight query to auth endpoint
-      await supabase.auth.getUser().timeout(
-        const Duration(seconds: 5),
+  /// Independent of the current session, including the first visit before login.
+  Future<bool> _verifyInternetAccess() => checkBackendReachability(
+        supabaseUrl: Env.supabaseUrl,
+        anonKey: Env.supabaseAnonKey,
       );
-
-      return true;
-    } catch (e) {
-      // Any error (timeout, network, auth) means no internet
-      return false;
-    }
-  }
 }
 
 /// Helper provider for getting current connectivity status synchronously

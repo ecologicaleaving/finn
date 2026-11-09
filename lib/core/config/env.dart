@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Environment configuration for Supabase and external services.
@@ -8,17 +9,28 @@ class Env {
   Env._();
 
   /// Supabase project URL
-  static String get supabaseUrl =>
-      dotenv.get('SUPABASE_URL', fallback: 'YOUR_SUPABASE_URL');
+  static String get supabaseUrl {
+    const value = String.fromEnvironment('SUPABASE_URL');
+    return value.isNotEmpty
+        ? value
+        : _assetValue('SUPABASE_URL', 'YOUR_SUPABASE_URL');
+  }
 
   /// Supabase anonymous/public key
-  static String get supabaseAnonKey =>
-      dotenv.get('SUPABASE_ANON_KEY', fallback: 'YOUR_SUPABASE_ANON_KEY');
+  static String get supabaseAnonKey {
+    const value = String.fromEnvironment('SUPABASE_ANON_KEY');
+    return value.isNotEmpty
+        ? value
+        : _assetValue('SUPABASE_ANON_KEY', 'YOUR_SUPABASE_ANON_KEY');
+  }
+
+  static String _assetValue(String key, String fallback) =>
+      dotenv.isInitialized ? dotenv.get(key, fallback: fallback) : fallback;
 
   /// Google Cloud Vision API key (should be in Edge Function, not client)
   /// Only used for development/testing
   static String get gcpVisionApiKey =>
-      dotenv.get('GCP_VISION_API_KEY', fallback: '');
+      kIsWeb ? '' : _assetValue('GCP_VISION_API_KEY', '');
 
   /// Whether we're running in development mode
   static bool get isDevelopment =>

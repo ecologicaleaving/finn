@@ -26,8 +26,9 @@ const bool kDemoMode = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables from .env file
-  await dotenv.load(fileName: ".env");
+  // Web builds receive public Supabase client configuration via dart-defines.
+  // Never load a development .env containing server keys in the browser.
+  if (!kIsWeb) await dotenv.load(fileName: '.env');
 
   // Initialize timezone database
   tz.initializeTimeZones();
@@ -105,43 +106,45 @@ Future<void> main() async {
       }
     }
 
-    // Widget initialization (only in non-demo mode)
-    try {
-      print('Main: Initializing widget functionality');
+    // Home-screen widgets are provided by the native mobile platforms.
+    if (!kIsWeb) {
+      try {
+        print('Main: Initializing widget functionality');
 
-      // Setup widget lifecycle listener
-      BackgroundRefreshService.setupWidgetListener(() {
-        print('Main: Widget enabled callback triggered, updating widget');
-        try {
-          final container = ProviderContainer(
-            overrides: [
-              sharedPreferencesProvider.overrideWithValue(sharedPreferences),
-            ],
-          );
-          container.read(widgetUpdateServiceProvider).triggerUpdate();
-          container.dispose();
-        } catch (e) {
-          print('Main: Error updating widget after enable: $e');
-        }
-      });
+        // Setup widget lifecycle listener
+        BackgroundRefreshService.setupWidgetListener(() {
+          print('Main: Widget enabled callback triggered, updating widget');
+          try {
+            final container = ProviderContainer(
+              overrides: [
+                sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+              ],
+            );
+            container.read(widgetUpdateServiceProvider).triggerUpdate();
+            container.dispose();
+          } catch (e) {
+            print('Main: Error updating widget after enable: $e');
+          }
+        });
 
-      // Perform initial widget update (non-blocking — must not delay app startup)
-      final container = ProviderContainer(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(sharedPreferences),
-        ],
-      );
-      container
-          .read(widgetUpdateServiceProvider)
-          .triggerUpdate()
-          .timeout(const Duration(seconds: 3), onTimeout: () {})
-          .catchError((e) {
-        print('Main: Widget update error: $e');
-      }).whenComplete(() => container.dispose());
+        // Perform initial widget update (non-blocking — must not delay app startup)
+        final container = ProviderContainer(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+          ],
+        );
+        container
+            .read(widgetUpdateServiceProvider)
+            .triggerUpdate()
+            .timeout(const Duration(seconds: 3), onTimeout: () {})
+            .catchError((e) {
+          print('Main: Widget update error: $e');
+        }).whenComplete(() => container.dispose());
 
-      print('Main: Widget initialization completed');
-    } catch (e) {
-      print('Main: Error initializing widget: $e');
+        print('Main: Widget initialization completed');
+      } catch (e) {
+        print('Main: Error initializing widget: $e');
+      }
     }
   }
 

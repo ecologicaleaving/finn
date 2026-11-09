@@ -29,8 +29,11 @@
 - **Distribuzione**: GitHub Releases (direct install)
 
 ### 🌐 Frontend Web
-- **URL Produzione**: N/A (Flutter web — non ancora deployato)
-- **Build Method**: `flutter build web --release`
+- **URL Produzione**: prevista `https://finn.8020solutions.org` — non ancora deployata (accesso Cloudflare da completare)
+- **Base web**: app non ancora pubblicata v1.6.1, `release/v1.6.1` (`586eace`), richiesta #81
+- **Hosting**: Cloudflare Workers Static Assets, Worker `finn-web`, Custom Domain con DNS/HTTPS gestiti da Cloudflare
+- **Build Method**: `scripts/build-web.ps1` con Flutter 3.35.7 e configurazione client pubblica Supabase
+- **Istruzioni**: [deploy e DNS](docs/CLOUDFLARE.md), [parità e verifica funzionale](docs/WEB_PARITY.md)
 
 ### 🗄️ Database
 - **Provider**: supabase-cloud
@@ -133,10 +136,11 @@
 - **TODO**: #11 Bug — Visualizzazione per mese nella dashboard mostra tutti zero
 - **TODO**: Machine learning categorization automatica spese ricorrenti
 - **TODO**: Dashboard web per amministrazione family accounts
+- **IN PROGRESS**: #81 — app web con gli stessi account e funzioni della v1.6.1; adattamenti browser e Cloudflare predisposti, deploy e prova autenticata da completare
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-10-10T12:00:00Z*
+*Last Updated: 2026-11-09*
