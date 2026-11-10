@@ -1,5 +1,22 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 10 novembre — titoli delle spese mensili (#83)
+
+La lista della categoria usava soltanto il campo storico `merchant`, rimosso
+dall'inserimento manuale. Ora mostra il primo testo non vuoto fra `notes`,
+`merchant` e nome categoria, oppure l'etichetta neutra «Spesa». Il model e
+i dati salvati restano invariati.
+
+Passati 11 widget test del dettaglio mensile, inclusi 5 casi nuovi con righe
+caricate tramite `ExpenseModel.fromJson`: note senza negozio, priorità delle
+note, negozio storico, categoria e dati descrittivi assenti. La prova apre
+realmente la categoria e controlla esclusione degli altri mesi/categorie e
+navigazione alla spesa originale. Build web release riuscita.
+
+Il test mensile è incluso anche nella pipeline web. La correzione condivisa
+è disponibile per una futura release mobile; non viene pubblicato un nuovo
+APK di produzione da questa lavorazione.
+
 Base richiesta: `release/v1.6.1`, commit `586eace`, versione dell'app non ancora
 pubblicata. Toolchain locale: Flutter 3.35.7 / Dart 3.9.2.
 

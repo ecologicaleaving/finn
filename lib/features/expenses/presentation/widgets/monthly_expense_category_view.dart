@@ -239,7 +239,7 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
                     itemBuilder: (context, index) {
                       final expense = sorted[index];
                       return ListTile(
-                        title: Text(expense.merchant?.trim().isNotEmpty == true ? expense.merchant! : 'Spesa senza nome'),
+                        title: Text(_expenseTitle(expense)),
                         subtitle: Text(_expenseDateFormat.format(expense.date)),
                         trailing: Text(_currencyFormat.format(expense.amount)),
                         onTap: () {
@@ -256,6 +256,15 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
         );
       },
     );
+  }
+
+  String _expenseTitle(ExpenseEntity expense) {
+    // Manual entry saves optional text in notes; merchant remains on legacy rows.
+    for (final candidate in [expense.notes, expense.merchant, expense.categoryName]) {
+      final text = candidate?.trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return 'Spesa';
   }
 
   DateTime _toMonthStart(DateTime date) => DateTime(date.year, date.month, 1);

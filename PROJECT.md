@@ -46,7 +46,7 @@
 - **Pipeline**: github-actions (build APK, build web e test mirati)
 - **Trigger**: APK su push/PR; web su PR e workflow_dispatch
 - **CI Status**: web passing (run 42679724414); Flutter fissato a 3.35.7 in CI
-- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-09 (app v1.6.1, commit db42319)
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-10 (app v1.6.1, correzione titoli mensili #83)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -139,10 +139,11 @@
 - **TODO**: Machine learning categorization automatica spese ricorrenti
 - **TODO**: Dashboard web per amministrazione family accounts
 - **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
+- **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-11-09*
+*Last Updated: 2026-11-10*

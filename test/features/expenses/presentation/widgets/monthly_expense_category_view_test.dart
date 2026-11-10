@@ -4,6 +4,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import 'package:family_expense_tracker/core/enums/transaction_type.dart';
+import 'package:family_expense_tracker/features/expenses/data/models/expense_model.dart';
 import 'package:family_expense_tracker/features/expenses/domain/entities/expense_entity.dart';
 import 'package:family_expense_tracker/features/expenses/presentation/widgets/monthly_expense_category_view.dart';
 
@@ -17,6 +18,7 @@ void main() {
     required List<ExpenseEntity> expenses,
     DateTime? initialMonth,
     DateTime Function()? nowBuilder,
+    ValueChanged<ExpenseEntity>? onExpenseTap,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -25,6 +27,7 @@ void main() {
           hasMoreExpenses: false,
           initialMonth: initialMonth,
           nowBuilder: nowBuilder,
+          onExpenseTap: onExpenseTap,
         ),
       ),
     );
@@ -152,6 +155,99 @@ void main() {
       expect(find.text('Metro'), findsNothing);
     });
 
+    testWidgets('category detail shows the saved note without a merchant', (tester) async {
+      final savedExpense = _savedExpense(
+        id: 'current-food',
+        notes: '  Spesa settimanale  ',
+      );
+      ExpenseEntity? openedExpense;
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [
+          savedExpense,
+          _savedExpense(id: 'old-food', notes: 'Spesa ottobre', date: '2026-10-08'),
+          _savedExpense(id: 'current-travel', notes: 'Abbonamento treno', categoryName: 'Trasporti'),
+        ],
+        nowBuilder: () => DateTime(2026, 11, 9),
+        onExpenseTap: (expense) => openedExpense = expense,
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Spesa settimanale'), findsOneWidget);
+      expect(find.text('Spesa ottobre'), findsNothing);
+      expect(find.text('Abbonamento treno'), findsNothing);
+      expect(find.text('Spesa senza nome'), findsNothing);
+      await tester.tap(find.text('Spesa settimanale'));
+      await tester.pumpAndSettle();
+      expect(openedExpense, same(savedExpense));
+    });
+
+    final titleCases = [
+      (
+        label: 'prefers the saved note to a legacy merchant',
+        notes: '  Materiale scolastico  ',
+        merchant: 'Negozio storico',
+        categoryName: 'Cibo',
+        category: 'Cibo',
+        title: 'Materiale scolastico',
+      ),
+      (
+        label: 'uses a legacy merchant when notes are blank',
+        notes: ' \n\t ',
+        merchant: '  Negozio storico  ',
+        categoryName: 'Cibo',
+        category: 'Cibo',
+        title: 'Negozio storico',
+      ),
+      (
+        label: 'uses the category when both optional text fields are empty',
+        notes: null,
+        merchant: '   ',
+        categoryName: ' Cibo ',
+        category: 'Cibo',
+        title: 'Cibo',
+      ),
+      (
+        label: 'uses a neutral expense label when no descriptive data exists',
+        notes: ' ',
+        merchant: null,
+        categoryName: null,
+        category: 'Altro',
+        title: 'Spesa',
+      ),
+    ];
+    for (final example in titleCases) {
+      testWidgets('category detail ${example.label}', (tester) async {
+        final savedExpense = _savedExpense(
+          id: 'saved-expense',
+          notes: example.notes,
+          merchant: example.merchant,
+          categoryName: example.categoryName,
+        );
+        ExpenseEntity? openedExpense;
+        await tester.pumpWidget(buildTestWidget(
+          expenses: [savedExpense],
+          nowBuilder: () => DateTime(2026, 11, 9),
+          onExpenseTap: (expense) => openedExpense = expense,
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(example.category));
+        await tester.pumpAndSettle();
+
+        final title = find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text(example.title),
+        );
+        expect(title, findsWidgets);
+        expect(find.text('Spesa senza nome'), findsNothing);
+        // When the title is the category, tap the expense row, not the sheet header.
+        await tester.tap(title.last);
+        await tester.pumpAndSettle();
+        expect(openedExpense, same(savedExpense));
+      });
+    }
+
     testWidgets('mese senza spese mostra stato vuoto', (tester) async {
       final expenses = [
         _expense(
@@ -240,6 +336,29 @@ void main() {
       expect(find.text('Nessuna spesa questo mese'), findsOneWidget);
       expect(find.text('Stipendio'), findsNothing);
     });
+  });
+}
+
+ExpenseEntity _savedExpense({
+  required String id,
+  String? notes,
+  String? merchant,
+  String? categoryName = 'Cibo',
+  String date = '2026-11-08',
+}) {
+  return ExpenseModel.fromJson({
+    'id': id,
+    'group_id': 'group',
+    'created_by': 'user',
+    'amount': 24.90,
+    'date': date,
+    'category_id': categoryName?.trim().toLowerCase(),
+    'category_name': categoryName,
+    'payment_method_id': 'pm',
+    'payment_method_name': 'Carta',
+    'is_group_expense': false,
+    'merchant': merchant,
+    'notes': notes,
   });
 }
 
