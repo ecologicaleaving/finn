@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
         run: |
           Set-Content -Path .env -Value '# Test asset: no credentials'
-          flutter test test/shared/widgets/adaptive_app_scaffold_test.dart test/shared/services/receipt_storage_test.dart test/shared/services/backend_reachability_test.dart test/features/offline/data/datasources/offline_expense_receipt_test.dart test/features/offline/domain/services/sync_queue_processor_receipt_test.dart test/features/offline/data/local/offline_database_v5_upgrade_test.dart test/app/session_cleanup_test.dart test/features/expenses/presentation/widgets/monthly_expense_category_view_test.dart
+          flutter test test/shared/widgets/adaptive_app_scaffold_test.dart test/shared/services/receipt_storage_test.dart test/shared/services/backend_reachability_test.dart test/features/offline/data/datasources/offline_expense_receipt_test.dart test/features/offline/domain/services/sync_queue_processor_receipt_test.dart test/features/offline/data/local/offline_database_v5_upgrade_test.dart test/app/session_cleanup_test.dart test/features/expenses/presentation/widgets/monthly_expense_category_view_test.dart test/features/groups/group_loading_test.dart test/features/groups/group_provider_rebuild_test.dart test/features/groups/data/group_membership_read_test.dart test/features/groups/group_cache_cleanup_test.dart
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart test --platform chrome test/browser/receipt_storage_browser_test.dart
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

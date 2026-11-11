@@ -14,9 +14,12 @@ import 'package:flutter_test/flutter_test.dart';
 // Issue #64 AC3/AC4: a display-name change must not wipe the group state,
 // while a different user logging in must get a fresh group state.
 
-const _userA = UserEntity(id: 'A', email: 'a@x.it', displayName: 'A');
-const _userARenamed = UserEntity(id: 'A', email: 'a@x.it', displayName: 'A2');
-const _userB = UserEntity(id: 'B', email: 'b@x.it', displayName: 'B');
+const _userA =
+    UserEntity(id: 'A', email: 'a@x.it', displayName: 'A', groupId: 'g-A');
+const _userARenamed =
+    UserEntity(id: 'A', email: 'a@x.it', displayName: 'A2', groupId: 'g-A');
+const _userB =
+    UserEntity(id: 'B', email: 'b@x.it', displayName: 'B', groupId: 'g-B');
 
 class _FakeAuthRepository implements AuthRepository {
   @override
@@ -41,10 +44,13 @@ class _FakeAuthRepository implements AuthRepository {
 }
 
 class _FakeGroupRepository implements GroupRepository {
+  _FakeGroupRepository(this.userId);
+  final String? Function() userId;
+
   @override
-  Future<Either<Failure, FamilyGroupEntity>> getCurrentGroup() async =>
-      const Right(
-        FamilyGroupEntity(id: 'g1', name: 'Famiglia', createdBy: 'A'),
+  Future<Either<Failure, FamilyGroupEntity>> getCurrentGroup() async => Right(
+        FamilyGroupEntity(
+            id: 'g-${userId()}', name: 'Famiglia', createdBy: userId()!),
       );
 
   @override
@@ -67,7 +73,8 @@ void main() {
   setUp(() {
     container = ProviderContainer(overrides: [
       authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
-      groupRepositoryProvider.overrideWithValue(_FakeGroupRepository()),
+      groupRepositoryProvider.overrideWith((ref) =>
+          _FakeGroupRepository(() => ref.read(currentUserProvider)?.id)),
     ]);
     addTearDown(container.dispose);
   });
@@ -86,7 +93,8 @@ void main() {
     await container
         .read(authProvider.notifier)
         .updateDisplayName(displayName: 'A2');
-    expect(identical(container.read(groupProvider.notifier), notifierA), isTrue);
+    expect(
+        identical(container.read(groupProvider.notifier), notifierA), isTrue);
     expect(container.read(groupProvider).hasGroup, isTrue);
 
     // AC4: B logs in -> notifier recreated, A's group is gone
@@ -94,7 +102,10 @@ void main() {
         .read(authProvider.notifier)
         .signInWithEmail(email: 'b@x.it', password: 'pw');
     expect(container.read(currentUserProvider)?.id, 'B');
-    expect(identical(container.read(groupProvider.notifier), notifierA), isFalse);
-    expect(container.read(groupProvider).hasGroup, isFalse);
+    expect(
+        identical(container.read(groupProvider.notifier), notifierA), isFalse);
+    expect(container.read(groupProvider).group?.id, isNot('g-A'));
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(groupProvider).group?.id, 'g-B');
   });
 }

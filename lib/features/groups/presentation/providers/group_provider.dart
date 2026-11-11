@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/errors/failures.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/datasources/group_remote_datasource.dart';
 import '../../data/datasources/invite_remote_datasource.dart';
@@ -74,54 +75,70 @@ class GroupState {
   }
 
   bool get hasGroup => group != null && group!.isNotEmpty;
-  bool get isLoading => status == GroupStatus.loading;
+  bool get isLoading =>
+      status == GroupStatus.initial || status == GroupStatus.loading;
   bool get hasError => status == GroupStatus.error;
 }
 
 /// Group notifier for managing group state
 class GroupNotifier extends StateNotifier<GroupState> {
-  GroupNotifier(this._groupRepository) : super(const GroupState());
+  GroupNotifier(this._groupRepository, {this.onMembershipLoaded})
+      : super(const GroupState());
 
   final GroupRepository _groupRepository;
+  final void Function(String? groupId)? onMembershipLoaded;
+  Future<void>? _loadFuture;
 
   /// Load the current user's group
-  Future<void> loadCurrentGroup() async {
+  Future<void> loadCurrentGroup() {
+    if (!mounted) return Future<void>.value();
+    return _loadFuture ??=
+        _loadCurrentGroup().whenComplete(() => _loadFuture = null);
+  }
+
+  Future<void> _loadCurrentGroup() async {
     print('🔍 [GROUP] loadCurrentGroup called');
     state = state.copyWith(status: GroupStatus.loading, errorMessage: null);
 
     final result = await _groupRepository.getCurrentGroup();
+    if (!mounted) return;
 
     result.fold(
       (failure) {
         print('❌ [GROUP] Failed to load group: ${failure.message}');
-        state = state.copyWith(
-          status: GroupStatus.noGroup,
-          group: null,
-          members: [],
-        );
+        if (failure == GroupFailure.noGroup) {
+          state = const GroupState(status: GroupStatus.noGroup);
+          onMembershipLoaded?.call(null);
+        } else {
+          state = state.copyWith(
+            status: GroupStatus.error,
+            errorMessage: 'Impossibile caricare il gruppo. Riprova.',
+          );
+        }
       },
-      (group) async {
+      (group) {
         print('✅ [GROUP] Group loaded: ${group.name} (id: ${group.id})');
         state = state.copyWith(
           status: GroupStatus.loaded,
           group: group,
         );
-        // Also load members
-        await loadMembers();
-        // And check for active invite
-        await loadActiveInvite();
+        onMembershipLoaded?.call(group.id);
+        loadMembers();
+        loadActiveInvite();
       },
     );
   }
 
   /// Load group members
   Future<void> loadMembers() async {
-    if (state.group == null) return;
+    if (!mounted || state.group == null) return;
+    final groupId = state.group!.id;
 
     print('🔍 [GROUP] Loading members for group ${state.group!.id}');
     final result = await _groupRepository.getGroupMembers(
-      groupId: state.group!.id,
+      groupId: groupId,
     );
+    if (!mounted || state.group?.id != groupId) return;
 
     result.fold(
       (failure) {
@@ -137,7 +154,10 @@ class GroupNotifier extends StateNotifier<GroupState> {
 
   /// Load active invite
   Future<void> loadActiveInvite() async {
+    if (!mounted || state.group == null) return;
+    final groupId = state.group!.id;
     final result = await _groupRepository.getActiveInvite();
+    if (!mounted || state.group?.id != groupId) return;
 
     result.fold(
       (failure) {
@@ -277,12 +297,8 @@ class GroupNotifier extends StateNotifier<GroupState> {
         return false;
       },
       (_) {
-        state = state.copyWith(
-          status: GroupStatus.noGroup,
-          group: null,
-          members: [],
-          invite: null,
-        );
+        state = const GroupState(status: GroupStatus.noGroup);
+        onMembershipLoaded?.call(null);
         return true;
       },
     );
@@ -303,12 +319,8 @@ class GroupNotifier extends StateNotifier<GroupState> {
         return false;
       },
       (_) {
-        state = state.copyWith(
-          status: GroupStatus.noGroup,
-          group: null,
-          members: [],
-          invite: null,
-        );
+        state = const GroupState(status: GroupStatus.noGroup);
+        onMembershipLoaded?.call(null);
         return true;
       },
     );
@@ -324,8 +336,20 @@ class GroupNotifier extends StateNotifier<GroupState> {
 final groupProvider = StateNotifierProvider<GroupNotifier, GroupState>((ref) {
   // Si ricrea solo quando cambia l'utente (id), non a ogni emissione di auth
   // (cambio nome, loading): issue #64 AC3/AC4.
-  ref.watch(currentUserProvider.select((u) => u?.id));
-  return GroupNotifier(ref.watch(groupRepositoryProvider));
+  final userId = ref.watch(currentUserProvider.select((u) => u?.id));
+  final notifier = GroupNotifier(
+    ref.watch(groupRepositoryProvider),
+    onMembershipLoaded: (groupId) {
+      if (userId != null) {
+        ref.read(authProvider.notifier).applyLoadedGroup(
+              userId: userId,
+              groupId: groupId,
+            );
+      }
+    },
+  );
+  if (userId != null) Future<void>.microtask(notifier.loadCurrentGroup);
+  return notifier;
 });
 
 /// Convenience provider to check if user has a group

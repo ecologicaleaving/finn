@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../shared/widgets/primary_button.dart';
+import '../../../../shared/widgets/error_display.dart';
+import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../providers/group_provider.dart';
 
 /// Screen shown when user has no group.
 /// Offers options to create a new group or join an existing one.
@@ -14,11 +17,48 @@ class NoGroupScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final user = ref.watch(currentUserProvider);
+    final authState = ref.watch(authProvider);
+    if (authState.hasError && user == null) {
+      return Scaffold(
+        body: ErrorDisplay(
+          message: authState.errorMessage ??
+              'Impossibile caricare il profilo. Riprova.',
+          onRetry: () => ref.read(authProvider.notifier).retryCurrentUser(),
+        ),
+      );
+    }
+    final groupState = ref.watch(groupProvider);
+
+    if (groupState.hasGroup) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) context.go('/main');
+      });
+      return const Scaffold(
+        body: LoadingIndicator(message: 'Caricamento gruppo...'),
+      );
+    }
+    if (groupState.status != GroupStatus.noGroup) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Gruppo')),
+        body: groupState.hasError
+            ? ErrorDisplay(
+                message: groupState.errorMessage ??
+                    'Impossibile caricare il gruppo. Riprova.',
+                onRetry: () => ref.read(groupProvider.notifier).loadCurrentGroup(),
+              )
+            : const LoadingIndicator(message: 'Caricamento gruppo...'),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Fin'),
         actions: [
+          IconButton(
+            tooltip: 'Aggiorna gruppo',
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(groupProvider.notifier).loadCurrentGroup(),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {

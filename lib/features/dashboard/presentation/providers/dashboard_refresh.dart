@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../expenses/presentation/providers/expense_provider.dart';
+import '../../../groups/presentation/providers/group_provider.dart';
 import '../widgets/expenses_chart_widget.dart';
 import '../widgets/personal_dashboard_view.dart';
 import 'dashboard_provider.dart';
@@ -41,6 +42,8 @@ void invalidatePersonalDashboardProviders(
 ///
 /// Unico punto dell'app da cui chiamare `dashboardProvider.notifier.refresh()`.
 Future<void> refreshPersonalDashboard(WidgetRef ref) async {
+  await ref.read(groupProvider.notifier).loadCurrentGroup();
+  if (!ref.read(groupProvider).hasGroup) return;
   invalidatePersonalDashboardProviders(ref.invalidate);
   await ref.read(dashboardProvider.notifier).refresh();
 }

@@ -140,6 +140,7 @@
 - **TODO**: Dashboard web per amministrazione family accounts
 - **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
 - **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
+- **IN PROGRESS**: #84 — ripristino del caricamento del gruppo dopo refresh web; distinguere assenza confermata, caricamento ed errore recuperabile, senza modificare l'appartenenza
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts

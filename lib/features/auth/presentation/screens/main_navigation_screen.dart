@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
 import '../../../../shared/widgets/adaptive_app_scaffold.dart';
+import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../shared/widgets/error_display.dart';
+import '../providers/auth_provider.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
-import '../../../groups/presentation/providers/group_provider.dart';
 import '../../../widget/presentation/services/widget_update_service.dart';
 import 'settings_screen.dart';
 
@@ -25,9 +27,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
-    // Load group data when the screen is first shown
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(groupProvider.notifier).loadCurrentGroup();
       // Repopulate the widget for the current user (issue #64 AC4).
       // Fire and forget: offline it fails silently.
       ref.read(widgetUpdateServiceProvider).triggerUpdate().catchError((_) {});
@@ -115,6 +115,22 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Browser routes can be restored before the profile request completes.
+    final authState = ref.watch(authProvider);
+    if (authState.user == null) {
+      if (authState.status == AuthStatus.initial || authState.isLoading) {
+        return const Scaffold(
+          body: LoadingIndicator(message: 'Caricamento profilo...'),
+        );
+      }
+      return Scaffold(
+        body: ErrorDisplay(
+          message: authState.errorMessage ??
+              'Impossibile caricare il profilo. Riprova.',
+          onRetry: () => ref.read(authProvider.notifier).retryCurrentUser(),
+        ),
+      );
+    }
     return AdaptiveAppScaffold(
       body: IndexedStack(
         index: _currentIndex,

@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../app/routes.dart';
+import '../../../../shared/widgets/error_display.dart';
+import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../core/enums/reimbursement_status.dart';
 import '../../../../core/utils/currency_utils.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -615,11 +617,26 @@ class PersonalDashboardView extends ConsumerStatefulWidget {
 class _PersonalDashboardViewState extends ConsumerState<PersonalDashboardView> {
   @override
   Widget build(BuildContext context) {
-    final group = ref.watch(currentGroupProvider);
-    final userId = ref.watch(currentUserIdProvider);
+    final groupState = ref.watch(groupProvider);
+    final group = groupState.group;
     final dashboardState = ref.watch(dashboardProvider);
 
     if (group == null) {
+      if (groupState.status != GroupStatus.noGroup) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: groupState.hasError
+                ? ErrorDisplay(
+                    message: groupState.errorMessage ??
+                        'Impossibile caricare il gruppo. Riprova.',
+                    onRetry: () =>
+                        ref.read(groupProvider.notifier).loadCurrentGroup(),
+                  )
+                : const LoadingIndicator(message: 'Caricamento gruppo...'),
+          ),
+        );
+      }
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -643,12 +660,23 @@ class _PersonalDashboardViewState extends ConsumerState<PersonalDashboardView> {
       );
     }
 
+    final userId = ref.watch(currentUserIdProvider);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (groupState.hasError) ...[
+              InlineError(
+                message: groupState.errorMessage ??
+                    'Impossibile aggiornare il gruppo.',
+              ),
+              TextButton(
+                onPressed: () => ref.read(groupProvider.notifier).loadCurrentGroup(),
+                child: const Text('Riprova'),
+              ),
+            ],
             // Riepilogo header
             Row(
               children: [

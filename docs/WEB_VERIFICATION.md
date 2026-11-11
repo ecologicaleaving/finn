@@ -1,5 +1,48 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 10 novembre — caricamento del gruppo (#84)
+
+Segnalazione: dopo l'aggiornamento del sito, l'utente viene mostrato senza
+gruppo. La verifica del codice ha trovato errori di lettura convertiti in
+assenza del gruppo e un caricamento iniziale dipendente dall'apertura della
+navigazione principale. Il profilo e il gruppo hanno tempi di caricamento
+distinti: al completamento del profilo il provider del gruppo può essere
+ricreato, perdendo la richiesta avviata dalla pagina.
+
+La correzione carica il gruppo quando arriva l'ID dell'utente, anche dopo un
+refresh su una pagina interna. Solo un `group_id` realmente nullo conferma
+l'assenza; gli errori hanno un pulsante Riprova. Anche il primo caricamento
+del profilo può essere ritentato. La lettura aggiorna soltanto il profilo in
+memoria, così le spese usano lo stesso gruppo recuperato dall'interfaccia.
+Le cache sono legate all'utente e al gruppo conosciuto; le risposte tardive
+di una sessione precedente vengono ignorate. Nessuna operazione di creazione,
+uscita, adesione o modifica del gruppo è parte della correzione.
+
+Verifica indipendente: **43 test passati, 0 saltati**, su sette file. Sono
+coperti arrivo ritardato del profilo, primo frame di MainNavigation, recupero
+di `/no-group`, errori PGRST116 su profilo e gruppo, retry del profilo,
+isolamento degli account/cache e risposte tardive. Passano anche i test di
+pulizia al logout/sessione e tutti gli 11 test mensili della correzione #83.
+I quattro file dei gruppi sono inclusi nella pipeline web.
+
+Analisi mirata dei 14 file Dart: 0 errori e 6 warning preesistenti verificati
+contro HEAD (import ed elementi inutilizzati nel riepilogo personale e
+nei dettagli del gruppo). Il comando termina con exit 1 per questi warning;
+non viene dichiarato un lint dell'intero repository privo di segnalazioni.
+
+Build release generata il 10 novembre e verificata l'11 novembre: tutti i
+222 file del manifest offline corrispondono ai rispettivi MD5, il bundle
+contiene i nuovi percorsi di recupero e nessun sorgente applicativo è stato
+modificato dopo la compilazione. La configurazione contiene soltanto URL e
+chiave pubblica client del backend previsto. SHA-256 del JavaScript:
+`c9470419c4d9d8646d5b91d14732d7bf19931f8d22761daa8a5e0c36a8d6c129`.
+
+Backend pubblico Auth verificato in sola lettura: HTTP 200 sul progetto
+`ofsnyaplaowbduujuucb`. Questo controllo non dimostra l'appartenenza del
+singolo account. L'utente ha confermato che sul telefono, con lo stesso
+account, il gruppo è ancora visibile. L'host di automazione browser è ancora
+indisponibile; la conferma del recupero sul suo browser resta da completare.
+
 ## Aggiornamento 10 novembre — titoli delle spese mensili (#83)
 
 La lista della categoria usava soltanto il campo storico `merchant`, rimosso
