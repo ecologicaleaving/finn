@@ -19,6 +19,13 @@ passati, 0 saltati, exit 0; AC1–6 verdi nel perimetro codice/widget.
 Build web release riuscita (exit 0, compilazione 149,5 s), con 222 risorse
 offline verificate e sola configurazione client pubblica. SHA-256 JavaScript:
 `d360ccb86e489d8a68ef617dabf32c8aae456fbb0db4011a0610d010fcf6389c`.
+Pubblicata la release `/var/www/finn/releases/20261111-0623e8c`, conservando
+la precedente `20261111-1937b99`. Archivio di 17.190.949 byte, SHA-256
+`084544f61145567d19ec5a98997346f4f5131e29cd0c510329b10a23278bc694`.
+Attivazione atomica dopo controllo degli hash sul server; homepage e JavaScript
+pubblici HTTP 200, bundle pubblico identico al locale, direttiva no-store
+e Cloudflare BYPASS. Conferma visiva della nuova riga sul suo account da
+completare dall'utente.
 
 ## Aggiornamento 10 novembre — caricamento del gruppo (#84)
 
