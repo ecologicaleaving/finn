@@ -37,11 +37,22 @@ modificato dopo la compilazione. La configurazione contiene soltanto URL e
 chiave pubblica client del backend previsto. SHA-256 del JavaScript:
 `c9470419c4d9d8646d5b91d14732d7bf19931f8d22761daa8a5e0c36a8d6c129`.
 
+Pubblicata l'11 novembre la release `/var/www/finn/releases/20261111-1937b99`:
+archivio da 17.190.734 byte, SHA-256
+`8b0148bf3d1b2e25811563d9a8444a66dcc0a8cc95cebbfffa092d3f5d95f7ac`.
+Il server ha verificato i 222 MD5 e l'hash del bundle prima del cambio atomico
+di `/var/www/finn/current`. La release precedente `20261110-41f8ff4` è
+conservata. HTTPS pubblico HTTP 200; JavaScript pubblico identico alla build,
+con `no-store, no-cache, max-age=0, must-revalidate` e Cloudflare BYPASS.
+
 Backend pubblico Auth verificato in sola lettura: HTTP 200 sul progetto
 `ofsnyaplaowbduujuucb`. Questo controllo non dimostra l'appartenenza del
 singolo account. L'utente ha confermato che sul telefono, con lo stesso
 account, il gruppo è ancora visibile. L'host di automazione browser è ancora
 indisponibile; la conferma del recupero sul suo browser resta da completare.
+Il nuovo tentativo di controllo grafico dell'11 novembre è stato fermato
+dallo strumento perché non riusciva a determinare con sufficiente affidabilità
+l'URL corrente di Chrome. Nessuna verifica sul suo account è stata dichiarata.
 
 ## Aggiornamento 10 novembre — titoli delle spese mensili (#83)
 

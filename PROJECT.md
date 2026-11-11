@@ -45,8 +45,8 @@
 ### ⚙️ CI/CD
 - **Pipeline**: github-actions (build APK, build web e test mirati)
 - **Trigger**: APK su push/PR; web su PR e workflow_dispatch
-- **CI Status**: web passing (run 42679724414); Flutter fissato a 3.35.7 in CI
-- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-10 (app v1.6.1, correzione titoli mensili #83)
+- **CI Status**: ultimo commit precedente `41f8ff4` verde; correzione #84 con 43 test indipendenti passati e build web verificata, CI da confermare dopo push; Flutter fissato a 3.35.7
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-11 (app v1.6.1, recupero gruppo dopo refresh #84, sorgente `1937b99`)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -140,11 +140,11 @@
 - **TODO**: Dashboard web per amministrazione family accounts
 - **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
 - **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
-- **IN PROGRESS**: #84 — ripristino del caricamento del gruppo dopo refresh web; distinguere assenza confermata, caricamento ed errore recuperabile, senza modificare l'appartenenza
+- **IN PROGRESS**: #84 — correzione web online: caricamento automatico dopo il profilo, errore distinto dall'assenza e Riprova; 43 test passati, bundle pubblico verificato; attende conferma sul browser dell'utente, nessuna modifica all'appartenenza
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-11-10*
+*Last Updated: 2026-11-11*
