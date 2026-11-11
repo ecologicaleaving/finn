@@ -183,6 +183,113 @@ void main() {
       expect(openedExpense, same(savedExpense));
     });
 
+    testWidgets('category detail shows payer only on group expenses', (tester) async {
+      final groupExpense = _savedExpense(
+        id: 'group-food',
+        notes: 'Cena condivisa',
+        isGroupExpense: true,
+        paidBy: 'other-user',
+        paidByName: '  Giulia  ',
+        createdByName: 'Marco',
+      );
+      final personalExpense = _savedExpense(
+        id: 'personal-food',
+        notes: 'Pranzo personale',
+        paidByName: 'Nome personale',
+        createdByName: 'Marco',
+      );
+      ExpenseEntity? openedExpense;
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [groupExpense, personalExpense],
+        nowBuilder: () => DateTime(2026, 11, 9),
+        onExpenseTap: (expense) => openedExpense = expense,
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      final groupRow = find.ancestor(
+        of: find.text('Cena condivisa'),
+        matching: find.byType(ListTile),
+      );
+      final personalRow = find.ancestor(
+        of: find.text('Pranzo personale'),
+        matching: find.byType(ListTile),
+      );
+      expect(find.descendant(of: groupRow, matching: find.text('Pagato da: Giulia')), findsOneWidget);
+      expect(find.descendant(of: groupRow, matching: find.text('8 nov')), findsOneWidget);
+      expect(find.descendant(of: personalRow, matching: find.text('8 nov')), findsOneWidget);
+      expect(find.textContaining('Pagato da:'), findsOneWidget);
+      expect(find.textContaining('Marco'), findsNothing);
+      expect(find.textContaining('Nome personale'), findsNothing);
+      final amount = NumberFormat.currency(locale: 'it_IT', symbol: '\u20ac', decimalDigits: 2).format(24.90);
+      expect(find.descendant(of: groupRow, matching: find.text(amount)), findsOneWidget);
+      await tester.tap(find.text('Cena condivisa'));
+      await tester.pumpAndSettle();
+      expect(openedExpense, same(groupExpense));
+    });
+
+    final payerCases = [
+      (label: 'legacy missing payer', paidBy: null, payerName: null, creatorName: '  Marco  ', expected: 'Marco'),
+      (label: 'blank legacy payer', paidBy: '  ', payerName: ' ', creatorName: 'Marco', expected: 'Marco'),
+      (label: 'payer is creator', paidBy: 'user', payerName: ' ', creatorName: 'Marco', expected: 'Marco'),
+      (label: 'different payer without name', paidBy: 'other-user', payerName: null, creatorName: 'Marco', expected: 'Non specificato'),
+      (label: 'no names available', paidBy: null, payerName: null, creatorName: ' ', expected: 'Non specificato'),
+    ];
+    for (final example in payerCases) {
+      testWidgets('category detail handles ${example.label}', (tester) async {
+        await tester.pumpWidget(buildTestWidget(
+          expenses: [
+            _savedExpense(
+              id: 'group-food',
+              notes: 'Cena condivisa',
+              isGroupExpense: true,
+              paidBy: example.paidBy,
+              paidByName: example.payerName,
+              createdByName: example.creatorName,
+            ),
+          ],
+          nowBuilder: () => DateTime(2026, 11, 9),
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cibo'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pagato da: ${example.expected}'), findsOneWidget);
+        expect(find.textContaining('other-user'), findsNothing);
+        expect(find.textContaining('null'), findsNothing);
+        if (example.expected == 'Non specificato') {
+          expect(find.text('Pagato da: Marco'), findsNothing);
+        }
+      });
+    }
+
+    testWidgets('long payer name fits category detail on mobile', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      const name = 'Alessandra Maria Francesca Della Valle';
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [
+          _savedExpense(
+            id: 'group-food',
+            notes: 'Cena condivisa',
+            isGroupExpense: true,
+            paidByName: name,
+          ),
+        ],
+        nowBuilder: () => DateTime(2026, 11, 9),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      final payer = tester.widget<Text>(find.text('Pagato da: $name'));
+      expect(payer.maxLines, 1);
+      expect(payer.overflow, TextOverflow.ellipsis);
+      expect(find.text('8 nov'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     final titleCases = [
       (
         label: 'prefers the saved note to a legacy merchant',
@@ -345,6 +452,10 @@ ExpenseEntity _savedExpense({
   String? merchant,
   String? categoryName = 'Cibo',
   String date = '2026-11-08',
+  bool isGroupExpense = false,
+  String? paidBy,
+  String? paidByName,
+  String? createdByName,
 }) {
   return ExpenseModel.fromJson({
     'id': id,
@@ -356,7 +467,10 @@ ExpenseEntity _savedExpense({
     'category_name': categoryName,
     'payment_method_id': 'pm',
     'payment_method_name': 'Carta',
-    'is_group_expense': false,
+    'is_group_expense': isGroupExpense,
+    'paid_by': paidBy,
+    'paid_by_name': paidByName,
+    'created_by_name': createdByName,
     'merchant': merchant,
     'notes': notes,
   });

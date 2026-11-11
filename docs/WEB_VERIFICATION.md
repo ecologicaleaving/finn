@@ -1,5 +1,25 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 11 novembre — pagante nel dettaglio categoria (#85)
+
+Il dettaglio mensile della categoria mostra «Pagato da: Nome» sotto la data
+di ogni spesa di gruppo. Il nome del pagante ha precedenza su quello di chi
+ha inserito la spesa; il creatore è un fallback soltanto se il pagante manca
+o ha lo stesso ID. Quando il nome non è disponibile compare «Non specificato».
+Le righe personali non mostrano il pagante. Non sono aggiunte richieste al
+backend, né modificati dati, importi o classificazione delle spese.
+
+Passati 18 widget test del dettaglio mensile, di cui 7 nuovi per pagante e
+autore diversi, righe personali/di gruppo miste, fallback storici e nomi
+mancanti, più larghezza mobile 320 px. Restano coperti titoli, filtri, data,
+importi e callback alla spesa originale. Analisi mirata dei due file: exit 0,
+0 errori e 0 warning; due informazioni preesistenti su initializing formals.
+Il verificatore ha rieseguito indipendentemente lo stesso file: 18/18
+passati, 0 saltati, exit 0; AC1–6 verdi nel perimetro codice/widget.
+Build web release riuscita (exit 0, compilazione 149,5 s), con 222 risorse
+offline verificate e sola configurazione client pubblica. SHA-256 JavaScript:
+`d360ccb86e489d8a68ef617dabf32c8aae456fbb0db4011a0610d010fcf6389c`.
+
 ## Aggiornamento 10 novembre — caricamento del gruppo (#84)
 
 Segnalazione: dopo l'aggiornamento del sito, l'utente viene mostrato senza
@@ -48,11 +68,13 @@ con `no-store, no-cache, max-age=0, must-revalidate` e Cloudflare BYPASS.
 Backend pubblico Auth verificato in sola lettura: HTTP 200 sul progetto
 `ofsnyaplaowbduujuucb`. Questo controllo non dimostra l'appartenenza del
 singolo account. L'utente ha confermato che sul telefono, con lo stesso
-account, il gruppo è ancora visibile. L'host di automazione browser è ancora
-indisponibile; la conferma del recupero sul suo browser resta da completare.
+account, il gruppo è ancora visibile. L'11 novembre ha confermato anche sul
+sito: «ora il gruppo c'è, vedo il nome delle spese». La CI web e APK sul
+commit `f10867a` è completata con successo.
 Il nuovo tentativo di controllo grafico dell'11 novembre è stato fermato
 dallo strumento perché non riusciva a determinare con sufficiente affidabilità
-l'URL corrente di Chrome. Nessuna verifica sul suo account è stata dichiarata.
+l'URL corrente di Chrome. La conferma sul suo account è stata fornita
+dall'utente, non dall'automazione grafica.
 
 ## Aggiornamento 10 novembre — titoli delle spese mensili (#83)
 

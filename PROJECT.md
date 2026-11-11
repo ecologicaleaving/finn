@@ -45,7 +45,7 @@
 ### ⚙️ CI/CD
 - **Pipeline**: github-actions (build APK, build web e test mirati)
 - **Trigger**: APK su push/PR; web su PR e workflow_dispatch
-- **CI Status**: ultimo commit precedente `41f8ff4` verde; correzione #84 con 43 test indipendenti passati e build web verificata, CI da confermare dopo push; Flutter fissato a 3.35.7
+- **CI Status**: web e APK verdi sul commit `f10867a` (web run 43058606711); Flutter fissato a 3.35.7
 - **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-11 (app v1.6.1, recupero gruppo dopo refresh #84, sorgente `1937b99`)
 
 ### 🔑 Environment Variables (GitHub Secrets)
@@ -140,7 +140,8 @@
 - **TODO**: Dashboard web per amministrazione family accounts
 - **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
 - **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
-- **IN PROGRESS**: #84 — correzione web online: caricamento automatico dopo il profilo, errore distinto dall'assenza e Riprova; 43 test passati, bundle pubblico verificato; attende conferma sul browser dell'utente, nessuna modifica all'appartenenza
+- **DONE (web)**: #84 — recupero gruppo dopo refresh, 43 test passati e bundle pubblico verificato; l'utente conferma il gruppo visibile sul sito con lo stesso account
+- **IN PROGRESS**: #85 — indicare chi ha pagato nel dettaglio mensile per categoria delle spese di gruppo, usando i nomi già caricati
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
