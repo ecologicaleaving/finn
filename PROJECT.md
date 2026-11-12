@@ -46,7 +46,7 @@
 - **Pipeline**: github-actions (build APK, build web e test mirati)
 - **Trigger**: APK su push/PR; web su PR e workflow_dispatch
 - **CI Status**: web e APK verdi sul commit `939442a` (web run 43061802234); Flutter fissato a 3.35.7
-- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-11 (app v1.6.1, pagante nei dettagli categoria #85, sorgente `0623e8c`)
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-12 (app v1.6.1, pagina Report #86, sorgente `df9eccd`)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -142,11 +142,11 @@
 - **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
 - **DONE (web)**: #84 — recupero gruppo dopo refresh, 43 test passati e bundle pubblico verificato; l'utente conferma il gruppo visibile sul sito con lo stesso account
 - **DONE (web)**: #85 — pagante nel dettaglio mensile per categoria online; 18 widget test passati, bundle pubblico verificato e conferma positiva dell'utente
-- **IN PROGRESS**: #86 — pagina Report: dati del gruppo, KPI, confronto fra periodi, andamento di sei mesi, categorie, paganti e insight; caricamento dedicato completo del periodo
+- **IN PROGRESS**: #86 — pagina Report online: KPI, confronto periodi, andamento sei mesi, categorie, paganti e insight; 56 test indipendenti passati, build e bundle pubblico verificati, conferma sul suo account da completare
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-11-11*
+*Last Updated: 2026-11-12*

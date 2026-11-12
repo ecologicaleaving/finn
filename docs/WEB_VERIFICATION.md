@@ -3,7 +3,7 @@
 ## Aggiornamento 12 novembre — pagina Report (#86)
 
 Report è una nuova destinazione nella navigazione desktop/mobile e nella
-rotta `/report`, con selezione del mese. Mostra totale, numero e importo
+rotta `/report` (URL web `/#/report`), con selezione del mese. Mostra totale, numero e importo
 medio delle spese di gruppo, confronto con il periodo precedente, andamento
 di sei mesi, categorie e quote pagate per persona. Gli insight riportano
 categoria principale, giorno più oneroso e spesa maggiore apribile nel
@@ -42,6 +42,14 @@ file del manifest offline, i sette sorgenti applicativi modificati invariati
 dopo la compilazione e la configurazione con soli URL/chiave pubblica client.
 SHA-256 JavaScript:
 `4daef6f2526adacc28d83ebdc8f5374ee2bf2cc158240b827d4e503b53c6323b`.
+
+Pubblicata il 12 novembre la release `/var/www/finn/releases/20261112-df9eccd`,
+conservando `20261111-0623e8c`. Archivio di 17.196.619 byte, SHA-256
+`6047a0d1ff83937a359955bcc87499a4808d8fc7ed8d6d2c5bf28d089534f17e`.
+Tutti i 222 hash sono verificati sul server prima del cambio atomico del
+symlink. Homepage e JavaScript pubblici HTTP 200; bundle pubblico identico
+alla build, direttive no-store e Cloudflare BYPASS. La prova con i dati del
+suo account nel browser reale resta da completare dall'utente.
 
 ## Aggiornamento 11 novembre — pagante nel dettaglio categoria (#85)
 
