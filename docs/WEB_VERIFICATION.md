@@ -1,5 +1,48 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 12 novembre — pagina Report (#86)
+
+Report è una nuova destinazione nella navigazione desktop/mobile e nella
+rotta `/report`, con selezione del mese. Mostra totale, numero e importo
+medio delle spese di gruppo, confronto con il periodo precedente, andamento
+di sei mesi, categorie e quote pagate per persona. Gli insight riportano
+categoria principale, giorno più oneroso e spesa maggiore apribile nel
+dettaglio originale.
+
+Sono incluse solo spese di gruppo sincronizzate, tipo expense o legacy null;
+entrate e spese personali sono escluse. I rimborsi non cancellano la spesa
+registrata e le quote pagate non sono debiti/conguagli fra membri. Il loader
+dedicato carica l'intero periodo con pagine da 200, avanzando sulle righe
+effettivamente ricevute fino alla pagina vuota, anche con un limite server
+più basso. Un errore di pagina invalida l'intero caricamento, senza KPI parziali.
+
+Gli importi sono sommati in centesimi. Per il mese corrente il totale va dal
+primo a oggi, mentre il confronto usa lo stesso numero di giorni in entrambi
+i mesi, limitato da quello più corto; le due date sono mostrate. I mesi
+storici sono completi. Un precedente a zero non produce percentuali infinite.
+I grafici riportano valori testuali e mantengono lo storico anche con mese
+selezionato vuoto. La navigazione conserva lo stato dei tab già visitati,
+carica Report soltanto all'apertura e lo aggiorna al rientro o dopo modifiche.
+
+Verifica indipendente completata: **56 test passati, 0 saltati, exit 0** su
+sette file, di cui 21 nuovi Report e 35 regressioni. Sono coperti 405 righe,
+cap server 100, errore della seconda pagina, periodi/bisestile/cambio anno,
+identità dei paganti, risposte tardive di account/gruppi, refresh e navigazione
+reale, stati vuoto/errore e layout a 390/1440 px. Nessuna migrazione, nuova
+dipendenza o scrittura backend introdotta.
+
+Analisi completata usando un percorso per comando: nuova area Report,
+test Report, navigazione principale e refresh condiviso terminano con exit 0.
+Nel file delle rotte restano cinque import inutilizzati già presenti prima
+della modifica (0 errori, exit 2 per i warning). Il primo tentativo con più
+percorsi è stato interrotto senza esito e non è conteggiato come riuscito.
+
+Build web release riuscita con exit 0 in 134,5 s. Verificati tutti i 222
+file del manifest offline, i sette sorgenti applicativi modificati invariati
+dopo la compilazione e la configurazione con soli URL/chiave pubblica client.
+SHA-256 JavaScript:
+`4daef6f2526adacc28d83ebdc8f5374ee2bf2cc158240b827d4e503b53c6323b`.
+
 ## Aggiornamento 11 novembre — pagante nel dettaglio categoria (#85)
 
 Il dettaglio mensile della categoria mostra «Pagato da: Nome» sotto la data

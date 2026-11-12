@@ -90,6 +90,7 @@ class AppRoutes {
 
   // Main navigation (with bottom bar)
   static const main = '/main';
+  static const report = '/report';
 }
 
 /// Provider for the router
@@ -312,11 +313,22 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Main navigation with bottom bar
       GoRoute(
+        path: AppRoutes.report,
+        name: 'report',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          key: ValueKey('main-shell'),
+          child: MainNavigationScreen(initialIndex: 2),
+        ),
+      ),
+      GoRoute(
         path: AppRoutes.main,
         name: 'main',
-        builder: (context, state) => kDemoMode
-            ? const DemoNavigationScreen()
-            : const MainNavigationScreen(),
+        pageBuilder: (context, state) => NoTransitionPage(
+          key: const ValueKey('main-shell'),
+          child: kDemoMode ? const DemoNavigationScreen() : MainNavigationScreen(
+            initialIndex: int.tryParse(state.uri.queryParameters['tab'] ?? '0') ?? 0,
+          ),
+        ),
       ),
     ],
 

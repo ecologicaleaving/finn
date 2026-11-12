@@ -9,12 +9,14 @@ import '../../../../shared/widgets/error_display.dart';
 import '../providers/auth_provider.dart';
 import '../../../dashboard/presentation/screens/dashboard_screen.dart';
 import '../../../expenses/presentation/screens/expense_tabs_screen.dart';
+import '../../../reports/presentation/report_screen.dart';
 import '../../../widget/presentation/services/widget_update_service.dart';
 import 'settings_screen.dart';
 
 /// Main navigation screen with bottom navigation bar.
 class MainNavigationScreen extends ConsumerStatefulWidget {
-  const MainNavigationScreen({super.key});
+  const MainNavigationScreen({super.key, this.initialIndex = 0});
+  final int initialIndex;
 
   @override
   ConsumerState<MainNavigationScreen> createState() =>
@@ -23,10 +25,13 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   int _currentIndex = 0;
+  final Set<int> _visitedTabs = {};
 
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialIndex.clamp(0, 3);
+    _visitedTabs.add(_currentIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Repopulate the widget for the current user (issue #64 AC4).
       // Fire and forget: offline it fails silently.
@@ -34,10 +39,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     });
   }
 
-  final List<Widget> _screens = const [
-    DashboardScreen(),
-    ExpenseTabsScreen(),
-    SettingsScreen(),
+  @override
+  void didUpdateWidget(covariant MainNavigationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _currentIndex = widget.initialIndex.clamp(0, 3);
+    _visitedTabs.add(_currentIndex);
+  }
+
+  List<Widget> get _screens => [
+    _visitedTabs.contains(0) ? const DashboardScreen() : const SizedBox.shrink(),
+    _visitedTabs.contains(1) ? const ExpenseTabsScreen() : const SizedBox.shrink(),
+    _visitedTabs.contains(2) ? ReportScreen(active: _currentIndex == 2) : const SizedBox.shrink(),
+    _visitedTabs.contains(3) ? const SettingsScreen() : const SizedBox.shrink(),
   ];
 
   final List<NavigationDestination> _destinations = const [
@@ -52,6 +65,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       label: 'Spese',
     ),
     NavigationDestination(
+      icon: Icon(Icons.bar_chart_outlined),
+      selectedIcon: Icon(Icons.bar_chart),
+      label: 'Report',
+    ),
+    NavigationDestination(
       icon: Icon(Icons.settings_outlined),
       selectedIcon: Icon(Icons.settings),
       label: 'Impostazioni',
@@ -61,7 +79,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   void _onDestinationSelected(int index) {
     setState(() {
       _currentIndex = index;
+      _visitedTabs.add(index);
     });
+    context.go(index == 2 ? AppRoutes.report : '${AppRoutes.main}?tab=$index');
   }
 
   void _showAddExpenseOptions() {

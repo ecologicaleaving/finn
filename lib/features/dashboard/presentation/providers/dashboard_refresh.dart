@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../expenses/presentation/providers/expense_provider.dart';
 import '../../../groups/presentation/providers/group_provider.dart';
+import '../../../reports/presentation/report_provider.dart';
 import '../widgets/expenses_chart_widget.dart';
 import '../widgets/personal_dashboard_view.dart';
 import 'dashboard_provider.dart';
@@ -13,6 +14,7 @@ import 'dashboard_provider.dart';
 /// Sono in gran parte `FutureProvider.autoDispose.family`: invalidare una
 /// family non osservata è un no-op, quindi è sicuro invalidarle tutte.
 final List<ProviderOrFamily> personalDashboardProviders = [
+  groupReportProvider,
   expensesByPeriodProvider,
   personalExpensesByCategoryProvider,
   personalOnlyExpensesByCategoryProvider,
