@@ -45,10 +45,15 @@ Map<String, Object?> _row(int i) => {
 void main() {
   final period = ReportPeriod(DateTime(2026, 11), DateTime(2026, 11, 11));
   Future<SupabaseClient> client(
-      Future<http.Response> Function(http.Request) handler) async {
+      Future<http.Response> Function(http.Request) handler,
+      {bool includeReimbursements = false}) async {
     final transport = MockClient((request) async {
       expect(request.method, 'GET');
-      final result = await handler(request);
+      final result = !includeReimbursements &&
+              request.url.queryParameters.containsKey('reimbursement_status')
+          ? http.Response('[]', 200,
+              headers: {'content-type': 'application/json'})
+          : await handler(request);
       return http.Response.bytes(result.bodyBytes, result.statusCode,
           headers: result.headers, request: request);
     });
@@ -74,7 +79,7 @@ void main() {
       expect(query['group_id'], 'eq.g');
       expect(query['is_group_expense'], 'eq.true');
       expect(query['or'],
-          '(transaction_type.eq.expense,transaction_type.is.null)');
+          '(transaction_type.eq.expense,transaction_type.is.null,transaction_type.eq.income)');
       expect(request.url.queryParametersAll['date'],
           containsAll(['gte.2026-06-01', 'lte.2026-11-11']));
       expect(query['order'],
@@ -160,6 +165,107 @@ void main() {
         .load(userId: 'A', groupId: 'g', period: period);
     final assertion = expectLater(result, throwsStateError);
     await started.future;
+    await supabase.auth.setInitialSession(_session('B'));
+    pending.complete(json([_row(1)]));
+    await assertion;
+  });
+
+  test(
+      'refund query is independently paged by local timestamp, deduplicated and scoped',
+      () async {
+    final refundedAt = DateTime(2026, 11, 5, 10).toUtc().toIso8601String();
+    final refunds = List.generate(
+        205,
+        (i) => {
+              ..._row(i),
+              'date': i == 0 ? '2026-11-01' : '2020-01-01',
+              'reimbursement_status': 'reimbursed',
+              'reimbursed_at': refundedAt
+            });
+    final refundOffsets = <int>[];
+    final supabase = await client((request) async {
+      final query = request.url.queryParameters;
+      expect(request.url.path, '/rest/v1/expenses');
+      expect(query['group_id'], 'eq.g');
+      expect(query['is_group_expense'], 'eq.true');
+      final offset = int.parse(query['offset']!);
+      if (!query.containsKey('reimbursement_status')) {
+        if (offset > 0) return json([]);
+        return json([
+          refunds.first,
+          {
+            ..._row(999),
+            'id': 'income',
+            'amount': '10.00',
+            'transaction_type': 'income'
+          }
+        ]);
+      }
+      expect(query['reimbursement_status'], 'eq.reimbursed');
+      expect(query['or'],
+          '(transaction_type.eq.expense,transaction_type.is.null)');
+      expect(query.containsKey('date'), isFalse);
+      expect(query['order'],
+          'reimbursed_at.asc.nullslast,created_at.asc.nullslast,id.asc.nullslast');
+      expect(
+          request.url.queryParametersAll['reimbursed_at'],
+          containsAll([
+            'gte.${period.localHistoryStartUtc.toIso8601String()}',
+            'lt.${period.localEndExclusiveUtc.toIso8601String()}',
+          ]));
+      refundOffsets.add(offset);
+      return json(refunds.skip(offset).take(100).toList());
+    }, includeReimbursements: true);
+    final rows = await SupabaseReportLoader(supabase)
+        .load(userId: 'A', groupId: 'g', period: period);
+    expect(refundOffsets, [0, 100, 200, 205]);
+    expect(rows.length, 206);
+    final report =
+        GroupReport.calculate(groupId: 'g', period: period, rows: rows);
+    expect(report.totalCents, 10);
+    expect(report.incomeCents, 1000);
+    expect(report.receivedReimbursementCents, 2050);
+    expect(report.balanceCents, 3040);
+  });
+
+  test(
+      'failure on a later refund page rejects previously loaded income as well',
+      () async {
+    var refundPages = 0;
+    final supabase = await client((request) async {
+      if (!request.url.queryParameters.containsKey('reimbursement_status')) {
+        return json(request.url.queryParameters['offset'] == '0'
+            ? [
+                {..._row(999), 'transaction_type': 'income'}
+              ]
+            : []);
+      }
+      refundPages++;
+      if (refundPages == 1) return json(List.generate(200, _row));
+      return json({'code': '500', 'message': 'refund page failed'}, 500);
+    }, includeReimbursements: true);
+    await expectLater(
+        SupabaseReportLoader(supabase)
+            .load(userId: 'A', groupId: 'g', period: period),
+        throwsA(isA<PostgrestException>()));
+    expect(refundPages, 2);
+  });
+
+  test(
+      'changing account while refund query is pending rejects the complete result',
+      () async {
+    final pending = Completer<http.Response>();
+    final refundStarted = Completer<void>();
+    final supabase = await client((request) async {
+      if (!request.url.queryParameters.containsKey('reimbursement_status'))
+        return json([]);
+      refundStarted.complete();
+      return pending.future;
+    }, includeReimbursements: true);
+    final result = SupabaseReportLoader(supabase)
+        .load(userId: 'A', groupId: 'g', period: period);
+    final assertion = expectLater(result, throwsStateError);
+    await refundStarted.future;
     await supabase.auth.setInitialSession(_session('B'));
     pending.complete(json([_row(1)]));
     await assertion;

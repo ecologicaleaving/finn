@@ -26,29 +26,47 @@ class SupabaseReportLoader implements ReportLoader {
       {required String userId,
       required String groupId,
       required ReportPeriod period}) async {
-    final rows = <ReportExpense>[];
-    for (var offset = 0;;) {
-      _checkUser(userId);
-      final page = await client
-          .from('expenses')
-          .select(
-              'id,group_id,amount,date,created_at,created_by,created_by_name,'
-              'paid_by,paid_by_name,is_group_expense,transaction_type,'
-              'category_id,category_name:expense_categories(name),notes,merchant')
-          .eq('group_id', groupId)
-          .eq('is_group_expense', true)
-          .or('transaction_type.eq.expense,transaction_type.is.null')
-          .gte('date', toServerDate(period.historyStart))
-          .lte('date', toServerDate(period.end))
-          .order('date', ascending: true)
-          .order('created_at', ascending: true)
-          .order('id', ascending: true)
-          .range(offset, offset + pageSize - 1)
-          .timeout(const Duration(seconds: 30));
-      _checkUser(userId);
-      if (page.isEmpty) return rows;
-      rows.addAll(page.map(ReportExpense.fromJson));
-      offset += page.length;
+    final rows = <String, ReportExpense>{};
+    for (final reimbursements in [false, true]) {
+      for (var offset = 0;;) {
+        _checkUser(userId);
+        var query = client
+            .from('expenses')
+            .select(
+                'id,group_id,amount,date,created_at,created_by,created_by_name,'
+                'paid_by,paid_by_name,is_group_expense,transaction_type,'
+                'category_id,category_name:expense_categories(name),notes,merchant,'
+                'reimbursement_status,reimbursed_at')
+            .eq('group_id', groupId)
+            .eq('is_group_expense', true)
+            .or(reimbursements
+                ? 'transaction_type.eq.expense,transaction_type.is.null'
+                : 'transaction_type.eq.expense,transaction_type.is.null,transaction_type.eq.income');
+        query = reimbursements
+            ? query
+                .eq('reimbursement_status', 'reimbursed')
+                .gte('reimbursed_at',
+                    period.localHistoryStartUtc.toIso8601String())
+                .lt('reimbursed_at',
+                    period.localEndExclusiveUtc.toIso8601String())
+            : query
+                .gte('date', toServerDate(period.historyStart))
+                .lte('date', toServerDate(period.end));
+        final page = await query
+            .order(reimbursements ? 'reimbursed_at' : 'date', ascending: true)
+            .order('created_at', ascending: true)
+            .order('id', ascending: true)
+            .range(offset, offset + pageSize - 1)
+            .timeout(const Duration(seconds: 30));
+        _checkUser(userId);
+        if (page.isEmpty) break;
+        for (final json in page) {
+          final row = ReportExpense.fromJson(json);
+          rows[row.id] = row;
+        }
+        offset += page.length;
+      }
     }
+    return rows.values.toList();
   }
 }

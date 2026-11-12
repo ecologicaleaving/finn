@@ -21,6 +21,7 @@ import 'package:family_expense_tracker/features/reports/data/report_loader.dart'
 import 'package:family_expense_tracker/features/reports/domain/group_report.dart';
 import 'package:family_expense_tracker/features/reports/presentation/report_provider.dart';
 import 'package:family_expense_tracker/features/reports/presentation/report_screen.dart';
+import 'package:family_expense_tracker/features/reports/presentation/report_income_section.dart';
 import 'package:family_expense_tracker/features/widget/domain/repositories/widget_repository.dart';
 import 'package:family_expense_tracker/features/widget/presentation/services/widget_update_service.dart';
 
@@ -93,6 +94,34 @@ ReportExpense _expense(String id, DateTime date, int cents,
       paidByName: 'Anna',
     );
 
+ReportExpense _income(String id,
+        {int cents = 30000, String? title, DateTime? date}) =>
+    ReportExpense(
+        id: id,
+        groupId: 'g',
+        date: date ?? DateTime.utc(2026, 11, 3),
+        cents: cents,
+        createdBy: 'A',
+        transactionType: 'income',
+        categoryId: 'support',
+        categoryName: 'Aiuti statali',
+        notes: title ?? 'Assegni familiari',
+        paidBy: 'giovanna',
+        paidByName: 'Nome precedente');
+
+ReportExpense _refund(String id, {int cents = 10000}) => ReportExpense(
+    id: id,
+    groupId: 'g',
+    date: DateTime.utc(2020, 1, 1),
+    cents: cents,
+    createdBy: 'A',
+    paidBy: 'A',
+    paidByName: 'Anna',
+    notes: 'Visita precedente',
+    categoryName: 'Salute',
+    reimbursementStatus: 'reimbursed',
+    reimbursedAt: DateTime(2026, 11, 4, 10).toUtc());
+
 ProviderContainer _container(_Loader loader,
         {GroupState group =
             const GroupState(status: GroupStatus.loaded, group: _group),
@@ -127,6 +156,258 @@ MemberEntity _member(String id, String name, {String group = 'g'}) =>
 
 void main() {
   setUpAll(() => initializeDateFormatting('it_IT'));
+
+  testWidgets(
+      'adding income through the existing route refreshes the report on return',
+      (tester) async {
+    var saved = false;
+    final loader =
+        _Loader((_, __, ___) async => saved ? [_income('new-income')] : []);
+    final container = _container(loader);
+    addTearDown(container.dispose);
+    final router = GoRouter(routes: [
+      GoRoute(path: '/', builder: (_, __) => const ReportScreen()),
+      GoRoute(
+          path: '/add-income',
+          builder: (context, _) => Scaffold(
+              body: FilledButton(
+                  onPressed: () {
+                    saved = true;
+                    invalidatePersonalDashboardProviders(container.invalidate);
+                    context.pop();
+                  },
+                  child: const Text('Registra entrata')))),
+    ]);
+    addTearDown(router.dispose);
+    await _mount(tester, container, router: router);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Aggiungi entrata'), 500,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Aggiungi entrata'));
+    await tester.pumpAndSettle();
+    expect(find.text('Registra entrata'), findsOneWidget);
+    await tester.tap(find.text('Registra entrata'));
+    await tester.pumpAndSettle();
+    expect(loader.calls.length, 2);
+    expect(find.text('Assegni familiari'), findsOneWidget);
+    expect(find.text('Nessuna entrata o rimborso ricevuto nel periodo.'),
+        findsNothing);
+  });
+
+  for (final width in [390.0, 1440.0]) {
+    testWidgets(
+        'balance, income search and original refund detail fit width $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final loader = _Loader((_, __, ___) async => [
+            _expense('gross', DateTime.utc(2026, 11, 1), 100000),
+            _income('income'),
+            _refund('old-original'),
+          ]);
+      final container = _container(loader,
+          group: GroupState(
+              status: GroupStatus.loaded,
+              group: _group,
+              members: [
+                _member('A', 'Anna'),
+                _member('giovanna', 'Giovanna')
+              ]));
+      addTearDown(container.dispose);
+      final router = GoRouter(routes: [
+        GoRoute(path: '/', builder: (_, __) => const ReportScreen()),
+        GoRoute(
+            path: '/expense/:id',
+            builder: (_, state) => Scaffold(
+                body: Text('Originale ${state.pathParameters['id']}'))),
+        GoRoute(
+            path: '/add-income',
+            builder: (_, __) => const Scaffold(body: Text('Nuova entrata'))),
+      ]);
+      addTearDown(router.dispose);
+      await _mount(tester, container, router: router);
+      await tester.pumpAndSettle();
+      expect(find.text('Entrate registrate'), findsOneWidget);
+      expect(find.text('Rimborsi ricevuti'), findsOneWidget);
+      expect(find.text('Saldo del periodo'), findsOneWidget);
+      expect(find.text('Rimborsi attesi'), findsOneWidget);
+      expect(find.textContaining('-600,00'), findsOneWidget);
+      expect(find.text('Spese lorde'), findsOneWidget);
+      await tester.scrollUntilVisible(
+          find.text('Andamento degli ultimi 6 mesi'), 500,
+          scrollable: find.byType(Scrollable).first);
+      expect(
+          tester
+              .widget<BarChart>(find.byType(BarChart))
+              .data
+              .barGroups
+              .last
+              .barRods
+              .length,
+          2);
+      await tester.scrollUntilVisible(
+          find.text('Entrate per persona associata'), 500,
+          scrollable: find.byType(Scrollable).first);
+      final personCard = find.ancestor(
+          of: find.text('Entrate per persona associata'),
+          matching: find.byType(Card));
+      expect(find.descendant(of: personCard, matching: find.text('Giovanna')),
+          findsOneWidget);
+      await tester.scrollUntilVisible(find.byType(TextField), 500,
+          scrollable: find.byType(Scrollable).first);
+      final details = find.ancestor(
+          of: find.byType(TextField), matching: find.byType(Card));
+      await tester.enterText(find.byType(TextField), 'Giovanna');
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(
+              of: details, matching: find.text('Assegni familiari')),
+          findsOneWidget);
+      expect(
+          find.descendant(
+              of: details, matching: find.text('Visita precedente')),
+          findsNothing);
+      expect(
+          find.descendant(
+              of: details,
+              matching: find.textContaining('Totale filtrato: 300,00')),
+          findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'Aiuti statali');
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(
+              of: details, matching: find.text('Assegni familiari')),
+          findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.tap(find.text('Rimborsi'));
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(
+              of: details, matching: find.text('Assegni familiari')),
+          findsNothing);
+      expect(
+          find.descendant(
+              of: details, matching: find.text('Persona associata: Anna')),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text('Visita precedente'));
+      await tester.tap(find.text('Visita precedente'));
+      await tester.pumpAndSettle();
+      expect(find.text('Originale old-original'), findsOneWidget);
+      expect(loader.calls.length, 1);
+    });
+  }
+
+  for (final refundOnly in [false, true]) {
+    testWidgets(
+        'a period with only ${refundOnly ? 'refunds' : 'income'} keeps the balance and detail visible',
+        (tester) async {
+      final loader = _Loader((_, __, ___) async =>
+          [refundOnly ? _refund('old') : _income('income')]);
+      final container = _container(loader);
+      addTearDown(container.dispose);
+      await _mount(tester, container);
+      await tester.pumpAndSettle();
+      expect(find.text('Nessuna spesa nel periodo'), findsOneWidget);
+      expect(find.text('Saldo del periodo'), findsOneWidget);
+      await tester.scrollUntilVisible(find.byType(TextField), 500,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(refundOnly ? 'Visita precedente' : 'Assegni familiari'),
+          findsOneWidget);
+      expect(find.text('Dettaglio entrate e rimborsi'), findsOneWidget);
+      expect(find.textContaining('registra lo stesso incasso una sola volta'),
+          findsOneWidget);
+      if (refundOnly)
+        expect(find.text('Nessuna entrata registrata nel periodo.'),
+            findsNWidgets(2));
+    });
+  }
+
+  testWidgets('income details page every movement and total the whole filter',
+      (tester) async {
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026, 11), DateTime(2026, 11, 11)),
+        rows: List.generate(
+            45,
+            (i) => _income('income-${i.toString().padLeft(2, '0')}',
+                cents: 100, title: 'Entrata ${i.toString().padLeft(2, '0')}')));
+    final router = GoRouter(routes: [
+      GoRoute(
+          path: '/',
+          builder: (_, __) => Scaffold(
+              body: SingleChildScrollView(
+                  child: ReportInflowDetails(
+                      report: report,
+                      members: const [ReportMember('giovanna', 'Giovanna')])))),
+      GoRoute(
+          path: '/add-income',
+          builder: (_, __) => const Scaffold(body: Text('Nuova entrata'))),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    expect(find.text('1–20 di 45 movimenti'), findsOneWidget);
+    expect(find.textContaining('Totale filtrato: 45,00'), findsOneWidget);
+    expect(find.text('Entrata 00'), findsOneWidget);
+    expect(find.text('Entrata 44'), findsNothing);
+    await tester.ensureVisible(find.byTooltip('Altri movimenti'));
+    await tester.tap(find.byTooltip('Altri movimenti'));
+    await tester.pumpAndSettle();
+    expect(find.text('21–40 di 45 movimenti'), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip('Altri movimenti'));
+    await tester.tap(find.byTooltip('Altri movimenti'));
+    await tester.pumpAndSettle();
+    expect(find.text('41–45 di 45 movimenti'), findsOneWidget);
+    expect(find.text('Entrata 44'), findsOneWidget);
+    await tester.ensureVisible(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'Entrata 44');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Totale filtrato: 1,00'), findsOneWidget);
+    await tester.tap(find.text('Rimborsi'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nessun movimento corrisponde alla ricerca.'),
+        findsOneWidget);
+    await tester.ensureVisible(find.text('Aggiungi entrata'));
+    await tester.tap(find.text('Aggiungi entrata'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nuova entrata'), findsOneWidget);
+  });
+
+  testWidgets(
+      'returning from a refund status change refreshes an otherwise unchanged report',
+      (tester) async {
+    var reimbursed = true;
+    final loader =
+        _Loader((_, __, ___) async => reimbursed ? [_refund('old')] : []);
+    final container = _container(loader);
+    addTearDown(container.dispose);
+    final router = GoRouter(routes: [
+      GoRoute(path: '/', builder: (_, __) => const ReportScreen()),
+      GoRoute(
+          path: '/expense/:id',
+          builder: (context, _) => Scaffold(
+              body: FilledButton(
+                  onPressed: () {
+                    reimbursed = false;
+                    context.pop();
+                  },
+                  child: const Text('Annulla rimborso')))),
+    ]);
+    addTearDown(router.dispose);
+    await _mount(tester, container, router: router);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Visita precedente'), 500,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Visita precedente'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Annulla rimborso'));
+    await tester.pumpAndSettle();
+    expect(loader.calls.length, 2);
+    expect(find.text('Visita precedente'), findsNothing);
+    expect(find.text('Nessuna entrata o rimborso ricevuto nel periodo.'),
+        findsOneWidget);
+  });
 
   for (final width in [390.0, 1440.0]) {
     testWidgets('annual report and member payments fit width $width',
@@ -346,7 +627,7 @@ void main() {
     expect(find.text('Spesa totale'), findsNothing);
     pending.completeError(StateError('second page failed'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Impossibile caricare tutte le spese'),
+    expect(find.textContaining('Impossibile caricare tutti i movimenti'),
         findsOneWidget);
     expect(find.text('Spesa totale'), findsNothing);
     await tester.tap(find.text('Riprova'));

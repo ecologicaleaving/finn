@@ -13,6 +13,8 @@ ReportExpense row(
   String? payer,
   String? payerName,
   String category = 'Cibo',
+  String status = 'reimbursed',
+  String? reimbursedAt,
 }) =>
     ReportExpense.fromJson({
       'id': id,
@@ -27,10 +29,136 @@ ReportExpense row(
       'category_name': {'name': category},
       'is_group_expense': shared,
       'transaction_type': type,
-      'reimbursement_status': 'reimbursed',
+      'reimbursement_status': status,
+      'reimbursed_at': reimbursedAt,
     });
 
 void main() {
+  test(
+      'group balance is income plus received refunds minus gross, pending excluded',
+      () {
+    final refund = row('old-refund', '2025-01-02', 100,
+        reimbursedAt: DateTime(2026, 11, 2, 10).toUtc().toIso8601String());
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026, 11), DateTime(2026, 11, 12)),
+        rows: [
+          row('gross', '2026-11-01', 950, status: 'none'),
+          row('pending', '2026-11-03', 50, status: 'reimbursable'),
+          row('benefit', '2026-11-04', 300,
+              type: 'income',
+              category: 'Aiuti statali',
+              payer: 'giovanna',
+              payerName: 'Giovanna'),
+          refund,
+          refund,
+        ]);
+    expect(report.totalCents, 100000);
+    expect(report.incomeCents, 30000);
+    expect(report.receivedReimbursementCents, 10000);
+    expect(report.pendingReimbursementCents, 5000);
+    expect(report.balanceCents, -60000);
+    expect(report.count, 2);
+    expect(report.payers.fold<int>(0, (s, p) => s + p.cents), 100000);
+    expect(report.incomeCategories.single.label, 'Aiuti statali');
+    expect(report.incomePeople.single.id, 'giovanna');
+    expect(report.inflows.length, 2);
+    expect(report.trend.last.inflowCents, 40000);
+  });
+
+  test(
+      'income cannot also become a refund and unrelated or future movements are excluded',
+      () {
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026, 11), DateTime(2026, 11, 12)),
+        rows: [
+          row('income', '2026-11-01', 10,
+              type: 'income',
+              reimbursedAt: DateTime(2026, 11, 2).toUtc().toIso8601String()),
+          row('personal', '2026-11-01', 500, type: 'income', shared: false),
+          row('other-group', '2026-11-01', 500, type: 'income', group: 'other'),
+          row('unknown', '2026-11-01', 500, type: 'other'),
+          row('future-income', '2026-11-13', 500, type: 'income'),
+          row('future-refund', '2024-01-01', 500,
+              reimbursedAt: DateTime(2026, 11, 13).toUtc().toIso8601String()),
+          row('missing-timestamp', '2024-01-01', 500),
+        ]);
+    expect(report.totalCents, 0);
+    expect(report.incomeCents, 1000);
+    expect(report.receivedReimbursementCents, 0);
+    expect(report.balanceCents, 1000);
+    expect(report.pendingReimbursementCents, 0);
+    expect(report.inflows.single.kind, ReportInflowKind.income);
+  });
+
+  test('refund periods use local calendar days and exclusive next midnight',
+      () {
+    final period = ReportPeriod(DateTime(2026, 11), DateTime(2026, 12, 2));
+    String instant(int month, int day, int hour, int minute) =>
+        DateTime(2026, month, day, hour, minute).toUtc().toIso8601String();
+    final report = GroupReport.calculate(groupId: 'g', period: period, rows: [
+      row('first', '2024-01-01', 10, reimbursedAt: instant(11, 1, 0, 0)),
+      row('last', '2024-01-01', 20, reimbursedAt: instant(11, 30, 23, 59)),
+      row('before', '2024-01-01', 100, reimbursedAt: instant(10, 31, 23, 59)),
+      row('after', '2024-01-01', 100, reimbursedAt: instant(12, 1, 0, 0)),
+    ]);
+    expect(report.receivedReimbursementCents, 3000);
+    expect(report.inflows.map((entry) => entry.expense.id),
+        containsAll(['first', 'last']));
+    final utcMidnight = DateTime.utc(2026, 11, 1);
+    final local = utcMidnight.toLocal();
+    expect(reportTimestampDay(utcMidnight),
+        DateTime.utc(local.year, local.month, local.day));
+    expect(period.localEndExclusiveUtc, DateTime(2026, 12, 1).toUtc());
+    final dst = ReportPeriod(DateTime(2026, 3), DateTime(2026, 4, 2));
+    expect(dst.localEndExclusiveUtc, DateTime(2026, 4, 1).toUtc());
+  });
+
+  test(
+      'duplicate ID is counted once but a separate income is never guessed to be the same refund',
+      () {
+    final expense = row('expense', '2026-11-01', 100,
+        reimbursedAt: DateTime(2026, 11, 2).toUtc().toIso8601String());
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026, 11), DateTime(2026, 11, 12)),
+        rows: [
+          expense,
+          expense,
+          row('separate-income', '2026-11-02', 100, type: 'income'),
+        ]);
+    expect(report.count, 1);
+    expect(report.totalCents, 10000);
+    expect(report.receivedReimbursementCents, 10000);
+    expect(report.incomeCents, 10000);
+    expect(report.balanceCents, 10000);
+    expect(report.inflows.length, 2);
+  });
+
+  test(
+      'annual balance and trend include old expenses refunded in the selected year',
+      () {
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026), DateTime(2026, 11, 12),
+            mode: ReportMode.year),
+        rows: [
+          row('jan-income', '2026-01-01', '0.10', type: 'income'),
+          row('nov-income', '2026-11-01', '0.20', type: 'income'),
+          row('old-expense', '2020-02-01', '12.34',
+              reimbursedAt: DateTime(2026, 7, 5).toUtc().toIso8601String()),
+        ]);
+    expect(report.totalCents, 0);
+    expect(report.incomeCents, 30);
+    expect(report.receivedReimbursementCents, 1234);
+    expect(report.balanceCents, 1264);
+    expect(report.trend.fold<int>(0, (s, m) => s + m.inflowCents), 1264);
+    expect(report.trend[6].reimbursementCents, 1234);
+    expect(report.trend.last.future, isTrue);
+    expect(report.trend.last.inflowCents, 0);
+  });
+
   test(
       'current annual report uses year-to-date and calendar-aligned comparison',
       () {

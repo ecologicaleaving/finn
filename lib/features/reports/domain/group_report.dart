@@ -11,6 +11,12 @@ DateTime reportMonth(DateTime value, [int offset = 0]) =>
 DateTime monthEnd(DateTime value) =>
     DateTime.utc(value.year, value.month + 1, 0);
 
+/// A reimbursement is an instant, even when its UTC time is midnight.
+DateTime reportTimestampDay(DateTime value) {
+  final local = value.toLocal();
+  return DateTime.utc(local.year, local.month, local.day);
+}
+
 /// Monetary database values are converted once; every sum uses integer cents.
 int reportCents(Object amount) {
   final text = amount.toString();
@@ -69,6 +75,10 @@ class ReportPeriod {
   }
 
   DateTime get historyStart => isYear ? previousStart : reportMonth(month, -5);
+  DateTime get localHistoryStartUtc =>
+      DateTime(historyStart.year, historyStart.month, historyStart.day).toUtc();
+  DateTime get localEndExclusiveUtc =>
+      DateTime(end.year, end.month, end.day + 1).toUtc();
 }
 
 class ReportExpense {
@@ -87,6 +97,8 @@ class ReportExpense {
     this.createdByName,
     this.notes,
     this.merchant,
+    this.reimbursementStatus = 'none',
+    this.reimbursedAt,
   });
   factory ReportExpense.fromJson(Map<String, dynamic> json) {
     final category = json['category_name'];
@@ -106,6 +118,10 @@ class ReportExpense {
       createdByName: json['created_by_name'] as String?,
       notes: json['notes'] as String?,
       merchant: json['merchant'] as String?,
+      reimbursementStatus: json['reimbursement_status'] as String? ?? 'none',
+      reimbursedAt: json['reimbursed_at'] == null
+          ? null
+          : DateTime.parse(json['reimbursed_at'] as String),
     );
   }
   final String id, groupId, createdBy;
@@ -114,6 +130,9 @@ class ReportExpense {
   final bool isGroupExpense;
   final String? transactionType, categoryId, categoryName;
   final String? paidBy, paidByName, createdByName, notes, merchant;
+  final String reimbursementStatus;
+  final DateTime? reimbursedAt;
+  bool get isExpense => transactionType == null || transactionType == 'expense';
   String get category => _nonblank(categoryName) ?? 'Altro';
   bool get _unlinkedPayer =>
       _nonblank(paidBy) == null &&
@@ -143,12 +162,28 @@ class ReportSlice {
 
 class ReportMonthTotal {
   const ReportMonthTotal(this.month, this.cents, this.partial,
-      {this.future = false, this.count = 0});
+      {this.future = false,
+      this.count = 0,
+      this.incomeCents = 0,
+      this.reimbursementCents = 0});
   final DateTime month;
   final int cents;
   final bool partial;
   final bool future;
   final int count;
+  final int incomeCents, reimbursementCents;
+  int get inflowCents => incomeCents + reimbursementCents;
+}
+
+enum ReportInflowKind { income, reimbursement }
+
+class ReportInflow {
+  const ReportInflow(this.expense, this.date, this.kind);
+  final ReportExpense expense;
+  final DateTime date;
+  final ReportInflowKind kind;
+  int get cents => expense.cents;
+  String get id => '${kind.name}:${expense.id}';
 }
 
 class ReportMember {
@@ -175,17 +210,28 @@ class GroupReport {
       this.payers,
       this.days,
       this.trend,
-      this.largestExpense);
+      this.largestExpense,
+      {required this.incomeCents,
+      required this.receivedReimbursementCents,
+      required this.pendingReimbursementCents,
+      required this.inflows,
+      required this.incomeCategories,
+      required this.incomePeople});
 
   factory GroupReport.calculate(
       {required String groupId,
       required ReportPeriod period,
       required List<ReportExpense> rows}) {
-    final eligible = rows
+    final scoped = {
+      for (final row in rows)
+        if (row.groupId == groupId &&
+            row.isGroupExpense &&
+            (row.isExpense || row.transactionType == 'income'))
+          row.id: row
+    }.values.toList();
+    final eligible = scoped
         .where((e) =>
-            e.groupId == groupId &&
-            e.isGroupExpense &&
-            (e.transactionType == null || e.transactionType == 'expense') &&
+            e.isExpense &&
             !e.date.isBefore(period.historyStart) &&
             !e.date.isAfter(period.end))
         .toList();
@@ -196,10 +242,42 @@ class GroupReport {
         values.fold(0, (s, e) => s + e.cents);
     final current = between(period.start, period.end)
       ..sort((a, b) => b.cents.compareTo(a.cents));
+    bool inRange(DateTime day, DateTime start, DateTime end) =>
+        !day.isBefore(start) && !day.isAfter(end);
+    final allIncome = scoped
+        .where((e) =>
+            e.transactionType == 'income' &&
+            inRange(e.date, period.historyStart, period.end))
+        .toList();
+    final income = allIncome
+        .where((e) => inRange(e.date, period.start, period.end))
+        .toList();
+    final allReimbursements = [
+      for (final row in scoped)
+        if (row.isExpense &&
+            row.reimbursementStatus == 'reimbursed' &&
+            row.reimbursedAt != null &&
+            inRange(reportTimestampDay(row.reimbursedAt!), period.historyStart,
+                period.end))
+          ReportInflow(row, reportTimestampDay(row.reimbursedAt!),
+              ReportInflowKind.reimbursement)
+    ];
+    final received = allReimbursements
+        .where((e) => inRange(e.date, period.start, period.end))
+        .toList();
+    final inflows = [
+      for (final row in income)
+        ReportInflow(row, row.date, ReportInflowKind.income),
+      ...received
+    ]..sort((a, b) {
+        final date = b.date.compareTo(a.date);
+        return date == 0 ? a.id.compareTo(b.id) : date;
+      });
     List<ReportSlice> slices(String Function(ReportExpense) key,
-        String Function(ReportExpense) label) {
+        String Function(ReportExpense) label,
+        {List<ReportExpense>? source}) {
       final groups = <String, List<ReportExpense>>{};
-      for (final row in current) {
+      for (final row in source ?? current) {
         groups.putIfAbsent(key(row), () => []).add(row);
       }
       return groups.entries
@@ -231,9 +309,25 @@ class GroupReport {
                 : monthEnd(month));
         return ReportMonthTotal(month, sum(monthRows),
             month == reportMonth(period.today) && period.isCurrent,
-            future: future, count: monthRows.length);
+            future: future,
+            count: monthRows.length,
+            incomeCents:
+                sum(allIncome.where((e) => reportMonth(e.date) == month)),
+            reimbursementCents: allReimbursements
+                .where((e) => reportMonth(e.date) == month)
+                .fold<int>(0, (s, e) => s + e.cents));
       }),
       current.isEmpty ? null : current.first,
+      incomeCents: sum(income),
+      receivedReimbursementCents: received.fold<int>(0, (s, e) => s + e.cents),
+      pendingReimbursementCents:
+          sum(current.where((e) => e.reimbursementStatus == 'reimbursable')),
+      inflows: inflows,
+      incomeCategories: slices(
+          (e) => e.categoryId ?? e.category, (e) => e.category,
+          source: income),
+      incomePeople:
+          slices((e) => e.payerId, (e) => e.payerName, source: income),
     );
   }
   final ReportPeriod period;
@@ -242,6 +336,10 @@ class GroupReport {
   final List<ReportSlice> categories, payers, days;
   final List<ReportMonthTotal> trend;
   final ReportExpense? largestExpense;
+  final int incomeCents, receivedReimbursementCents, pendingReimbursementCents;
+  final List<ReportInflow> inflows;
+  final List<ReportSlice> incomeCategories, incomePeople;
+  int get balanceCents => incomeCents + receivedReimbursementCents - totalCents;
   int get count => expenses.length;
   int get averageCents => count == 0 ? 0 : (totalCents / count).round();
   ReportMonthTotal? get busiestMonth {
@@ -272,8 +370,9 @@ class GroupReport {
         final amount = b.cents.compareTo(a.cents);
         return amount != 0 ? amount : a.label.compareTo(b.label);
       });
-    if (totalCents <= 0 || result.any((payment) => payment.cents < 0))
+    if (totalCents <= 0 || result.any((payment) => payment.cents < 0)) {
       return result;
+    }
     final tenths = {
       for (final payment in result)
         payment.id: payment.cents * 1000 ~/ totalCents

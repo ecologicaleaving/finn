@@ -1,5 +1,73 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 12 novembre — bilancio con entrate e rimborsi (#88)
+
+Il bilancio del Report mensile/annuale distingue spese lorde, entrate
+registrate e rimborsi ricevuti. Il saldo del periodo è la somma di entrate e
+rimborsi meno le spese; non è un saldo bancario. Categorie e quote pagate
+rimangono calcolate sulle spese lorde, con riepiloghi separati delle entrate.
+Gli aiuti statali sono movimenti `income` con descrizione/categoria originali:
+nessuna classificazione per parole chiave o attribuzione a beneficiari non
+presenti nei dati. Le fonti personali previste in `income_sources` non sono
+incassi e restano escluse.
+
+Il loader legge due dataset paginati e li unisce per ID: movimenti per `date`
+e sole spese rimborsate per `reimbursed_at`, indipendentemente dalla data
+originaria della spesa. I confini dei rimborsi sono mezzanotti locali
+convertite in UTC, con termine finale esclusivo; il timestamp viene sempre
+convertito in locale, anche a mezzanotte UTC. Un errore in qualsiasi pagina
+impedisce di mostrare un bilancio parziale.
+
+Il modello esistente registra solo stato e data del rimborso: l'importo
+conteggiato è quello integrale della spesa alla data di marcatura. Una
+entrata distinta non ha un collegamento al flag di rimborso; il testo nel
+Report chiede di registrare ogni incasso una sola volta, senza deduplicare
+arbitrariamente righe diverse per importo o nome. I rimborsi attesi sono
+solo quelli delle spese del periodo nello stato attuale `reimbursable` e
+restano fuori dal saldo; non ricostruiscono un credito storico a fine mese.
+
+Il dettaglio degli incassi mostra data, descrizione, categoria, persona
+associata e importo, permette ricerca e filtro entrate/rimborsi e apre il
+movimento originale. Il collegamento per aggiungere un'entrata riusa il
+modulo esistente. Nessuna scrittura automatica, migrazione o nuova dipendenza.
+
+Al ritorno dal movimento originale il Report viene invalidato se non è già
+stato aggiornato dal refresh condiviso. Questo copre il cambio dello stato
+rimborso nel dettaglio, che prima non influenzava i KPI del Report; i
+controlli su mounted, richiesta, account e gruppo impediscono di riaprire
+una richiesta fuori scope. Il salvataggio di nuove entrate riusa il refresh
+comune delle altre mutazioni.
+
+Primo giro finale: **50 test passati, 0 saltati, exit 0**. Sono coperti il
+saldo di controllo 1.000/300/100 = −600, rimborsi di spese precedenti,
+timestamp locali e confini mese/ora legale, deduplica per ID, incassi
+distinti, due query paginate con errori e cambio account, ricerca su 45
+movimenti, paginazione fino all'ultima riga, casi senza spese, layout a
+390/1440 px e aggiornamento al ritorno dal dettaglio e da Aggiungi entrata.
+La prima prova del nuovo test di navigazione è fallita per un'asserzione
+sull'URI esposto da GoRouter; corretta per verificare la schermata aperta,
+senza modificare il comportamento applicativo. Log dei tentativi conservati.
+
+Verifica indipendente: **52 test passati, 0 saltati, 0 failure, exit 0**,
+sessione 8725 (50 Report e 2 dashboard refresh), senza rilievi bloccanti sugli
+11 criteri. Runner 1m06s oltre al caricamento iniziale rallentato. Analisi
+applicativa finale: ciascuno dei quattro file Report modificati termina con
+exit 0, nessuna diagnostica (0 errori, warning e informazioni). L'analisi dei
+test termina con exit 0, 0 errori/warning e due sole informazioni sulle
+graffe nelle fixture. Il precedente controllo dell'intera cartella codice
+è stato interrotto per timeout e non viene contato come riuscito; log e
+codice 124 restano distinti dagli esiti finali dei singoli file.
+
+Build web release **exit 0 in 231,0 s**. Verificate tutte le **222 risorse**
+del manifest offline, i quattro sorgenti invariati dopo la compilazione e
+la sola configurazione client pubblica Supabase. JavaScript SHA-256:
+`0e017e5006f892ceae2d65322e813634dea59da74d44183d7f8cc20e959aed7b`.
+L'output della build è arrivato soltanto al termine: il ritardo iniziale
+non era un errore o un timeout della compilazione.
+
+Pubblicazione della #88 in corso; il browser autenticato reale resta da
+provare con l'account dell'utente.
+
 ## Aggiornamento 12 novembre — anno e pagamenti dei componenti (#87)
 
 Il selettore Mese/Anno mantiene le rispettive selezioni. L'anno corrente
@@ -36,8 +104,9 @@ la precedente `20261112-df9eccd`. Archivio di 17.209.146 byte, SHA-256
 `685fab41c4dfeb64491f5d1f6900f7dbb15925c88406c23cc7de69b49201be2e`.
 Il server ha verificato i 222 MD5 e l'hash del bundle prima dell'attivazione
 atomica. Homepage e JavaScript HTTPS 200; bundle pubblico uguale al locale,
-no-store e Cloudflare BYPASS. La verifica con il suo account nel browser
-reale resta da completare dall'utente: Ctrl+F5, Report → Anno.
+no-store e Cloudflare BYPASS. L'utente ha poi confermato positivamente il
+Report («ottimo !!!»), chiedendo l'estensione alle entrate della #88.
+La CI web e APK sul commit documentale `1db4211` è completata con successo.
 
 ## Aggiornamento 12 novembre — pagina Report (#86)
 

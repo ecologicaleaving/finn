@@ -13,6 +13,7 @@ import '../../auth/presentation/providers/auth_provider.dart';
 import '../../groups/presentation/providers/group_provider.dart';
 import '../domain/group_report.dart';
 import 'report_provider.dart';
+import 'report_income_section.dart';
 
 String _money(int cents) =>
     NumberFormat.currency(locale: 'it_IT', symbol: '€', decimalDigits: 2)
@@ -163,14 +164,30 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               const LoadingIndicator(message: 'Caricamento report completo...'),
           error: (_, __) => ErrorDisplay(
             message:
-                'Impossibile caricare tutte le spese. Riprova per un report completo.',
+                'Impossibile caricare tutti i movimenti. Riprova per un report completo.',
             onRetry: () => ref.invalidate(groupReportProvider(request)),
           ),
-          data: (value) => _ReportBody(report: value, members: [
-            for (final member in groupState.members)
-              if (member.groupId == group.id)
-                ReportMember(member.userId, member.displayName),
-          ]),
+          data: (value) => _ReportBody(
+              key: ValueKey(request),
+              report: value,
+              onOpenOriginal: (id) async {
+                final before = ref.read(groupReportProvider(request));
+                await context.push('/expense/${Uri.encodeComponent(id)}');
+                if (!mounted ||
+                    _lastRequest != request ||
+                    ref.read(currentUserProvider)?.id != request.userId ||
+                    ref.read(groupProvider).group?.id != request.groupId) {
+                  return;
+                }
+                if (identical(before, ref.read(groupReportProvider(request)))) {
+                  ref.invalidate(groupReportProvider(request));
+                }
+              },
+              members: [
+                for (final member in groupState.members)
+                  if (member.groupId == group.id)
+                    ReportMember(member.userId, member.displayName),
+              ]),
         )),
       ]),
     );
@@ -178,9 +195,14 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 }
 
 class _ReportBody extends StatelessWidget {
-  const _ReportBody({required this.report, required this.members});
+  const _ReportBody(
+      {super.key,
+      required this.report,
+      required this.members,
+      required this.onOpenOriginal});
   final GroupReport report;
   final List<ReportMember> members;
+  final Future<void> Function(String id) onOpenOriginal;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -202,6 +224,8 @@ class _ReportBody extends StatelessWidget {
           const SizedBox(height: 4),
           Text(_interval(period.start, period.end)),
           const SizedBox(height: 16),
+          Text('Spese lorde', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
           LayoutBuilder(builder: (context, constraints) {
             final width = constraints.maxWidth >= 650
                 ? (constraints.maxWidth - 24) / 3
@@ -215,6 +239,8 @@ class _ReportBody extends StatelessWidget {
                   Icons.analytics_outlined),
             ]);
           }),
+          const SizedBox(height: 20),
+          ReportBalanceSummary(report: report),
           if (report.count == 0) ...[
             const SizedBox(height: 16),
             const _Panel(
@@ -247,15 +273,58 @@ class _ReportBody extends StatelessWidget {
                       total: report.totalCents)),
             ]);
           }),
+          const SizedBox(height: 16),
+          LayoutBuilder(builder: (context, constraints) {
+            final width = constraints.maxWidth >= 800
+                ? (constraints.maxWidth - 16) / 2
+                : constraints.maxWidth;
+            final names = {
+              for (final member in members) member.id: member.name
+            };
+            return Wrap(spacing: 16, runSpacing: 16, children: [
+              SizedBox(
+                  width: width,
+                  child: _Breakdown(
+                      title: 'Entrate registrate per categoria',
+                      subtitle:
+                          'Categorie originali dei movimenti, inclusi gli aiuti registrati.',
+                      slices: report.incomeCategories,
+                      total: report.incomeCents,
+                      emptyMessage: 'Nessuna entrata registrata nel periodo.',
+                      countLabel: 'entrate')),
+              SizedBox(
+                  width: width,
+                  child: _Breakdown(
+                      title: 'Entrate per persona associata',
+                      subtitle:
+                          'Persona registrata nel movimento, senza dedurre beneficiari.',
+                      slices: [
+                        for (final slice in report.incomePeople)
+                          ReportSlice(
+                              slice.id,
+                              names[slice.id]?.trim().isNotEmpty == true
+                                  ? names[slice.id]!.trim()
+                                  : slice.label,
+                              slice.cents,
+                              slice.count)
+                      ],
+                      total: report.incomeCents,
+                      emptyMessage: 'Nessuna entrata registrata nel periodo.',
+                      countLabel: 'entrate')),
+            ]);
+          }),
+          const SizedBox(height: 16),
+          ReportInflowDetails(
+              report: report, members: members, onOpenOriginal: onOpenOriginal),
           if (report.count > 0) ...[
             const SizedBox(height: 16),
-            _Insights(report: report),
+            _Insights(report: report, onOpenOriginal: onOpenOriginal),
           ],
           const SizedBox(height: 20),
           Text(
-              'Solo spese di gruppo sincronizzate. Entrate e spese personali escluse. '
-              'Le spese rimborsate sono incluse: questi importi descrivono le spese registrate, '
-              'non il budget disponibile.',
+              'Solo movimenti di gruppo sincronizzati. Movimenti personali e fonti di reddito '
+              'previste escluse. Le spese rimborsate restano incluse nelle spese lorde. '
+              'Il saldo del periodo non rappresenta il saldo bancario o il budget disponibile.',
               style: theme.textTheme.bodySmall),
         ]),
       )),
@@ -325,8 +394,8 @@ class _Comparison extends StatelessWidget {
     final change = report.changePercent;
     return _Panel(
       title: period.isYear
-          ? 'Rispetto all’anno precedente'
-          : 'Rispetto al mese precedente',
+          ? 'Spese lorde rispetto all’anno precedente'
+          : 'Spese lorde rispetto al mese precedente',
       subtitle: period.isYear
           ? (period.isCurrent
               ? 'Confronto fino alla stessa data di calendario'
@@ -362,18 +431,35 @@ class _Trend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.primary;
+    final inflowColor = Theme.of(context).colorScheme.tertiary;
     return _Panel(
       title: report.period.isYear
           ? 'Andamento dei 12 mesi'
           : 'Andamento degli ultimi 6 mesi',
-      subtitle: 'Spesa registrata per mese · importi in euro',
+      subtitle: 'Uscite lorde ed entrate + rimborsi · importi in euro',
       child: Column(children: [
+        Wrap(spacing: 20, runSpacing: 8, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.circle, color: color, size: 10),
+            const SizedBox(width: 6),
+            const Text('Uscite lorde')
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.circle, color: inflowColor, size: 10),
+            const SizedBox(width: 6),
+            const Text('Entrate + rimborsi')
+          ]),
+        ]),
+        const SizedBox(height: 16),
         SizedBox(
             height: 180,
             child: BarChart(BarChartData(
               maxY: math.max(
                   1,
-                  report.trend.fold<int>(0, (m, e) => math.max(m, e.cents)) /
+                  report.trend.fold<int>(
+                          0,
+                          (m, e) =>
+                              math.max(m, math.max(e.cents, e.inflowCents))) /
                       100 *
                       1.2),
               borderData: FlBorderData(show: false),
@@ -398,22 +484,37 @@ class _Trend extends StatelessWidget {
                   BarChartGroupData(x: i, barRods: [
                     BarChartRodData(
                       toY: math.max(0, report.trend[i].cents / 100),
-                      width: report.period.isYear ? 12 : 22,
+                      width: report.period.isYear ? 7 : 14,
                       color: report.trend[i].partial
                           ? color.withValues(alpha: 0.55)
                           : color,
                       borderRadius:
                           const BorderRadius.vertical(top: Radius.circular(5)),
-                    )
+                    ),
+                    BarChartRodData(
+                        toY: math.max(0, report.trend[i].inflowCents / 100),
+                        width: report.period.isYear ? 7 : 14,
+                        color: report.trend[i].partial
+                            ? inflowColor.withValues(alpha: 0.55)
+                            : inflowColor,
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(5))),
                   ])
               ],
             ))),
         const SizedBox(height: 16),
-        for (final month in report.trend)
+        for (final month in report.trend) ...[
           _AmountRow(
               label:
                   '${DateFormat('MMM yyyy', 'it_IT').format(month.month)}${month.future ? ' · Non ancora trascorso' : (month.partial ? ' · parziale' : '')}',
               amount: month.future ? '—' : _money(month.cents)),
+          if (!month.future)
+            Padding(
+                padding: const EdgeInsets.only(left: 12, bottom: 8),
+                child: _AmountRow(
+                    label: 'Entrate + rimborsi',
+                    amount: _money(month.inflowCents))),
+        ],
       ]),
     );
   }
@@ -507,11 +608,14 @@ class _Breakdown extends StatelessWidget {
       required this.subtitle,
       required this.slices,
       required this.total,
-      this.chart = false});
+      this.chart = false,
+      this.emptyMessage = 'Nessuna spesa nel periodo.',
+      this.countLabel = 'spese'});
   final String title, subtitle;
   final List<ReportSlice> slices;
   final int total;
   final bool chart;
+  final String emptyMessage, countLabel;
   static const colors = [
     Color(0xFF2D4A3E),
     Color(0xFFB77945),
@@ -525,7 +629,7 @@ class _Breakdown extends StatelessWidget {
         title: title,
         subtitle: subtitle,
         child: slices.isEmpty
-            ? const Text('Nessuna spesa nel periodo.')
+            ? Text(emptyMessage)
             : Column(children: [
                 if (chart && total > 0) ...[
                   SizedBox(
@@ -559,7 +663,7 @@ class _Breakdown extends StatelessWidget {
                         Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                                '${slices[i].count} spese${total > 0 ? ' · ${NumberFormat('0.0', 'it_IT').format(slices[i].cents / total * 100)}%' : ''}')),
+                                '${slices[i].count} $countLabel${total > 0 ? ' · ${NumberFormat('0.0', 'it_IT').format(slices[i].cents / total * 100)}%' : ''}')),
                         const SizedBox(height: 6),
                         LinearProgressIndicator(
                             value: total > 0
@@ -593,8 +697,9 @@ class _AmountRow extends StatelessWidget {
 }
 
 class _Insights extends StatelessWidget {
-  const _Insights({required this.report});
+  const _Insights({required this.report, required this.onOpenOriginal});
   final GroupReport report;
+  final Future<void> Function(String id) onOpenOriginal;
   @override
   Widget build(BuildContext context) {
     final category = report.categories.first;
@@ -624,8 +729,7 @@ class _Insights extends StatelessWidget {
             subtitle: Text(
                 '${largest.title}\n${_date(largest.date)} · Pagato da: ${largest.payerName}'),
             trailing: const Icon(Icons.open_in_new),
-            onTap: () =>
-                context.push('/expense/${Uri.encodeComponent(largest.id)}'),
+            onTap: () => onOpenOriginal(largest.id),
           ),
           Align(
               alignment: Alignment.centerLeft,
