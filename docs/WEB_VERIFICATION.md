@@ -65,8 +65,18 @@ la sola configurazione client pubblica Supabase. JavaScript SHA-256:
 L'output della build è arrivato soltanto al termine: il ritardo iniziale
 non era un errore o un timeout della compilazione.
 
-Pubblicazione della #88 in corso; il browser autenticato reale resta da
-provare con l'account dell'utente.
+Pubblicata la release `/var/www/finn/releases/20261112-4c86722`, sorgente
+`4c86722d3c5e26d131fd1b5e49fdcb1bab17f252`. Archivio di **17.211.633 byte**,
+SHA-256 `ff9e53b485ef47c38eb4eec9fb9a4ef268e8266a102a8126c2ac87052725d833`.
+Il server ha verificato hash archivio, 222 MD5 del manifest e SHA del bundle
+prima dell'attivazione atomica; precedente `20261112-982c1d0` conservata.
+Homepage e JavaScript pubblici HTTPS 200, MIME JavaScript corretto,
+no-store e Cloudflare BYPASS; hash pubblico uguale alla build sopra indicata.
+Il browser autenticato reale resta da provare con l'account dell'utente:
+Ctrl+F5, Report, Mese/Anno e Dettaglio entrate e rimborsi. Gli assegni
+familiari devono essere movimenti Entrata del gruppo effettivamente
+registrati; nessuna fonte prevista o dato personale è stato convertito
+automaticamente in incasso.
 
 ## Aggiornamento 12 novembre — anno e pagamenti dei componenti (#87)
 

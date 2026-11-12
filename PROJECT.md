@@ -46,7 +46,7 @@
 - **Pipeline**: github-actions (build APK, build web e test mirati)
 - **Trigger**: APK su push/PR; web su PR e workflow_dispatch
 - **CI Status**: web e APK verdi sul commit `1db4211` (web run 43170462201); Flutter fissato a 3.35.7
-- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-12 (app v1.6.1, analisi annuale e componenti #87, sorgente `982c1d0`)
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-12 (app v1.6.1, bilancio con entrate e rimborsi #88, sorgente `4c86722`)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -144,7 +144,7 @@
 - **DONE (web)**: #85 — pagante nel dettaglio mensile per categoria online; 18 widget test passati, bundle pubblico verificato e conferma positiva dell'utente
 - **DONE (web)**: #86 — pagina Report online: KPI, confronto periodi, andamento sei mesi, categorie, paganti e insight; 56 test indipendenti passati, build e bundle pubblico verificati; conferma positiva dell'utente
 - **DONE (web)**: #87 — analisi annuale e componenti online: pagamenti effettivi, percentuali e numero spese; 35 test indipendenti passati, build e bundle pubblico verificati; conferma positiva dell'utente
-- **IN PROGRESS**: #88 — bilancio del Report con entrate effettive, rimborsi ricevuti e dettaglio cercabile degli incassi; 52 test indipendenti passati, analisi senza errori/warning, build e 222 risorse verificate; pubblicazione in corso
+- **IN PROGRESS**: #88 — bilancio con entrate, rimborsi e dettaglio cercabile online; 52 test indipendenti passati, sorgenti senza diagnostiche, build e 222 risorse verificate, bundle pubblico uguale al locale; conferma sui dati dell'utente da completare
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
