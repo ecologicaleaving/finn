@@ -30,6 +30,8 @@ class ReportScreen extends ConsumerStatefulWidget {
 
 class _ReportScreenState extends ConsumerState<ReportScreen> {
   DateTime? _selectedMonth;
+  int? _selectedYear;
+  ReportMode _mode = ReportMode.month;
   ReportRequest? _lastRequest;
 
   @override
@@ -74,9 +76,17 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       )));
     }
     final today = reportDay(ref.watch(reportClockProvider)());
-    final period = ReportPeriod(_selectedMonth ?? today, today);
-    final request =
-        (userId: user.id, groupId: group.id, month: period.month, today: today);
+    final selection = _mode == ReportMode.year
+        ? DateTime.utc(_selectedYear ?? today.year)
+        : (_selectedMonth ?? today);
+    final period = ReportPeriod(selection, today, mode: _mode);
+    final request = (
+      userId: user.id,
+      groupId: group.id,
+      month: period.start,
+      mode: _mode,
+      today: today
+    );
     _lastRequest = request;
     final report = ref.watch(groupReportProvider(request));
     return Scaffold(
@@ -96,23 +106,54 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               Text(group.name,
                   style: Theme.of(context).textTheme.titleMedium,
                   textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              SegmentedButton<ReportMode>(
+                segments: const [
+                  ButtonSegment(
+                      value: ReportMode.month,
+                      label: Text('Mese'),
+                      icon: Icon(Icons.calendar_view_month)),
+                  ButtonSegment(
+                      value: ReportMode.year,
+                      label: Text('Anno'),
+                      icon: Icon(Icons.date_range)),
+                ],
+                selected: {_mode},
+                onSelectionChanged: (value) =>
+                    setState(() => _mode = value.single),
+              ),
               Row(children: [
                 IconButton(
-                    tooltip: 'Mese precedente',
-                    onPressed: () => setState(
-                        () => _selectedMonth = reportMonth(period.month, -1)),
+                    tooltip:
+                        period.isYear ? 'Anno precedente' : 'Mese precedente',
+                    onPressed: () => setState(() {
+                          if (period.isYear) {
+                            _selectedYear = period.start.year - 1;
+                          } else {
+                            _selectedMonth = reportMonth(period.start, -1);
+                          }
+                        }),
                     icon: const Icon(Icons.chevron_left)),
                 Expanded(
                     child: Text(
-                        DateFormat('MMMM yyyy', 'it_IT').format(period.month),
+                        period.isYear
+                            ? '${period.start.year}'
+                            : DateFormat('MMMM yyyy', 'it_IT')
+                                .format(period.start),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.titleLarge)),
                 IconButton(
-                    tooltip: 'Mese successivo',
+                    tooltip:
+                        period.isYear ? 'Anno successivo' : 'Mese successivo',
                     onPressed: period.isCurrent
                         ? null
-                        : () => setState(() =>
-                            _selectedMonth = reportMonth(period.month, 1)),
+                        : () => setState(() {
+                              if (period.isYear) {
+                                _selectedYear = period.start.year + 1;
+                              } else {
+                                _selectedMonth = reportMonth(period.start, 1);
+                              }
+                            }),
                     icon: const Icon(Icons.chevron_right)),
               ]),
             ])),
@@ -125,7 +166,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                 'Impossibile caricare tutte le spese. Riprova per un report completo.',
             onRetry: () => ref.invalidate(groupReportProvider(request)),
           ),
-          data: (value) => _ReportBody(report: value),
+          data: (value) => _ReportBody(report: value, members: [
+            for (final member in groupState.members)
+              if (member.groupId == group.id)
+                ReportMember(member.userId, member.displayName),
+          ]),
         )),
       ]),
     );
@@ -133,8 +178,9 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 }
 
 class _ReportBody extends StatelessWidget {
-  const _ReportBody({required this.report});
+  const _ReportBody({required this.report, required this.members});
   final GroupReport report;
+  final List<ReportMember> members;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -147,11 +193,14 @@ class _ReportBody extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 1180),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(period.isCurrent ? 'Il mese finora' : 'Il mese in numeri',
+          Text(
+              period.isYear
+                  ? (period.isCurrent ? 'L’anno finora' : 'L’anno in numeri')
+                  : (period.isCurrent ? 'Il mese finora' : 'Il mese in numeri'),
               style: theme.textTheme.headlineSmall
                   ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text(_interval(period.month, period.end)),
+          Text(_interval(period.start, period.end)),
           const SizedBox(height: 16),
           LayoutBuilder(builder: (context, constraints) {
             final width = constraints.maxWidth >= 650
@@ -193,10 +242,8 @@ class _ReportBody extends StatelessWidget {
                       chart: true)),
               SizedBox(
                   width: width,
-                  child: _Breakdown(
-                      title: 'Chi ha pagato',
-                      subtitle: 'Quote pagate, non debiti o conguagli',
-                      slices: report.payers,
+                  child: _MemberPayments(
+                      payments: report.memberPayments(members),
                       total: report.totalCents)),
             ]);
           }),
@@ -277,16 +324,22 @@ class _Comparison extends StatelessWidget {
     final period = report.period;
     final change = report.changePercent;
     return _Panel(
-      title: 'Rispetto al mese precedente',
-      subtitle: period.isCurrent
-          ? 'Confronto sullo stesso numero di giorni'
-          : 'Confronto tra mesi completi',
+      title: period.isYear
+          ? 'Rispetto all’anno precedente'
+          : 'Rispetto al mese precedente',
+      subtitle: period.isYear
+          ? (period.isCurrent
+              ? 'Confronto fino alla stessa data di calendario'
+              : 'Confronto tra anni completi')
+          : (period.isCurrent
+              ? 'Confronto sullo stesso numero di giorni'
+              : 'Confronto tra mesi completi'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
-            '${_interval(period.month, period.comparisonEnd)}: ${_money(report.comparisonCents)}'),
+            '${_interval(period.start, period.comparisonEnd)}: ${_money(report.comparisonCents)}'),
         const SizedBox(height: 8),
         Text(
-            '${_interval(period.previousMonth, period.previousEnd)}: ${_money(report.previousCents)}'),
+            '${_interval(period.previousStart, period.previousEnd)}: ${_money(report.previousCents)}'),
         const SizedBox(height: 12),
         Text(
             change == null
@@ -295,8 +348,8 @@ class _Comparison extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall),
         if (period.comparisonEnd != period.end) ...[
           const SizedBox(height: 8),
-          const Text(
-              'Il totale del mese include anche i giorni successivi all’intervallo di confronto.'),
+          Text(
+              'Il totale ${period.isYear ? 'dell’anno' : 'del mese'} include anche i giorni successivi all’intervallo di confronto.'),
         ],
       ]),
     );
@@ -310,7 +363,9 @@ class _Trend extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.primary;
     return _Panel(
-      title: 'Andamento degli ultimi 6 mesi',
+      title: report.period.isYear
+          ? 'Andamento dei 12 mesi'
+          : 'Andamento degli ultimi 6 mesi',
       subtitle: 'Spesa registrata per mese · importi in euro',
       child: Column(children: [
         SizedBox(
@@ -343,7 +398,7 @@ class _Trend extends StatelessWidget {
                   BarChartGroupData(x: i, barRods: [
                     BarChartRodData(
                       toY: math.max(0, report.trend[i].cents / 100),
-                      width: 22,
+                      width: report.period.isYear ? 12 : 22,
                       color: report.trend[i].partial
                           ? color.withValues(alpha: 0.55)
                           : color,
@@ -357,11 +412,93 @@ class _Trend extends StatelessWidget {
         for (final month in report.trend)
           _AmountRow(
               label:
-                  '${DateFormat('MMM yyyy', 'it_IT').format(month.month)}${month.partial ? ' · parziale' : ''}',
-              amount: _money(month.cents)),
+                  '${DateFormat('MMM yyyy', 'it_IT').format(month.month)}${month.future ? ' · Non ancora trascorso' : (month.partial ? ' · parziale' : '')}',
+              amount: month.future ? '—' : _money(month.cents)),
       ]),
     );
   }
+}
+
+class _MemberPayments extends StatelessWidget {
+  const _MemberPayments({required this.payments, required this.total});
+  final List<ReportPayment> payments;
+  final int total;
+  String _name(ReportPayment payment, int index) {
+    final homonym = payments.where((p) => p.label == payment.label).length > 1;
+    return '${payment.label}${homonym ? ' (${index + 1})' : ''}';
+  }
+
+  String _percent(ReportPayment payment) =>
+      '${NumberFormat('0.0', 'it_IT').format(payment.sharePercent)}%';
+  Widget _bar(ReportPayment payment) => LinearProgressIndicator(
+      value: total > 0 ? (payment.cents / total).clamp(0, 1) : 0);
+  @override
+  Widget build(BuildContext context) => _Panel(
+        title: 'Chi ha pagato',
+        subtitle:
+            'Importi pagati e percentuali sul totale · nessun debito o conguaglio',
+        child: payments.isEmpty
+            ? const Text('Nessun componente o pagamento disponibile.')
+            : LayoutBuilder(builder: (context, constraints) {
+                if (constraints.maxWidth >= 500) {
+                  Widget cell(Widget child, {bool numeric = false}) => Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 4),
+                      child: Align(
+                          alignment: numeric
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: child));
+                  return Table(
+                    columnWidths: const {
+                      0: FlexColumnWidth(2.4),
+                      1: FlexColumnWidth(1.5),
+                      2: FlexColumnWidth(1),
+                      3: FlexColumnWidth(0.7)
+                    },
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    children: [
+                      TableRow(children: [
+                        cell(const Text('Componente')),
+                        cell(const Text('Pagato'), numeric: true),
+                        cell(const Text('Quota'), numeric: true),
+                        cell(const Text('Spese'), numeric: true),
+                      ]),
+                      for (var i = 0; i < payments.length; i++)
+                        TableRow(children: [
+                          cell(Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_name(payments[i], i)),
+                                const SizedBox(height: 8),
+                                _bar(payments[i]),
+                              ])),
+                          cell(Text(_money(payments[i].cents)), numeric: true),
+                          cell(Text(_percent(payments[i])), numeric: true),
+                          cell(Text('${payments[i].count}'), numeric: true),
+                        ]),
+                    ],
+                  );
+                }
+                return Column(children: [
+                  for (var i = 0; i < payments.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _AmountRow(
+                                label: _name(payments[i], i),
+                                amount: _money(payments[i].cents)),
+                            Text(
+                                '${_percent(payments[i])} del totale · ${payments[i].count} spese'),
+                            const SizedBox(height: 8),
+                            _bar(payments[i]),
+                          ]),
+                    ),
+                ]);
+              }),
+      );
 }
 
 class _Breakdown extends StatelessWidget {
@@ -469,6 +606,13 @@ class _Insights extends StatelessWidget {
           _AmountRow(
               label: 'Categoria principale · ${category.label}',
               amount: _money(category.cents)),
+          if (report.period.isYear && report.busiestMonth != null) ...[
+            const Divider(height: 24),
+            _AmountRow(
+                label:
+                    'Mese più oneroso · ${DateFormat('MMMM yyyy', 'it_IT').format(report.busiestMonth!.month)}',
+                amount: _money(report.busiestMonth!.cents)),
+          ],
           const Divider(height: 24),
           _AmountRow(
               label: 'Giorno con più spese · ${_date(DateTime.parse(day.id))}',

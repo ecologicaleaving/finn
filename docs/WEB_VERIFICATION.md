@@ -1,5 +1,36 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 12 novembre — anno e pagamenti dei componenti (#87)
+
+Il selettore Mese/Anno mantiene le rispettive selezioni. L'anno corrente
+copre 1 gennaio–oggi, gli anni storici gennaio–dicembre; il confronto mostra
+le date dell'anno precedente e gestisce il 29 febbraio senza attribuire un
+numero uguale di giorni a calendari diversi. Il grafico annuale ha dodici
+mesi: quelli futuri sono distinti con «Non ancora trascorso» e «—», mentre
+il mese corrente è parziale. Sono disponibili aggregazioni e insight annuali,
+compreso il mese più oneroso.
+
+Come richiesto esplicitamente dall'utente, il riepilogo riporta quanto ha
+pagato ciascuno, con importo, quota percentuale e numero di spese; non calcola
+quote uguali o differenze da compensare. Usa i membri già disponibili nel
+gruppo per includere quelli a zero, conserva paganti storici/non associati
+e distingue le persone per ID. Le percentuali arrotondate ai decimi sommano
+100,0% quando ci sono spese, restando a zero quando il totale è zero.
+L'aggiornamento dell'elenco dei membri non ricarica le spese.
+
+Verifica indipendente: **35 test passati, 0 saltati, exit 0**, inclusi tutti
+i test mensili precedenti e casi annuali/bisestile, roster, omonimi, dati
+storici, cambio modalità con anchor gennaio coincidente, invalidazione di
+entrambe le modalità e widget a 390/1440 px. Nessuna nuova richiesta per i
+membri, migrazione, dipendenza o scrittura introdotta.
+
+Analisi finale in formato macchina: exit 0, 0 errori e 0 warning; una sola
+informazione non fatale sulle graffe in `group_report.dart`. I test sono
+analizzati senza problemi; il tentativo ordinario dell'area codice è stato
+interrotto senza esito, seguito dal controllo macchina concluso. Build web
+release exit 0 in 214,4 s, tutti i 222 file offline validati. SHA-256 JS:
+`1e02d8567191ab6dfb3e60de3cd92a004764f4db25492abe30b74906c92a5e0e`.
+
 ## Aggiornamento 12 novembre — pagina Report (#86)
 
 Report è una nuova destinazione nella navigazione desktop/mobile e nella

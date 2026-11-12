@@ -15,6 +15,7 @@ typedef ReportRequest = ({
   String userId,
   String groupId,
   DateTime month,
+  ReportMode mode,
   DateTime today
 });
 
@@ -25,7 +26,7 @@ final groupReportProvider = FutureProvider.autoDispose
   if (userId != request.userId || groupId != request.groupId) {
     throw StateError('La sessione o il gruppo sono cambiati.');
   }
-  final period = ReportPeriod(request.month, request.today);
+  final period = ReportPeriod(request.month, request.today, mode: request.mode);
   final rows = await ref
       .watch(reportLoaderProvider)
       .load(userId: request.userId, groupId: request.groupId, period: period);

@@ -31,6 +31,139 @@ ReportExpense row(
     });
 
 void main() {
+  test(
+      'current annual report uses year-to-date and calendar-aligned comparison',
+      () {
+    final period = ReportPeriod(DateTime(2026), DateTime(2026, 11, 12),
+        mode: ReportMode.year);
+    expect(period.start, DateTime.utc(2026));
+    expect(period.end, DateTime.utc(2026, 11, 12));
+    expect(period.previousStart, DateTime.utc(2025));
+    expect(period.previousEnd, DateTime.utc(2025, 11, 12));
+    expect(period.historyStart, DateTime.utc(2025));
+    final report = GroupReport.calculate(groupId: 'g', period: period, rows: [
+      row('jan', '2026-01-01', 10),
+      row('june', '2026-06-10', 20),
+      row('nov', '2026-11-12', 30),
+      row('future', '2026-12-01', 999),
+      row('previous', '2025-11-12', 40),
+      row('after-comparison', '2025-11-13', 999),
+    ]);
+    expect(report.totalCents, 6000);
+    expect(report.count, 3);
+    expect(report.previousCents, 4000);
+    expect(report.trend.length, 12);
+    expect(report.trend[1].cents, 0);
+    expect(report.trend[1].future, isFalse);
+    expect(report.trend[10].partial, isTrue);
+    expect(report.trend[11].future, isTrue);
+    expect(report.busiestMonth!.month, DateTime.utc(2026, 11));
+    expect(report.categories.single.cents, 6000);
+  });
+
+  test(
+      '29 February annual comparison excludes extra day from both comparison totals only',
+      () {
+    final period = ReportPeriod(DateTime(2024), DateTime(2024, 2, 29),
+        mode: ReportMode.year);
+    expect(period.end, DateTime.utc(2024, 2, 29));
+    expect(period.comparisonEnd, DateTime.utc(2024, 2, 28));
+    expect(period.previousEnd, DateTime.utc(2023, 2, 28));
+    final report = GroupReport.calculate(groupId: 'g', period: period, rows: [
+      row('feb28', '2024-02-28', 10),
+      row('leap', '2024-02-29', 20),
+      row('previous', '2023-02-28', 5),
+    ]);
+    expect(report.totalCents, 3000);
+    expect(report.comparisonCents, 1000);
+    expect(report.previousCents, 500);
+    final march = ReportPeriod(DateTime(2024), DateTime(2024, 3, 1),
+        mode: ReportMode.year);
+    expect(march.previousEnd, DateTime.utc(2023, 3, 1));
+    expect(march.comparisonEnd, DateTime.utc(2024, 3, 1));
+  });
+
+  test(
+      'historical annual reports include complete years and zero comparison stays safe',
+      () {
+    final period = ReportPeriod(DateTime(2024), DateTime(2026, 11, 12),
+        mode: ReportMode.year);
+    expect(period.end, DateTime.utc(2024, 12, 31));
+    expect(period.previousEnd, DateTime.utc(2023, 12, 31));
+    final report = GroupReport.calculate(groupId: 'g', period: period, rows: [
+      row('first', '2024-01-01', 1),
+      row('leap', '2024-02-29', 2),
+      row('last', '2024-12-31', 3),
+      row('outside', '2025-01-01', 999),
+    ]);
+    expect(report.totalCents, 600);
+    expect(report.averageCents, 200);
+    expect(report.changePercent, isNull);
+    expect(
+        report.trend.every((month) => !month.future && !month.partial), isTrue);
+    expect(report.largestExpense!.id, 'last');
+  });
+
+  test(
+      'member payment projection preserves zero members, homonyms and historic identities',
+      () {
+    final report = GroupReport.calculate(
+        groupId: 'g',
+        period: ReportPeriod(DateTime(2026), DateTime(2026, 11, 12),
+            mode: ReportMode.year),
+        rows: [
+          row('a', '2026-01-01', 30, payer: 'a', payerName: 'Vecchio nome'),
+          row('b', '2026-02-01', 20, payer: 'b', payerName: 'Luca'),
+          row('old', '2026-03-01', 40,
+              payer: 'former', payerName: 'Ex componente'),
+          row('legacy', '2026-04-01', 10, payerName: 'Nome storico'),
+        ]);
+    final payments = report.memberPayments(const [
+      ReportMember('a', 'Luca'),
+      ReportMember('b', 'Luca'),
+      ReportMember('zero', 'Giulia')
+    ]);
+    expect(payments.length, 5);
+    expect(payments.where((payment) => payment.label == 'Luca').length, 2);
+    expect(payments.singleWhere((payment) => payment.id == 'zero').cents, 0);
+    expect(payments.singleWhere((payment) => payment.id == 'zero').count, 0);
+    expect(
+        payments
+            .singleWhere((payment) => payment.id == 'former')
+            .isCurrentMember,
+        isFalse);
+    expect(
+        payments.singleWhere((payment) => payment.id == 'legacy:legacy').cents,
+        1000);
+    expect(payments.fold<int>(0, (s, p) => s + p.cents), report.totalCents);
+    expect(payments.fold<int>(0, (s, p) => s + p.count), report.count);
+    expect(payments.fold<int>(0, (s, p) => s + p.shareTenths), 1000);
+    expect(
+        payments.singleWhere((payment) => payment.id == 'a').sharePercent, 30);
+  });
+
+  test(
+      'displayed percentage tenths total 100 for thirds, and zero total gives zero',
+      () {
+    final period = ReportPeriod(DateTime(2026), DateTime(2026, 11, 12),
+        mode: ReportMode.year);
+    final report = GroupReport.calculate(groupId: 'g', period: period, rows: [
+      row('a', '2026-01-01', 1, payer: 'a'),
+      row('b', '2026-01-01', 1, payer: 'b'),
+      row('c', '2026-01-01', 1, payer: 'c'),
+    ]);
+    final payments = report.memberPayments(const []);
+    expect(payments.map((p) => p.shareTenths), containsAll([334, 333, 333]));
+    expect(payments.fold<int>(0, (s, p) => s + p.shareTenths), 1000);
+    final empty = GroupReport.calculate(groupId: 'g', period: period, rows: []);
+    expect(
+        empty
+            .memberPayments(const [ReportMember('a', 'Anna')])
+            .single
+            .sharePercent,
+        0);
+  });
+
   test('31 March compares equal days but preserves the complete current KPI',
       () {
     final period = ReportPeriod(DateTime(2026, 3), DateTime(2026, 3, 31));

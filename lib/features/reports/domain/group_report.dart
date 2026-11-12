@@ -23,28 +23,52 @@ int reportCents(Object amount) {
   return match[1] == '-' ? -cents : cents;
 }
 
+enum ReportMode { month, year }
+
 class ReportPeriod {
-  ReportPeriod(DateTime selected, DateTime now)
+  ReportPeriod(DateTime selected, DateTime now, {this.mode = ReportMode.month})
       : today = reportDay(now),
         month = reportMonth(selected).isAfter(reportMonth(now))
             ? reportMonth(now)
             : reportMonth(selected);
   final DateTime month;
   final DateTime today;
-  bool get isCurrent => month == reportMonth(today);
-  DateTime get end => isCurrent ? today : monthEnd(month);
+  final ReportMode mode;
+  bool get isYear => mode == ReportMode.year;
+  DateTime get start => isYear ? DateTime.utc(month.year) : month;
+  DateTime get previousStart =>
+      isYear ? DateTime.utc(start.year - 1) : reportMonth(start, -1);
+  bool get isCurrent =>
+      isYear ? start.year == today.year : month == reportMonth(today);
+  DateTime get end => isCurrent
+      ? today
+      : (isYear ? DateTime.utc(start.year + 1, 1, 0) : monthEnd(start));
   DateTime get previousMonth => reportMonth(month, -1);
   int get comparisonDays => isCurrent
       ? (today.day < monthEnd(previousMonth).day
           ? today.day
           : monthEnd(previousMonth).day)
       : monthEnd(month).day;
-  DateTime get comparisonEnd =>
-      isCurrent ? DateTime.utc(month.year, month.month, comparisonDays) : end;
-  DateTime get previousEnd => isCurrent
-      ? DateTime.utc(previousMonth.year, previousMonth.month, comparisonDays)
-      : monthEnd(previousMonth);
-  DateTime get historyStart => reportMonth(month, -5);
+  DateTime get comparisonEnd {
+    if (!isCurrent) return end;
+    if (isYear) return DateTime.utc(start.year, today.month, previousEnd.day);
+    return DateTime.utc(month.year, month.month, comparisonDays);
+  }
+
+  DateTime get previousEnd {
+    if (isYear) {
+      if (!isCurrent) return DateTime.utc(start.year, 1, 0);
+      final validDay =
+          monthEnd(DateTime.utc(previousStart.year, today.month)).day;
+      return DateTime.utc(previousStart.year, today.month,
+          today.day < validDay ? today.day : validDay);
+    }
+    return isCurrent
+        ? DateTime.utc(previousMonth.year, previousMonth.month, comparisonDays)
+        : monthEnd(previousMonth);
+  }
+
+  DateTime get historyStart => isYear ? previousStart : reportMonth(month, -5);
 }
 
 class ReportExpense {
@@ -118,10 +142,26 @@ class ReportSlice {
 }
 
 class ReportMonthTotal {
-  const ReportMonthTotal(this.month, this.cents, this.partial);
+  const ReportMonthTotal(this.month, this.cents, this.partial,
+      {this.future = false, this.count = 0});
   final DateTime month;
   final int cents;
   final bool partial;
+  final bool future;
+  final int count;
+}
+
+class ReportMember {
+  const ReportMember(this.id, this.name);
+  final String id, name;
+}
+
+class ReportPayment extends ReportSlice {
+  const ReportPayment(super.id, super.label, super.cents, super.count,
+      {required this.isCurrentMember, this.shareTenths = 0});
+  final bool isCurrentMember;
+  final int shareTenths;
+  double get sharePercent => shareTenths / 10;
 }
 
 class GroupReport {
@@ -154,7 +194,7 @@ class GroupReport {
         .toList();
     int sum(Iterable<ReportExpense> values) =>
         values.fold(0, (s, e) => s + e.cents);
-    final current = between(period.month, period.end)
+    final current = between(period.start, period.end)
       ..sort((a, b) => b.cents.compareTo(a.cents));
     List<ReportSlice> slices(String Function(ReportExpense) key,
         String Function(ReportExpense) label) {
@@ -173,18 +213,25 @@ class GroupReport {
       period,
       current,
       sum(current),
-      sum(between(period.month, period.comparisonEnd)),
-      sum(between(period.previousMonth, period.previousEnd)),
+      sum(between(period.start, period.comparisonEnd)),
+      sum(between(period.previousStart, period.previousEnd)),
       slices((e) => e.categoryId ?? e.category, (e) => e.category),
       slices((e) => e.payerId, (e) => e.payerName),
       slices((e) => toServerDate(e.date), (e) => toServerDate(e.date)),
-      List.generate(6, (i) {
-        final month = reportMonth(period.month, i - 5);
-        return ReportMonthTotal(
+      List.generate(period.isYear ? 12 : 6, (i) {
+        final month = period.isYear
+            ? DateTime.utc(period.start.year, i + 1)
+            : reportMonth(period.month, i - 5);
+        final future =
+            period.isCurrent && month.isAfter(reportMonth(period.today));
+        final monthRows = between(
             month,
-            sum(between(
-                month, month == period.month ? period.end : monthEnd(month))),
-            month == period.month && period.isCurrent);
+            month == reportMonth(period.today) && period.isCurrent
+                ? period.end
+                : monthEnd(month));
+        return ReportMonthTotal(month, sum(monthRows),
+            month == reportMonth(period.today) && period.isCurrent,
+            future: future, count: monthRows.length);
       }),
       current.isEmpty ? null : current.first,
     );
@@ -197,6 +244,60 @@ class GroupReport {
   final ReportExpense? largestExpense;
   int get count => expenses.length;
   int get averageCents => count == 0 ? 0 : (totalCents / count).round();
+  ReportMonthTotal? get busiestMonth {
+    final months = trend.where((m) => !m.future && m.count > 0).toList()
+      ..sort((a, b) => b.cents.compareTo(a.cents));
+    return months.isEmpty ? null : months.first;
+  }
+
+  /// The roster only changes this projection, never the underlying expense load.
+  List<ReportPayment> memberPayments(Iterable<ReportMember> members) {
+    final roster = {for (final member in members) member.id: member};
+    final payments = <String, ReportPayment>{};
+    for (final payer in payers) {
+      final member = roster[payer.id];
+      payments[payer.id] = ReportPayment(payer.id,
+          _nonblank(member?.name) ?? payer.label, payer.cents, payer.count,
+          isCurrentMember: member != null);
+    }
+    for (final member in roster.values) {
+      payments.putIfAbsent(
+          member.id,
+          () => ReportPayment(
+              member.id, _nonblank(member.name) ?? 'Non specificato', 0, 0,
+              isCurrentMember: true));
+    }
+    final result = payments.values.toList()
+      ..sort((a, b) {
+        final amount = b.cents.compareTo(a.cents);
+        return amount != 0 ? amount : a.label.compareTo(b.label);
+      });
+    if (totalCents <= 0 || result.any((payment) => payment.cents < 0))
+      return result;
+    final tenths = {
+      for (final payment in result)
+        payment.id: payment.cents * 1000 ~/ totalCents
+    };
+    var remainder =
+        1000 - tenths.values.fold<int>(0, (sum, value) => sum + value);
+    final byRemainder = [...result]..sort((a, b) {
+        final difference = (b.cents * 1000 % totalCents)
+            .compareTo(a.cents * 1000 % totalCents);
+        return difference != 0 ? difference : a.id.compareTo(b.id);
+      });
+    for (final payment in byRemainder) {
+      if (remainder <= 0) break;
+      tenths[payment.id] = tenths[payment.id]! + 1;
+      remainder--;
+    }
+    return [
+      for (final payment in result)
+        ReportPayment(payment.id, payment.label, payment.cents, payment.count,
+            isCurrentMember: payment.isCurrentMember,
+            shareTenths: tenths[payment.id]!)
+    ];
+  }
+
   double? get changePercent => previousCents == 0
       ? null
       : (comparisonCents - previousCents) / previousCents * 100;

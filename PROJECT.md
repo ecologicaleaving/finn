@@ -143,6 +143,7 @@
 - **DONE (web)**: #84 — recupero gruppo dopo refresh, 43 test passati e bundle pubblico verificato; l'utente conferma il gruppo visibile sul sito con lo stesso account
 - **DONE (web)**: #85 — pagante nel dettaglio mensile per categoria online; 18 widget test passati, bundle pubblico verificato e conferma positiva dell'utente
 - **IN PROGRESS**: #86 — pagina Report online: KPI, confronto periodi, andamento sei mesi, categorie, paganti e insight; 56 test indipendenti passati, build e bundle pubblico verificati, conferma sul suo account da completare
+- **IN PROGRESS**: #87 — analisi annuale e riepilogo di quanto ha pagato ciascun componente, con importi e percentuali; richiesta esplicita senza quote teoriche/conguagli
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts

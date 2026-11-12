@@ -14,6 +14,7 @@ import 'package:family_expense_tracker/features/auth/presentation/providers/auth
 import 'package:family_expense_tracker/features/auth/presentation/screens/main_navigation_screen.dart';
 import 'package:family_expense_tracker/features/dashboard/presentation/providers/dashboard_refresh.dart';
 import 'package:family_expense_tracker/features/groups/domain/entities/family_group_entity.dart';
+import 'package:family_expense_tracker/features/groups/domain/entities/member_entity.dart';
 import 'package:family_expense_tracker/features/groups/domain/repositories/group_repository.dart';
 import 'package:family_expense_tracker/features/groups/presentation/providers/group_provider.dart';
 import 'package:family_expense_tracker/features/reports/data/report_loader.dart';
@@ -46,13 +47,15 @@ class _Loader implements ReportLoader {
   _Loader(this.fetch);
   final Future<List<ReportExpense>> Function(
       String user, String group, ReportPeriod period) fetch;
-  final calls = <({String user, String group, DateTime month})>[];
+  final calls =
+      <({String user, String group, DateTime month, ReportMode mode})>[];
   @override
   Future<List<ReportExpense>> load(
       {required String userId,
       required String groupId,
       required ReportPeriod period}) {
-    calls.add((user: userId, group: groupId, month: period.month));
+    calls.add(
+        (user: userId, group: groupId, month: period.start, mode: period.mode));
     return fetch(userId, groupId, period);
   }
 }
@@ -92,12 +95,14 @@ ReportExpense _expense(String id, DateTime date, int cents,
 
 ProviderContainer _container(_Loader loader,
         {GroupState group =
-            const GroupState(status: GroupStatus.loaded, group: _group)}) =>
+            const GroupState(status: GroupStatus.loaded, group: _group),
+        DateTime? today}) =>
     ProviderContainer(overrides: [
       currentUserProvider.overrideWith((ref) => ref.watch(_users)),
       groupProvider.overrideWith((ref) => _GroupControl(group)),
       reportLoaderProvider.overrideWithValue(loader),
-      reportClockProvider.overrideWithValue(() => DateTime(2026, 11, 11)),
+      reportClockProvider
+          .overrideWithValue(() => today ?? DateTime(2026, 11, 11)),
       authRepositoryProvider.overrideWithValue(_Auth()),
       widgetUpdateServiceProvider.overrideWithValue(_QuietWidgets()),
     ]);
@@ -112,8 +117,219 @@ Future<void> _mount(WidgetTester tester, ProviderContainer container,
   await tester.pump();
 }
 
+MemberEntity _member(String id, String name, {String group = 'g'}) =>
+    MemberEntity(
+        userId: id,
+        groupId: group,
+        displayName: name,
+        email: '$id@example.test',
+        role: MemberRole.member);
+
 void main() {
   setUpAll(() => initializeDateFormatting('it_IT'));
+
+  for (final width in [390.0, 1440.0]) {
+    testWidgets('annual report and member payments fit width $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final loader = _Loader((_, __, ___) async => [
+            _expense('jan', DateTime.utc(2026, 1, 10), 3000),
+            _expense('nov', DateTime.utc(2026, 11, 10), 7000),
+            ReportExpense(
+                id: 'former',
+                groupId: 'g',
+                date: DateTime.utc(2026, 7, 10),
+                cents: 2500,
+                createdBy: 'A',
+                paidBy: 'former',
+                paidByName: 'Carlo',
+                categoryName: 'Casa'),
+          ]);
+      final container = _container(loader,
+          group: GroupState(
+              status: GroupStatus.loaded,
+              group: _group,
+              members: [
+                _member('A', 'Anna'),
+                _member('zero', 'Giulia dal nome molto lungo')
+              ]));
+      addTearDown(container.dispose);
+      await _mount(tester, container);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anno'));
+      await tester.pumpAndSettle();
+      expect(loader.calls.last.mode, ReportMode.year);
+      expect(find.text('L’anno finora'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Andamento dei 12 mesi'), 300,
+          scrollable: find.byType(Scrollable).first);
+      expect(
+          tester.widget<BarChart>(find.byType(BarChart)).data.barGroups.length,
+          12);
+      expect(find.text('dic 2026 · Non ancora trascorso'), findsOneWidget);
+      expect(find.text('nov 2026 · parziale'), findsOneWidget);
+      expect(find.text('feb 2026'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Anna'), findsOneWidget);
+      expect(find.text('Carlo'), findsOneWidget);
+      expect(find.text('Giulia dal nome molto lungo'), findsOneWidget);
+      final memberCard = find.ancestor(
+          of: find.text('Chi ha pagato'), matching: find.byType(Card));
+      expect(
+          find.descendant(
+              of: memberCard, matching: find.textContaining('80,0%')),
+          findsOneWidget);
+      expect(
+          find.descendant(
+              of: memberCard, matching: find.textContaining('20,0%')),
+          findsOneWidget);
+      expect(find.byType(Table), width >= 1000 ? findsOneWidget : findsNothing);
+      await tester.scrollUntilVisible(
+          find.textContaining('Mese più oneroso'), 300,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('Mese più oneroso · novembre 2026'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+      'month and year selections are independent and future years disabled',
+      (tester) async {
+    final loader = _Loader((_, __, ___) async => []);
+    final container = _container(loader);
+    addTearDown(container.dispose);
+    await _mount(tester, container);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Mese precedente'));
+    await tester.pumpAndSettle();
+    expect(find.text('ottobre 2026'), findsOneWidget);
+    await tester.tap(find.text('Anno'));
+    await tester.pumpAndSettle();
+    final next = find.byWidgetPredicate((widget) =>
+        widget is IconButton && widget.tooltip == 'Anno successivo');
+    expect(tester.widget<IconButton>(next).onPressed, isNull);
+    await tester.tap(find.byTooltip('Anno precedente'));
+    await tester.pumpAndSettle();
+    expect(find.text('2025'), findsOneWidget);
+    await tester.tap(find.text('Mese'));
+    await tester.pumpAndSettle();
+    expect(find.text('ottobre 2026'), findsOneWidget);
+    await tester.tap(find.text('Anno'));
+    await tester.pumpAndSettle();
+    expect(find.text('2025'), findsOneWidget);
+    expect(loader.calls.last.month, DateTime.utc(2025));
+  });
+
+  testWidgets(
+      'roster changes update names and zero members without refetching expenses',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final loader = _Loader((_, __, ___) async =>
+        [_expense('paid', DateTime.utc(2026, 11, 1), 1000)]);
+    final container = _container(loader);
+    addTearDown(container.dispose);
+    await _mount(tester, container);
+    await tester.pumpAndSettle();
+    (container.read(groupProvider.notifier) as _GroupControl)
+        .show(GroupState(status: GroupStatus.loaded, group: _group, members: [
+      _member('A', 'Anna aggiornata'),
+      _member('zero', 'Giulia'),
+      _member('wrong-group', 'Non deve comparire', group: 'other')
+    ]));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Anna aggiornata'), findsOneWidget);
+    expect(find.text('Giulia'), findsOneWidget);
+    expect(find.text('Non deve comparire'), findsNothing);
+    expect(find.textContaining('0,0% del totale · 0 spese'), findsOneWidget);
+    expect(loader.calls.length, 1);
+  });
+
+  testWidgets(
+      'late monthly and current-year results cannot overwrite a historical year',
+      (tester) async {
+    final monthly = Completer<List<ReportExpense>>();
+    final currentYear = Completer<List<ReportExpense>>();
+    final loader = _Loader((_, __, period) => period.mode == ReportMode.month
+        ? monthly.future
+        : period.start.year == 2026
+            ? currentYear.future
+            : Future.value([_expense('past', DateTime.utc(2025, 7, 1), 100)]));
+    final container = _container(loader, today: DateTime(2026, 1, 11));
+    addTearDown(container.dispose);
+    await _mount(tester, container);
+    await tester.tap(find.text('Anno'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Anno precedente'));
+    await tester.pumpAndSettle();
+    monthly
+        .complete([_expense('month-secret', DateTime.utc(2026, 1, 1), 999999)]);
+    currentYear
+        .complete([_expense('year-secret', DateTime.utc(2026, 1, 1), 999999)]);
+    await tester.pumpAndSettle();
+    expect(find.text('2025'), findsOneWidget);
+    expect(find.text('L’anno in numeri'), findsOneWidget);
+    expect(find.textContaining('9.999'), findsNothing);
+    expect(loader.calls.last.mode, ReportMode.year);
+    expect(loader.calls.last.month, DateTime.utc(2025));
+    expect(loader.calls.take(2).map((call) => call.month),
+        everyElement(DateTime.utc(2026)));
+    expect(loader.calls.take(2).map((call) => call.mode),
+        [ReportMode.month, ReportMode.year]);
+  });
+
+  testWidgets(
+      'leap annual comparison shows calendar intervals without claiming equal day counts',
+      (tester) async {
+    final loader = _Loader((_, __, ___) async => []);
+    final container = _container(loader, today: DateTime(2024, 2, 29));
+    addTearDown(container.dispose);
+    await _mount(tester, container);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Anno'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 gen 2024 – 29 feb 2024'), findsOneWidget);
+    expect(find.textContaining('1 gen 2024 – 28 feb 2024:'), findsOneWidget);
+    expect(find.textContaining('1 gen 2023 – 28 feb 2023:'), findsOneWidget);
+    expect(find.text('Confronto fino alla stessa data di calendario'),
+        findsOneWidget);
+    expect(find.textContaining('stesso numero di giorni'), findsNothing);
+  });
+
+  test(
+      'shared expense invalidation refreshes both monthly and annual report families',
+      () async {
+    var amount = 100;
+    final loader = _Loader((_, __, ___) async =>
+        [_expense('paid', DateTime.utc(2026, 11, 1), amount)]);
+    final container = _container(loader);
+    addTearDown(container.dispose);
+    ReportRequest request(ReportMode mode) => (
+          userId: 'A',
+          groupId: 'g',
+          month: DateTime.utc(2026, mode == ReportMode.year ? 1 : 11),
+          mode: mode,
+          today: DateTime.utc(2026, 11, 11)
+        );
+    final monthly = groupReportProvider(request(ReportMode.month));
+    final annual = groupReportProvider(request(ReportMode.year));
+    final monthSubscription = container.listen(monthly, (_, __) {});
+    final yearSubscription = container.listen(annual, (_, __) {});
+    addTearDown(monthSubscription.close);
+    addTearDown(yearSubscription.close);
+    expect((await container.read(monthly.future)).totalCents, 100);
+    expect((await container.read(annual.future)).totalCents, 100);
+    amount = 200;
+    invalidatePersonalDashboardProviders(container.invalidate);
+    expect((await container.read(monthly.future)).totalCents, 200);
+    expect((await container.read(annual.future)).totalCents, 200);
+    expect(loader.calls.length, 4);
+  });
 
   testWidgets('loading, complete error and retry are distinct from empty data',
       (tester) async {
@@ -191,7 +407,10 @@ void main() {
       await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
           scrollable: find.byType(Scrollable).first);
       expect(find.byType(PieChart), findsOneWidget);
-      expect(find.text('Quote pagate, non debiti o conguagli'), findsOneWidget);
+      expect(
+          find.text(
+              'Importi pagati e percentuali sul totale · nessun debito o conguaglio'),
+          findsOneWidget);
       expect(find.text('Anna'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('La spesa maggiore'), 300,
           scrollable: find.byType(Scrollable).first);

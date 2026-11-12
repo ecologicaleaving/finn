@@ -112,6 +112,27 @@ void main() {
         4050);
   });
 
+  for (final year in [2024, 2026]) {
+    test('annual loader reads complete comparison window for $year', () async {
+      final annual = ReportPeriod(DateTime(year), DateTime(2026, 11, 12),
+          mode: ReportMode.year);
+      final supabase = await client((request) async {
+        expect(
+            request.url.queryParametersAll['date'],
+            containsAll([
+              'gte.${year - 1}-01-01',
+              'lte.$year-${year == 2026 ? '11-12' : '12-31'}',
+            ]));
+        expect(request.url.queryParameters['group_id'], 'eq.g');
+        expect(request.url.queryParameters['is_group_expense'], 'eq.true');
+        return json([]);
+      });
+      final rows = await SupabaseReportLoader(supabase)
+          .load(userId: 'A', groupId: 'g', period: annual);
+      expect(rows, isEmpty);
+    });
+  }
+
   test(
       'second-page failure rejects the entire load, never returns a partial total',
       () async {
