@@ -69,8 +69,19 @@ Archivio di 17.218.199 byte, SHA-256
 Il verificatore ha eseguito un solo giro indipendente e non ha ripetuto
 l'analisi statica; la build release è stata eseguita una volta da root.
 
-Pubblicazione della #89 in corso. Il confronto sui dati del conto reale
-nel browser resta da verificare dall'utente.
+Pubblicata la release `/var/www/finn/releases/20261112-95d1932`, sorgente
+`95d1932e40e59b8d27e000194084290cafce1259`; precedente `20261112-4c86722`
+conservata. Il server ha verificato SHA dell'archivio, 222 MD5 del manifest
+e SHA del bundle prima dell'attivazione atomica. Homepage e JavaScript
+pubblici HTTPS 200, MIME JavaScript corretto, no-store e Cloudflare BYPASS;
+SHA pubblico identico alla build sopra indicata. Il verificatore ha anche
+confrontato le tre patch applicative remote della PR82 con i file locali
+testati: corrispondenza integrale, normalizzando CRLF.
+
+Il confronto sui dati del conto reale nel browser resta da verificare
+dall'utente: Ctrl+F5, Report, Equilibrio 50/50, scelta della coppia e
+Tutte le categorie. I rimborsi non attribuiti richiedono di indicare chi
+li ha ricevuti, senza modificare i movimenti originali.
 
 ## Aggiornamento 12 novembre — bilancio con entrate e rimborsi (#88)
 
