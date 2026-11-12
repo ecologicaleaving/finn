@@ -31,6 +31,14 @@ interrotto senza esito, seguito dal controllo macchina concluso. Build web
 release exit 0 in 214,4 s, tutti i 222 file offline validati. SHA-256 JS:
 `1e02d8567191ab6dfb3e60de3cd92a004764f4db25492abe30b74906c92a5e0e`.
 
+Pubblicata la release `/var/www/finn/releases/20261112-982c1d0`, conservando
+la precedente `20261112-df9eccd`. Archivio di 17.209.146 byte, SHA-256
+`685fab41c4dfeb64491f5d1f6900f7dbb15925c88406c23cc7de69b49201be2e`.
+Il server ha verificato i 222 MD5 e l'hash del bundle prima dell'attivazione
+atomica. Homepage e JavaScript HTTPS 200; bundle pubblico uguale al locale,
+no-store e Cloudflare BYPASS. La verifica con il suo account nel browser
+reale resta da completare dall'utente: Ctrl+F5, Report → Anno.
+
 ## Aggiornamento 12 novembre — pagina Report (#86)
 
 Report è una nuova destinazione nella navigazione desktop/mobile e nella
