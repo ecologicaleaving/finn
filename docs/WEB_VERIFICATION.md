@@ -1,5 +1,77 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 12 novembre — equilibrio 50/50 per categoria e totale (#89)
+
+Il criterio confermato dall'utente è 50% per ciascuna delle due persone,
+valido per tutte le categorie e per il totale. Costo netto individuale =
+spese pagate − entrate ricevute − rimborsi ricevuti; quota = metà del netto
+totale; scostamento = netto individuale − quota. Un valore positivo è sopra
+quota, uno negativo sotto. Nell'esempio dell'utente (100 € pagati ciascuno,
+40 € ricevuti da Giovanna), i netti sono 100/60, le quote 80/80 e gli
+scostamenti +20/−20: per pareggiare il periodo, 20 € da Giovanna all'altra
+persona. La compensazione non è l'intero divario di 40 €.
+
+Il calcolo riusa spese e incassi del Report già caricati, senza nuove
+richieste o percentuali dei budget. Le categorie sono l'unione di spese,
+entrate e rimborsi, inclusi casi con sole entrate e categoria assente.
+Rimborsi/entrate riducono il carico della persona destinataria nella
+categoria registrata; nessuna associazione degli assegni alle Figlie viene
+dedotta dal testo. Un totale in equilibrio può contenere categorie con
+scostamenti opposti che si compensano: il dettaglio li mantiene distinti.
+
+La coppia è selezionata per ID. Il destinatario del rimborso non è presente
+nello schema: il confronto richiede un'attribuzione locale esplicita;
+il pagante della spesa originale non viene assunto come destinatario.
+Anche autore e pagante non sono confusi quando manca il pagante esplicito.
+Movimenti non attribuiti o fuori dalla coppia impediscono un esito completo
+nella categoria coinvolta e nel totale, senza nasconderne gli importi.
+Le altre categorie complete restano analizzabili.
+
+Quote e differenze sono calcolate in centesimi. I resti sono distribuiti
+deterministicamente per ID e categoria, così le quote e gli scostamenti
+delle categorie riconciliano esattamente il totale anche con centesimi
+dispari e netti negativi. Le attribuzioni locali includono l'impronta del
+movimento per impedirne il riuso dopo modifiche ai dati.
+
+Le scelte sono locali al confronto e non creano trasferimenti o modifiche
+nei dati. Il risultato riguarda i movimenti del periodo selezionato:
+conguagli già scambiati e saldi iniziali vanno considerati a parte. Non
+esiste un tipo specifico che distingua un trasferimento tra persone da una
+generica entrata registrata.
+
+Il giro finale del developer è terminato con **68 test Report passati,
+0 saltati, exit 0**, inclusi 9 test puri (343 combinazioni firmate per i
+resti), 8 widget della nuova sezione e l'integrazione Mese/Anno senza nuove
+query. Il primo giro aveva rilevato un difetto reale delle sezioni
+espandibili: una chiave non adatta al PageStorage le faceva leggere l'offset
+di scroll come stato booleano. Le due sezioni ora usano chiavi PageStorage
+distinte per tipo/scope/snapshot, isolate da `report-scroll`; le attribuzioni
+restano vincolate all'impronta completa del movimento. Test iniziale e
+successivo conservati separatamente.
+
+Analisi finale dei sei file modificati/nuovi: **tutti exit 0, nessun errore
+o warning**. Restano due informazioni sulle graffe nel nuovo dominio e una
+nel test Report esistente; gli altri quattro file non hanno diagnostiche.
+Esiti e log individuali in `build/balance89-analyze-*`, con codice generale
+zero. Nessun controllo dell'intera cartella è stato ripetuto.
+
+Verifica indipendente finale: **70 test passati, 0 saltati, 0 failure,
+exit 0**, sessione 58914 (68 Report e 2 dashboard refresh), runner 55 s.
+Il verificatore non ha rilievi residui e ha confermato anche l'integrazione
+Mese/Anno dopo il fix PageStorage. Nessuna analisi o compilazione duplicata.
+
+Build web release **exit 0 in 151,0 s**. Validati tutti i **222 file** del
+manifest offline, i tre sorgenti applicativi invariati dopo la compilazione
+e la sola configurazione client pubblica Supabase. SHA-256 JavaScript:
+`f756e86f70b7c54f065f523eef13b21c05c53053d36ca667a3e18fc39697989f`.
+Archivio di 17.218.199 byte, SHA-256
+`5f2b1db321bfc9b13c8348b1290682185b1df986a0e8d2bce8447d086b2e457d`.
+Il verificatore ha eseguito un solo giro indipendente e non ha ripetuto
+l'analisi statica; la build release è stata eseguita una volta da root.
+
+Pubblicazione della #89 in corso. Il confronto sui dati del conto reale
+nel browser resta da verificare dall'utente.
+
 ## Aggiornamento 12 novembre — bilancio con entrate e rimborsi (#88)
 
 Il bilancio del Report mensile/annuale distingue spese lorde, entrate

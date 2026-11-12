@@ -158,6 +158,47 @@ void main() {
   setUpAll(() => initializeDateFormatting('it_IT'));
 
   testWidgets(
+      '50/50 attribution does not fetch and is reset by the actual month/year report scope',
+      (tester) async {
+    final loader = _Loader((_, __, ___) async => [
+          _expense('a-paid', DateTime.utc(2026, 11, 2), 10000),
+          ReportExpense(
+              id: 'g-paid',
+              groupId: 'g',
+              date: DateTime.utc(2026, 11, 2),
+              cents: 10000,
+              createdBy: 'A',
+              paidBy: 'G',
+              paidByName: 'Giovanna',
+              categoryId: 'food',
+              categoryName: 'Alimentari'),
+          _refund('old', cents: 4000),
+        ]);
+    final container = _container(loader,
+        group: GroupState(
+            status: GroupStatus.loaded,
+            group: _group,
+            members: [_member('A', 'Anna'), _member('G', 'Giovanna')]));
+    addTearDown(container.dispose);
+    await _mount(tester, container);
+    await tester.pumpAndSettle();
+    final picker =
+        find.byKey(const ValueKey('balance-assign:reimbursement:old'));
+    await tester.ensureVisible(picker);
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Giovanna').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('balance-total-verdict')), findsOneWidget);
+    expect(loader.calls.length, 1);
+    await tester.tap(find.text('Anno'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('balance-incomplete')), findsOneWidget);
+    expect(find.byKey(const ValueKey('balance-total-verdict')), findsNothing);
+    expect(loader.calls.length, 2);
+  });
+
+  testWidgets(
       'adding income through the existing route refreshes the report on return',
       (tester) async {
     var saved = false;
@@ -453,9 +494,17 @@ void main() {
       expect(find.text('—'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('Anna'), findsOneWidget);
-      expect(find.text('Carlo'), findsOneWidget);
-      expect(find.text('Giulia dal nome molto lungo'), findsOneWidget);
+      final paymentsCard = find.ancestor(
+          of: find.text('Chi ha pagato'), matching: find.byType(Card));
+      expect(find.descendant(of: paymentsCard, matching: find.text('Anna')),
+          findsOneWidget);
+      expect(find.descendant(of: paymentsCard, matching: find.text('Carlo')),
+          findsOneWidget);
+      expect(
+          find.descendant(
+              of: paymentsCard,
+              matching: find.text('Giulia dal nome molto lungo')),
+          findsOneWidget);
       final memberCard = find.ancestor(
           of: find.text('Chi ha pagato'), matching: find.byType(Card));
       expect(
@@ -524,8 +573,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('Anna aggiornata'), findsOneWidget);
-    expect(find.text('Giulia'), findsOneWidget);
+    final paymentsCard = find.ancestor(
+        of: find.text('Chi ha pagato'), matching: find.byType(Card));
+    expect(
+        find.descendant(
+            of: paymentsCard, matching: find.text('Anna aggiornata')),
+        findsOneWidget);
+    expect(find.descendant(of: paymentsCard, matching: find.text('Giulia')),
+        findsOneWidget);
     expect(find.text('Non deve comparire'), findsNothing);
     expect(find.textContaining('0,0% del totale · 0 spese'), findsOneWidget);
     expect(loader.calls.length, 1);

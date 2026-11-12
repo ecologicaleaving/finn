@@ -14,6 +14,7 @@ import '../../groups/presentation/providers/group_provider.dart';
 import '../domain/group_report.dart';
 import 'report_provider.dart';
 import 'report_income_section.dart';
+import 'member_balance_section.dart';
 
 String _money(int cents) =>
     NumberFormat.currency(locale: 'it_IT', symbol: '€', decimalDigits: 2)
@@ -170,6 +171,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
           data: (value) => _ReportBody(
               key: ValueKey(request),
               report: value,
+              balanceScope: request,
               onOpenOriginal: (id) async {
                 final before = ref.read(groupReportProvider(request));
                 await context.push('/expense/${Uri.encodeComponent(id)}');
@@ -199,9 +201,11 @@ class _ReportBody extends StatelessWidget {
       {super.key,
       required this.report,
       required this.members,
+      required this.balanceScope,
       required this.onOpenOriginal});
   final GroupReport report;
   final List<ReportMember> members;
+  final Object balanceScope;
   final Future<void> Function(String id) onOpenOriginal;
   @override
   Widget build(BuildContext context) {
@@ -224,6 +228,12 @@ class _ReportBody extends StatelessWidget {
           const SizedBox(height: 4),
           Text(_interval(period.start, period.end)),
           const SizedBox(height: 16),
+          MemberBalanceSection(
+              report: report,
+              members: members,
+              scope: balanceScope,
+              onOpenOriginal: onOpenOriginal),
+          const SizedBox(height: 20),
           Text('Spese lorde', style: theme.textTheme.titleLarge),
           const SizedBox(height: 12),
           LayoutBuilder(builder: (context, constraints) {
