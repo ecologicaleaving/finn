@@ -78,7 +78,11 @@ void main() {
       expect(find.byKey(const ValueKey('balance-total-verdict')), findsNothing);
       expect(find.textContaining('Pagante originale: Anna.'), findsOneWidget);
       await _choose(tester, 'balance-assign:reimbursement:refund', 'Giovanna');
-      expect(find.text('Per pareggiare il periodo: Giovanna → Anna 20,00 €.'),
+      expect(
+          find.byWidgetPredicate((w) =>
+              w is Semantics &&
+              w.properties.label ==
+                  'Per pareggiare il periodo: Giovanna → Anna 20,00 €.'),
           findsOneWidget);
       expect(
           tester
@@ -108,13 +112,17 @@ void main() {
           find.text(
               'Per pareggiare questa categoria: Giovanna → Anna 20,00 €.'),
           findsOneWidget);
-      expect(find.text('Cibo'), findsOneWidget);
+      expect(find.text('Cibo'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
       await tester
           .ensureVisible(find.byTooltip('Inverti ordine delle persone'));
       await tester.tap(find.byTooltip('Inverti ordine delle persone'));
       await tester.pumpAndSettle();
-      expect(find.text('Per pareggiare il periodo: Giovanna → Anna 20,00 €.'),
+      expect(
+          find.byWidgetPredicate((w) =>
+              w is Semantics &&
+              w.properties.label ==
+                  'Per pareggiare il periodo: Giovanna → Anna 20,00 €.'),
           findsOneWidget);
     });
   }
@@ -129,7 +137,11 @@ void main() {
     await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pumpAndSettle();
-    expect(find.text('Per pareggiare il periodo: Anna → Giovanna 20,00 €.'),
+    expect(
+        find.byWidgetPredicate((w) =>
+            w is Semantics &&
+            w.properties.label ==
+                'Per pareggiare il periodo: Anna → Giovanna 20,00 €.'),
         findsOneWidget);
   });
 

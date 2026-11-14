@@ -356,6 +356,9 @@ void main() {
       expect(find.text(refundOnly ? 'Visita precedente' : 'Assegni familiari'),
           findsOneWidget);
       expect(find.text('Dettaglio entrate e rimborsi'), findsOneWidget);
+      await tester.ensureVisible(find.text('Cosa sapere sui rimborsi'));
+      await tester.tap(find.text('Cosa sapere sui rimborsi'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('registra lo stesso incasso una sola volta'),
           findsOneWidget);
       if (refundOnly)
@@ -488,6 +491,9 @@ void main() {
       expect(
           tester.widget<BarChart>(find.byType(BarChart)).data.barGroups.length,
           12);
+      await tester.ensureVisible(find.text('Valori mensili (12)'));
+      await tester.tap(find.text('Valori mensili (12)'));
+      await tester.pumpAndSettle();
       expect(find.text('dic 2026 · Non ancora trascorso'), findsOneWidget);
       expect(find.text('nov 2026 · parziale'), findsOneWidget);
       expect(find.text('feb 2026'), findsOneWidget);
@@ -679,12 +685,12 @@ void main() {
     addTearDown(container.dispose);
     await _mount(tester, container);
     expect(find.text('Caricamento report completo...'), findsOneWidget);
-    expect(find.text('Spesa totale'), findsNothing);
+    expect(find.text('Spese lorde'), findsNothing);
     pending.completeError(StateError('second page failed'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Impossibile caricare tutti i movimenti'),
         findsOneWidget);
-    expect(find.text('Spesa totale'), findsNothing);
+    expect(find.text('Spese lorde'), findsNothing);
     await tester.tap(find.text('Riprova'));
     await tester.pumpAndSettle();
     expect(find.text('Nessuna spesa nel periodo'), findsOneWidget);
@@ -726,7 +732,7 @@ void main() {
       await _mount(tester, container, router: router);
       await tester.pumpAndSettle();
       expect(find.text('Casa nostra'), findsOneWidget);
-      expect(find.text('Spesa totale'), findsOneWidget);
+      expect(find.text('Spese lorde'), findsOneWidget);
       expect(find.text('Numero di spese'), findsOneWidget);
       expect(find.text('Importo medio'), findsOneWidget);
       expect(
@@ -739,15 +745,19 @@ void main() {
           find.text('Andamento degli ultimi 6 mesi'), 300,
           scrollable: find.byType(Scrollable).first);
       expect(find.byType(BarChart), findsOneWidget);
+      await tester.ensureVisible(find.text('Valori mensili (6)'));
+      await tester.tap(find.text('Valori mensili (6)'));
+      await tester.pumpAndSettle();
       expect(find.text('nov 2026 · parziale'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Chi ha pagato'), 300,
           scrollable: find.byType(Scrollable).first);
-      expect(find.byType(PieChart), findsOneWidget);
+      expect(find.byType(PieChart), findsNothing);
+      expect(find.text('Alimentari'), findsWidgets);
       expect(
           find.text(
               'Importi pagati e percentuali sul totale · nessun debito o conguaglio'),
           findsOneWidget);
-      expect(find.text('Anna'), findsOneWidget);
+      expect(find.text('Anna'), findsWidgets);
       await tester.scrollUntilVisible(find.text('La spesa maggiore'), 300,
           scrollable: find.byType(Scrollable).first);
       expect(find.textContaining('Categoria principale'), findsOneWidget);
@@ -778,6 +788,9 @@ void main() {
         find.text('Andamento degli ultimi 6 mesi'), 300,
         scrollable: find.byType(Scrollable).first);
     expect(find.byType(BarChart), findsOneWidget);
+    await tester.ensureVisible(find.text('Valori mensili (6)'));
+    await tester.tap(find.text('Valori mensili (6)'));
+    await tester.pumpAndSettle();
     expect(find.text('ago 2026'), findsOneWidget);
     expect(find.textContaining('NaN'), findsNothing);
     expect(find.textContaining('Infinity'), findsNothing);
@@ -798,7 +811,7 @@ void main() {
         errorMessage: 'Gruppo non disponibile'));
     await tester.pumpAndSettle();
     expect(find.text('Gruppo non disponibile'), findsOneWidget);
-    expect(find.text('Spesa totale'), findsNothing);
+    expect(find.text('Spese lorde'), findsNothing);
     groups.show(const GroupState(status: GroupStatus.noGroup));
     await tester.pumpAndSettle();
     expect(find.text('Entra in un gruppo per vedere i suoi report.'),

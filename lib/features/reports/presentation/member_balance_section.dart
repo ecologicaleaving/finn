@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../domain/group_report.dart';
 import '../domain/member_balance.dart';
+import 'report_visuals.dart';
 
 String _money(int cents) =>
     NumberFormat.currency(locale: 'it_IT', symbol: '€', decimalDigits: 2)
@@ -31,6 +32,15 @@ class _MemberBalanceSectionState extends State<MemberBalanceSection> {
   late String _snapshot;
   final _attributions = <String, BalanceAttribution>{};
   int _assignmentPage = 0;
+  final _assignmentAnchor = GlobalKey();
+  final _assignmentController = ExpansibleController();
+
+  @override
+  void dispose() {
+    _assignmentController.dispose();
+    super.dispose();
+  }
+
   List<ReportMember> get _members => {
         for (final member in widget.members)
           if (member.id.trim().isNotEmpty) member.id: member,
@@ -94,6 +104,7 @@ class _MemberBalanceSectionState extends State<MemberBalanceSection> {
           key: ValueKey(
               first ? 'balance-first-person' : 'balance-second-person'),
           isExpanded: true,
+          itemHeight: null,
           value: first ? _first : _second,
           hint: const Text('Scegli una persona'),
           items: [
@@ -124,110 +135,230 @@ class _MemberBalanceSectionState extends State<MemberBalanceSection> {
             secondId: _second!,
             attributions: _attributions)
         : null;
-    return Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
+    final names = {for (final member in _members) member.id: _name(member.id)};
+    final ordered =
+        balance == null ? <CategoryBalance>[] : [...balance.categories]
+          ..sort((a, b) {
+            if (a.isComplete != b.isComplete) return a.isComplete ? 1 : -1;
+            final difference = (b.people.values.first.deltaCents?.abs() ?? 0)
+                .compareTo(a.people.values.first.deltaCents?.abs() ?? 0);
+            return difference == 0 ? a.key.compareTo(b.key) : difference;
+          });
+    final hasAssigned = balance?.people.values
+            .any((p) => p.paidCents != 0 || p.receivedCents != 0) ??
+        false;
+    final sideBySide = MediaQuery.sizeOf(context).width >= 1256 &&
+        MediaQuery.textScalerOf(context).scale(16) <= 16 &&
+        balance != null &&
+        balance.events.isNotEmpty &&
+        (balance.isComplete || hasAssigned);
+    Widget hero() => BalanceResultHero(
+        balance: balance, names: names, onAssign: _showAttributions);
+    Widget chart() => NetComparisonChart(
+        people: [balance!.people[_first]!, balance.people[_second]!],
+        names: names,
+        complete: balance.isComplete);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (sideBySide)
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(flex: 4, child: hero()),
+          const SizedBox(width: 16),
+          Expanded(
+              flex: 6,
+              child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                      color: ReportVisuals.surface(context),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: ReportVisuals.line(context))),
+                  child: chart())),
+        ])
+      else
+        hero(),
+      const SizedBox(height: 16),
+      Container(
           padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+              color: ReportVisuals.surface(context),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: ReportVisuals.line(context))),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Equilibrio 50/50',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            const Text(
-                'Per ogni categoria e per il totale: netto = pagato − entrate ricevute '
-                '− rimborsi ricevuti. La quota è il 50% del netto. '
-                'Scostamento +: sopra quota; scostamento −: sotto quota.'),
-            const SizedBox(height: 16),
-            LayoutBuilder(builder: (context, constraints) {
-              final width = constraints.maxWidth >= 650
-                  ? (constraints.maxWidth - 16) / 2
-                  : constraints.maxWidth;
-              return Wrap(spacing: 16, runSpacing: 12, children: [
-                SizedBox(width: width, child: _picker(true)),
-                SizedBox(width: width, child: _picker(false)),
-              ]);
-            }),
-            if (validPair)
-              Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                      tooltip: 'Inverti ordine delle persone',
-                      icon: const Icon(Icons.swap_horiz),
-                      onPressed: () => setState(() {
-                            final first = _first;
-                            _first = _second;
-                            _second = first;
-                          }))),
-            if (balance == null)
-              const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                      'Seleziona due persone distinte. Con più di due componenti '
-                      'la coppia non viene scelta automaticamente.')),
-            if (balance != null) ...[
-              if (balance.events.isEmpty)
+            if (balance != null && balance.events.isNotEmpty) ...[
+              if (balance.isComplete || hasAssigned) ...[
+                if (!sideBySide) ...[chart(), const SizedBox(height: 22)],
+                LayoutBuilder(builder: (context, constraints) {
+                  final width = constraints.maxWidth >= 650
+                      ? (constraints.maxWidth - 16) / 2
+                      : constraints.maxWidth;
+                  return Wrap(spacing: 16, runSpacing: 12, children: [
+                    for (final id in [_first!, _second!])
+                      SizedBox(
+                          width: width,
+                          child: PersonBalanceSummary(
+                              name: names[id]!,
+                              value: balance.people[id]!,
+                              pair: [_first!, _second!],
+                              complete: balance.isComplete)),
+                  ]);
+                }),
+              ] else
                 const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text('Nessun movimento nel periodo')),
-              Text('Netto complessivo: ${_money(balance.netTotalCents)}',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              if (!balance.isComplete)
-                Text(
-                    'Confronto incompleto: ${balance.unassigned.length} movimenti da attribuire. '
-                    'La compensazione totale non è calcolabile.',
-                    key: const ValueKey('balance-incomplete'),
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
-              if (balance.isComplete && balance.events.isNotEmpty) ...[
-                _verdict(context, balance.transfer, total: true),
-                if (balance.transfer == null &&
-                    balance.offsettingCategoryCount > 0)
-                  Text(
-                      '${balance.offsettingCategoryCount} categorie con scostamenti che si compensano.'),
-              ],
-              const SizedBox(height: 12),
-              LayoutBuilder(builder: (context, constraints) {
-                final width = constraints.maxWidth >= 650
-                    ? (constraints.maxWidth - 16) / 2
-                    : constraints.maxWidth;
-                return Wrap(spacing: 16, runSpacing: 12, children: [
-                  for (final id in [_first!, _second!])
-                    SizedBox(
-                        width: width,
-                        child: _PersonFigures(
-                            name: _name(id),
-                            value: balance.people[id]!,
-                            figureKey: 'balance-total-$id')),
-                ]);
-              }),
-              _assignmentControls(context, balance),
-              const Divider(height: 28),
-              KeyedSubtree(
-                  key: const ValueKey('balance-categories'),
-                  child: ExpansionTile(
-                    key: PageStorageKey((
-                      'balance-categories',
-                      widget.scope,
-                      _snapshot.hashCode
-                    )),
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(
-                        'Tutte le categorie (${balance.categories.length})'),
-                    children: [
-                      for (final category in balance.categories)
-                        _category(context, category)
-                    ],
-                  )),
+                    child: Text(
+                        'Attribuisci i movimenti per vedere i costi netti.')),
+              const SizedBox(height: 16),
             ],
-            const SizedBox(height: 12),
-            const Text(
-                'Le attribuzioni valgono solo per questo confronto e non cambiano i movimenti. '
-                'Entrate e rimborsi incidono sulla categoria in cui sono registrati. '
-                'Il calcolo considera solo i movimenti del periodo. '
-                'Eventuali conguagli già scambiati e saldi precedenti vanno considerati a parte.'),
-          ]),
-        ));
+            Row(children: [
+              Expanded(
+                  child: Text('Persone confrontate',
+                      style: Theme.of(context).textTheme.titleMedium)),
+              if (validPair)
+                IconButton(
+                    tooltip: 'Inverti ordine delle persone',
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    icon: const Icon(Icons.swap_horiz),
+                    onPressed: () => setState(() {
+                          final first = _first;
+                          _first = _second;
+                          _second = first;
+                        })),
+            ]),
+            ExpansionTile(
+              key: PageStorageKey(('balance-people', widget.scope)),
+              tilePadding: EdgeInsets.zero,
+              initiallyExpanded: !validPair,
+              title: Text(validPair
+                  ? '${names[_first]} e ${names[_second]}'
+                  : 'Scegli le due persone'),
+              subtitle: const Text('Cambia le persone del confronto'),
+              children: [
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: LayoutBuilder(builder: (context, constraints) {
+                      final width = constraints.maxWidth >= 650
+                          ? (constraints.maxWidth - 16) / 2
+                          : constraints.maxWidth;
+                      return Wrap(spacing: 16, runSpacing: 12, children: [
+                        SizedBox(width: width, child: _picker(true)),
+                        SizedBox(width: width, child: _picker(false)),
+                      ]);
+                    }))
+              ],
+            ),
+            if (balance != null) ...[
+              _assignmentControls(context, balance),
+              if (balance.events.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text('Dove cambia l’equilibrio',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                    'Prima le categorie da completare, poi gli scostamenti maggiori.',
+                    style: TextStyle(color: ReportVisuals.muted(context))),
+                const SizedBox(height: 14),
+                for (final category in ordered.take(4))
+                  _categoryPreview(context, category, names),
+                KeyedSubtree(
+                    key: const ValueKey('balance-categories'),
+                    child: ExpansionTile(
+                        key: PageStorageKey((
+                          'balance-categories',
+                          widget.scope,
+                          _snapshot.hashCode
+                        )),
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(
+                            'Tutte le categorie (${balance.categories.length})'),
+                        subtitle: const Text('Pagato, ricevuto, netto, quota e scostamento'),
+                        children: [
+                          for (final category in balance.categories)
+                            _category(context, category)
+                        ])),
+                ExpansionTile(
+                    key: PageStorageKey(
+                        ('balance-figures', widget.scope, _snapshot.hashCode)),
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Valori completi del confronto'),
+                    children: [
+                      Text(
+                          'Netto complessivo: ${_money(balance.netTotalCents)}'),
+                      for (final id in [_first!, _second!])
+                        Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: _PersonFigures(
+                                name: names[id]!,
+                                value: balance.people[id]!,
+                                figureKey: 'balance-full-total-$id')),
+                    ]),
+              ],
+            ],
+            ExpansionTile(
+                key: PageStorageKey(('balance-how', widget.scope)),
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Come viene calcolato'),
+                leading: const Icon(Icons.info_outline),
+                children: const [
+                  Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: Text(
+                          'Per ogni categoria e per il totale: netto = pagato − entrate ricevute '
+                          '− rimborsi ricevuti. La quota è il 50% del netto. '
+                          'Scostamento +: sopra quota; scostamento −: sotto quota. '
+                          'Le quote e gli scostamenti sono ripartiti al centesimo. '
+                          'Le attribuzioni valgono solo per questo confronto e non cambiano i movimenti. '
+                          'Entrate e rimborsi incidono sulla categoria in cui sono registrati. '
+                          'Il calcolo considera solo i movimenti del periodo. '
+                          'Eventuali conguagli già scambiati e saldi precedenti vanno considerati a parte.'))
+                ]),
+          ])),
+    ]);
+  }
+
+  void _showAttributions() {
+    _assignmentController.expand();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _assignmentAnchor.currentContext;
+      if (mounted && target != null) {
+        Scrollable.ensureVisible(target,
+            duration: const Duration(milliseconds: 250), alignment: .05);
+      }
+    });
+  }
+
+  Widget _categoryPreview(BuildContext context, CategoryBalance category,
+      Map<String, String> names) {
+    final transfer = category.transfer;
+    return Container(
+        key: ValueKey('balance-preview:${category.key}'),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: ReportVisuals.canvas(context),
+            borderRadius: BorderRadius.circular(16)),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(category.label,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(
+              !category.isComplete
+                  ? 'Parziale · ${category.unassigned.length} da attribuire'
+                  : transfer == null
+                      ? 'Categoria in equilibrio'
+                      : '${names[transfer.fromId]} → ${names[transfer.toId]} · ${_money(transfer.cents)}',
+              style: TextStyle(color: ReportVisuals.muted(context))),
+          const SizedBox(height: 12),
+          NetComparisonChart(
+              people: [category.people[_first]!, category.people[_second]!],
+              names: names,
+              complete: category.isComplete,
+              compact: true),
+        ]));
   }
 
   Widget _verdict(BuildContext context, BalanceTransfer? transfer,
@@ -334,94 +465,101 @@ class _MemberBalanceSectionState extends State<MemberBalanceSection> {
       return '$name${pair.contains(id) ? '' : ' (fuori dalla coppia)'}';
     }
 
-    return KeyedSubtree(
-        key: const ValueKey('balance-attributions'),
-        child: ExpansionTile(
-            key: PageStorageKey(
-                ('balance-attributions', widget.scope, _snapshot.hashCode)),
-            tilePadding: EdgeInsets.zero,
-            initiallyExpanded: !balance.isComplete,
-            title: Text(
-                'Attribuzioni del confronto (${balance.unassigned.length} da attribuire)'),
-            children: [
-              const Text(
-                  'Il destinatario di un rimborso non è registrato: scegli chi lo ha ricevuto. '
-                  'Per paganti mancanti o fuori dalla coppia, attribuisci il movimento solo per questo confronto '
-                  'oppure apri l’originale. Le scelte valgono solo per questo confronto.'),
-              if (bulk.isNotEmpty)
-                Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: OutlinedButton(
-                        onPressed: () => setState(() {
-                              for (final event in bulk) {
-                                _attributions[event.key] =
-                                    BalanceAttribution.forEvent(
-                                        event.explicitPersonId!, event);
-                              }
-                            }),
-                        child: Text(
-                            'Conferma ${bulk.length} rimborsi ai paganti originali'))),
-              for (final event in visible)
-                Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                              '${event.kind == BalanceEventKind.expense ? 'Spesa' : event.kind == BalanceEventKind.income ? 'Entrata' : 'Rimborso'} · '
-                              '${event.source.title} · ${_money(event.cents)}'),
-                          Text(
-                              '${event.categoryLabel} · ${DateFormat('d MMM yyyy', 'it_IT').format(event.date)}'),
-                          Text(event.kind == BalanceEventKind.reimbursement
-                              ? 'Pagante originale: ${originalPerson(event)}. Destinatario del rimborso da confermare.'
-                              : '${event.kind == BalanceEventKind.expense ? 'Pagante registrato' : 'Persona associata registrata'}: ${originalPerson(event)}'),
-                          DropdownButton<String>(
-                              key: ValueKey('balance-assign:${event.key}'),
-                              isExpanded: true,
-                              value: MemberBalance.assignedPerson(
-                                  event, pair, _attributions),
-                              hint: const Text('Da attribuire: scegli persona'),
-                              items: [
-                                const DropdownMenuItem(
-                                    value: null, child: Text('Da attribuire')),
-                                for (final id in pair)
-                                  DropdownMenuItem(
-                                      value: id, child: Text(_name(id)))
-                              ],
-                              onChanged: (id) => setState(() {
-                                    if (id == null) {
-                                      _attributions.remove(event.key);
-                                    } else {
-                                      _attributions[event.key] =
-                                          BalanceAttribution.forEvent(
-                                              id, event);
-                                    }
-                                  })),
-                          Align(
-                              alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                  onPressed: () =>
-                                      widget.onOpenOriginal(event.source.id),
-                                  icon: const Icon(Icons.open_in_new, size: 16),
-                                  label: const Text('Apri originale'))),
-                        ])),
-              Text(
-                  '${page * 10 + 1}–${page * 10 + visible.length} di ${controls.length} movimenti da verificare'),
-              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                IconButton(
-                    tooltip: 'Attribuzioni precedenti',
-                    onPressed: page == 0
-                        ? null
-                        : () => setState(() => _assignmentPage = page - 1),
-                    icon: const Icon(Icons.chevron_left)),
-                IconButton(
-                    tooltip: 'Altre attribuzioni',
-                    onPressed: (page + 1) * 10 >= controls.length
-                        ? null
-                        : () => setState(() => _assignmentPage = page + 1),
-                    icon: const Icon(Icons.chevron_right)),
-              ]),
-            ]));
+    return Container(
+        key: _assignmentAnchor,
+        child: KeyedSubtree(
+            key: const ValueKey('balance-attributions'),
+            child: ExpansionTile(
+                controller: _assignmentController,
+                key: PageStorageKey(
+                    ('balance-attributions', widget.scope, _snapshot.hashCode)),
+                tilePadding: EdgeInsets.zero,
+                initiallyExpanded: !balance.isComplete,
+                title: Text(
+                    'Attribuzioni del confronto (${balance.unassigned.length} da attribuire)'),
+                children: [
+                  const Text(
+                      'Il destinatario di un rimborso non è registrato: scegli chi lo ha ricevuto. '
+                      'Per paganti mancanti o fuori dalla coppia, attribuisci il movimento solo per questo confronto '
+                      'oppure apri l’originale. Le scelte valgono solo per questo confronto.'),
+                  if (bulk.isNotEmpty)
+                    Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: OutlinedButton(
+                            onPressed: () => setState(() {
+                                  for (final event in bulk) {
+                                    _attributions[event.key] =
+                                        BalanceAttribution.forEvent(
+                                            event.explicitPersonId!, event);
+                                  }
+                                }),
+                            child: Text(
+                                'Conferma ${bulk.length} rimborsi ai paganti originali'))),
+                  for (final event in visible)
+                    Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                  '${event.kind == BalanceEventKind.expense ? 'Spesa' : event.kind == BalanceEventKind.income ? 'Entrata' : 'Rimborso'} · '
+                                  '${event.source.title} · ${_money(event.cents)}'),
+                              Text(
+                                  '${event.categoryLabel} · ${DateFormat('d MMM yyyy', 'it_IT').format(event.date)}'),
+                              Text(event.kind == BalanceEventKind.reimbursement
+                                  ? 'Pagante originale: ${originalPerson(event)}. Destinatario del rimborso da confermare.'
+                                  : '${event.kind == BalanceEventKind.expense ? 'Pagante registrato' : 'Persona associata registrata'}: ${originalPerson(event)}'),
+                              DropdownButton<String>(
+                                  key: ValueKey('balance-assign:${event.key}'),
+                                  isExpanded: true,
+                                  itemHeight: null,
+                                  value: MemberBalance.assignedPerson(
+                                      event, pair, _attributions),
+                                  hint: const Text(
+                                      'Da attribuire: scegli persona'),
+                                  items: [
+                                    const DropdownMenuItem(
+                                        value: null,
+                                        child: Text('Da attribuire')),
+                                    for (final id in pair)
+                                      DropdownMenuItem(
+                                          value: id, child: Text(_name(id)))
+                                  ],
+                                  onChanged: (id) => setState(() {
+                                        if (id == null) {
+                                          _attributions.remove(event.key);
+                                        } else {
+                                          _attributions[event.key] =
+                                              BalanceAttribution.forEvent(
+                                                  id, event);
+                                        }
+                                      })),
+                              Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                      onPressed: () => widget
+                                          .onOpenOriginal(event.source.id),
+                                      icon: const Icon(Icons.open_in_new,
+                                          size: 16),
+                                      label: const Text('Apri originale'))),
+                            ])),
+                  Text(
+                      '${page * 10 + 1}–${page * 10 + visible.length} di ${controls.length} movimenti da verificare'),
+                  Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                    IconButton(
+                        tooltip: 'Attribuzioni precedenti',
+                        onPressed: page == 0
+                            ? null
+                            : () => setState(() => _assignmentPage = page - 1),
+                        icon: const Icon(Icons.chevron_left)),
+                    IconButton(
+                        tooltip: 'Altre attribuzioni',
+                        onPressed: (page + 1) * 10 >= controls.length
+                            ? null
+                            : () => setState(() => _assignmentPage = page + 1),
+                        icon: const Icon(Icons.chevron_right)),
+                  ]),
+                ])));
   }
 }
 

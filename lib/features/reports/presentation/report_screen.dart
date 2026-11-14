@@ -15,6 +15,7 @@ import '../domain/group_report.dart';
 import 'report_provider.dart';
 import 'report_income_section.dart';
 import 'member_balance_section.dart';
+import 'report_visuals.dart';
 
 String _money(int cents) =>
     NumberFormat.currency(locale: 'it_IT', symbol: '€', decimalDigits: 2)
@@ -92,10 +93,15 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
     _lastRequest = request;
     final report = ref.watch(groupReportProvider(request));
     return Scaffold(
+      backgroundColor: ReportVisuals.canvas(context),
       appBar: AppBar(
+        backgroundColor: ReportVisuals.canvas(context),
+        foregroundColor: ReportVisuals.ink(context),
+        elevation: 0,
         title: const Text('Report'),
         actions: [
           IconButton(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
               tooltip: 'Aggiorna report',
               onPressed: () => ref.invalidate(groupReportProvider(request)),
               icon: const Icon(Icons.refresh))
@@ -103,13 +109,26 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       ),
       body: Column(children: [
         Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
             child: Column(children: [
               Text(group.name,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: ReportVisuals.muted(context)),
                   textAlign: TextAlign.center),
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
               SegmentedButton<ReportMode>(
+                style: ButtonStyle(
+                    minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
+                    foregroundColor: WidgetStateProperty.resolveWith((states) =>
+                        states.contains(WidgetState.selected)
+                            ? Colors.white
+                            : ReportVisuals.ink(context)),
+                    backgroundColor: WidgetStateProperty.resolveWith((states) =>
+                        states.contains(WidgetState.selected)
+                            ? ReportVisuals.forest
+                            : ReportVisuals.surface(context))),
                 segments: const [
                   ButtonSegment(
                       value: ReportMode.month,
@@ -126,6 +145,8 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               ),
               Row(children: [
                 IconButton(
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
                     tooltip:
                         period.isYear ? 'Anno precedente' : 'Mese precedente',
                     onPressed: () => setState(() {
@@ -145,6 +166,8 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.titleLarge)),
                 IconButton(
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
                     tooltip:
                         period.isYear ? 'Anno successivo' : 'Mese successivo',
                     onPressed: period.isCurrent
@@ -212,133 +235,127 @@ class _ReportBody extends StatelessWidget {
     final theme = Theme.of(context);
     final period = report.period;
     return SingleChildScrollView(
-      key: const PageStorageKey('report-scroll'),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
-      child: Center(
-          child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1180),
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(
-              period.isYear
-                  ? (period.isCurrent ? 'L’anno finora' : 'L’anno in numeri')
-                  : (period.isCurrent ? 'Il mese finora' : 'Il mese in numeri'),
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text(_interval(period.start, period.end)),
-          const SizedBox(height: 16),
-          MemberBalanceSection(
-              report: report,
-              members: members,
-              scope: balanceScope,
-              onOpenOriginal: onOpenOriginal),
-          const SizedBox(height: 20),
-          Text('Spese lorde', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          LayoutBuilder(builder: (context, constraints) {
-            final width = constraints.maxWidth >= 650
-                ? (constraints.maxWidth - 24) / 3
-                : constraints.maxWidth;
-            return Wrap(spacing: 12, runSpacing: 12, children: [
-              _Kpi(width, 'Spesa totale', _money(report.totalCents),
-                  Icons.payments_outlined),
-              _Kpi(width, 'Numero di spese', '${report.count}',
-                  Icons.receipt_long_outlined),
-              _Kpi(width, 'Importo medio', _money(report.averageCents),
-                  Icons.analytics_outlined),
-            ]);
-          }),
-          const SizedBox(height: 20),
-          ReportBalanceSummary(report: report),
-          if (report.count == 0) ...[
-            const SizedBox(height: 16),
-            const _Panel(
-                title: 'Nessuna spesa nel periodo',
-                child: Text(
-                    'Lo storico degli altri mesi resta disponibile qui sotto.')),
-          ],
-          const SizedBox(height: 16),
-          _Comparison(report: report),
-          const SizedBox(height: 16),
-          _Trend(report: report),
-          const SizedBox(height: 16),
-          LayoutBuilder(builder: (context, constraints) {
-            final width = constraints.maxWidth >= 800
-                ? (constraints.maxWidth - 16) / 2
-                : constraints.maxWidth;
-            return Wrap(spacing: 16, runSpacing: 16, children: [
-              SizedBox(
-                  width: width,
-                  child: _Breakdown(
-                      title: 'Dove avete speso',
-                      subtitle: 'Spese per categoria',
-                      slices: report.categories,
-                      total: report.totalCents,
-                      chart: true)),
-              SizedBox(
-                  width: width,
-                  child: _MemberPayments(
-                      payments: report.memberPayments(members),
-                      total: report.totalCents)),
-            ]);
-          }),
-          const SizedBox(height: 16),
-          LayoutBuilder(builder: (context, constraints) {
-            final width = constraints.maxWidth >= 800
-                ? (constraints.maxWidth - 16) / 2
-                : constraints.maxWidth;
-            final names = {
-              for (final member in members) member.id: member.name
-            };
-            return Wrap(spacing: 16, runSpacing: 16, children: [
-              SizedBox(
-                  width: width,
-                  child: _Breakdown(
-                      title: 'Entrate registrate per categoria',
-                      subtitle:
-                          'Categorie originali dei movimenti, inclusi gli aiuti registrati.',
-                      slices: report.incomeCategories,
-                      total: report.incomeCents,
-                      emptyMessage: 'Nessuna entrata registrata nel periodo.',
-                      countLabel: 'entrate')),
-              SizedBox(
-                  width: width,
-                  child: _Breakdown(
-                      title: 'Entrate per persona associata',
-                      subtitle:
-                          'Persona registrata nel movimento, senza dedurre beneficiari.',
-                      slices: [
-                        for (final slice in report.incomePeople)
-                          ReportSlice(
-                              slice.id,
-                              names[slice.id]?.trim().isNotEmpty == true
-                                  ? names[slice.id]!.trim()
-                                  : slice.label,
-                              slice.cents,
-                              slice.count)
+        key: const PageStorageKey('report-scroll'),
+        padding: const EdgeInsets.fromLTRB(20, 6, 20, 104),
+        child: Center(
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1180),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(_interval(period.start, period.end),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: ReportVisuals.muted(context))),
+                      const SizedBox(height: 12),
+                      MemberBalanceSection(
+                          report: report,
+                          members: members,
+                          scope: balanceScope,
+                          onOpenOriginal: onOpenOriginal),
+                      const SizedBox(height: 30),
+                      Text(
+                          period.isYear
+                              ? (period.isCurrent
+                                  ? 'L’anno finora'
+                                  : 'L’anno in numeri')
+                              : (period.isCurrent
+                                  ? 'Il mese finora'
+                                  : 'Il mese in numeri'),
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: ReportVisuals.ink(context))),
+                      const SizedBox(height: 14),
+                      ReportBalanceSummary(report: report, scope: balanceScope),
+                      if (report.count == 0) ...[
+                        const SizedBox(height: 16),
+                        const _Panel(
+                            title: 'Nessuna spesa nel periodo',
+                            child: Text(
+                                'Lo storico e gli eventuali incassi restano disponibili qui sotto.')),
                       ],
-                      total: report.incomeCents,
-                      emptyMessage: 'Nessuna entrata registrata nel periodo.',
-                      countLabel: 'entrate')),
-            ]);
-          }),
-          const SizedBox(height: 16),
-          ReportInflowDetails(
-              report: report, members: members, onOpenOriginal: onOpenOriginal),
-          if (report.count > 0) ...[
-            const SizedBox(height: 16),
-            _Insights(report: report, onOpenOriginal: onOpenOriginal),
-          ],
-          const SizedBox(height: 20),
-          Text(
-              'Solo movimenti di gruppo sincronizzati. Movimenti personali e fonti di reddito '
-              'previste escluse. Le spese rimborsate restano incluse nelle spese lorde. '
-              'Il saldo del periodo non rappresenta il saldo bancario o il budget disponibile.',
-              style: theme.textTheme.bodySmall),
-        ]),
-      )),
-    );
+                      const SizedBox(height: 24),
+                      _Trend(report: report, scope: balanceScope),
+                      const SizedBox(height: 24),
+                      _Comparison(report: report),
+                      const SizedBox(height: 24),
+                      LayoutBuilder(builder: (context, constraints) {
+                        final width = constraints.maxWidth >= 800
+                            ? (constraints.maxWidth - 20) / 2
+                            : constraints.maxWidth;
+                        return Wrap(spacing: 20, runSpacing: 20, children: [
+                          SizedBox(
+                              width: width,
+                              child: _Breakdown(
+                                  title: 'Dove avete speso',
+                                  subtitle: 'Categorie ordinate per spesa',
+                                  slices: report.categories,
+                                  total: report.totalCents,
+                                  chart: true,
+                                  scope: balanceScope)),
+                          SizedBox(
+                              width: width,
+                              child: _MemberPayments(
+                                  payments: report.memberPayments(members),
+                                  total: report.totalCents)),
+                        ]);
+                      }),
+                      const SizedBox(height: 24),
+                      LayoutBuilder(builder: (context, constraints) {
+                        final width = constraints.maxWidth >= 800
+                            ? (constraints.maxWidth - 20) / 2
+                            : constraints.maxWidth;
+                        final names = {
+                          for (final member in members) member.id: member.name
+                        };
+                        return Wrap(spacing: 20, runSpacing: 20, children: [
+                          SizedBox(
+                              width: width,
+                              child: _Breakdown(
+                                  title: 'Entrate registrate per categoria',
+                                  subtitle: 'Categorie originali dei movimenti',
+                                  slices: report.incomeCategories,
+                                  total: report.incomeCents,
+                                  scope: balanceScope,
+                                  emptyMessage:
+                                      'Nessuna entrata registrata nel periodo.',
+                                  countLabel: 'entrate')),
+                          SizedBox(
+                              width: width,
+                              child: _Breakdown(
+                                  title: 'Entrate per persona associata',
+                                  subtitle:
+                                      'La persona registrata, senza dedurre beneficiari',
+                                  slices: [
+                                    for (final slice in report.incomePeople)
+                                      ReportSlice(
+                                          slice.id,
+                                          names[slice.id]?.trim().isNotEmpty ==
+                                                  true
+                                              ? names[slice.id]!.trim()
+                                              : slice.label,
+                                          slice.cents,
+                                          slice.count)
+                                  ],
+                                  total: report.incomeCents,
+                                  scope: balanceScope,
+                                  extraLabel: 'persone',
+                                  emptyMessage:
+                                      'Nessuna entrata registrata nel periodo.',
+                                  countLabel: 'entrate')),
+                        ]);
+                      }),
+                      const SizedBox(height: 24),
+                      ReportInflowDetails(
+                          report: report,
+                          members: members,
+                          scope: balanceScope,
+                          onOpenOriginal: onOpenOriginal),
+                      if (report.count > 0) ...[
+                        const SizedBox(height: 24),
+                        _Insights(
+                            report: report, onOpenOriginal: onOpenOriginal),
+                      ],
+                    ]))));
   }
 }
 
@@ -349,50 +366,29 @@ class _Panel extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleLarge),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 4),
-                    Text(subtitle!)
-                  ],
-                  const SizedBox(height: 16),
-                  child,
-                ])),
-      );
-}
-
-class _Kpi extends StatelessWidget {
-  const _Kpi(this.width, this.label, this.value, this.icon);
-  final double width;
-  final String label, value;
-  final IconData icon;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: width,
-        child: Card(
-            margin: EdgeInsets.zero,
-            color: Theme.of(context).colorScheme.primaryContainer,
-            child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(icon, color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(height: 12),
-                      Text(label),
-                      const SizedBox(height: 4),
-                      Text(value,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.bold)),
-                    ]))),
-      );
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      color: ReportVisuals.surface(context),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: ReportVisuals.line(context))),
+      child: Padding(
+          padding: const EdgeInsets.all(22),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: ReportVisuals.ink(context),
+                    fontWeight: FontWeight.w700)),
+            if (subtitle != null) ...[
+              const SizedBox(height: 5),
+              Text(subtitle!,
+                  style: TextStyle(color: ReportVisuals.muted(context)))
+            ],
+            const SizedBox(height: 18),
+            child,
+          ])));
 }
 
 class _Comparison extends StatelessWidget {
@@ -436,97 +432,158 @@ class _Comparison extends StatelessWidget {
 }
 
 class _Trend extends StatelessWidget {
-  const _Trend({required this.report});
+  const _Trend({required this.report, required this.scope});
   final GroupReport report;
+  final Object scope;
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.primary;
-    final inflowColor = Theme.of(context).colorScheme.tertiary;
+    final outColor = ReportVisuals.dark(context)
+        ? const Color(0xFFA5D1B4)
+        : ReportVisuals.forest;
+    final inColor = ReportVisuals.dark(context)
+        ? const Color(0xFF9BCDD4)
+        : ReportVisuals.petrol;
+    final maxCents = report.trend
+        .fold<int>(0, (m, e) => math.max(m, math.max(e.cents, e.inflowCents)));
+    final minCents = report.trend
+        .fold<int>(0, (m, e) => math.min(m, math.min(e.cents, e.inflowCents)));
     return _Panel(
-      title: report.period.isYear
-          ? 'Andamento dei 12 mesi'
-          : 'Andamento degli ultimi 6 mesi',
-      subtitle: 'Uscite lorde ed entrate + rimborsi · importi in euro',
-      child: Column(children: [
-        Wrap(spacing: 20, runSpacing: 8, children: [
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.circle, color: color, size: 10),
-            const SizedBox(width: 6),
-            const Text('Uscite lorde')
+        title: report.period.isYear
+            ? 'Andamento dei 12 mesi'
+            : 'Andamento degli ultimi 6 mesi',
+        subtitle: 'Movimenti registrati, mese per mese',
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Wrap(spacing: 20, runSpacing: 10, children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.arrow_upward, color: outColor, size: 18),
+              const SizedBox(width: 6),
+              const Text('Uscite lorde')
+            ]),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.arrow_downward, color: inColor, size: 18),
+              const SizedBox(width: 6),
+              const Text('Entrate + rimborsi')
+            ]),
           ]),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.circle, color: inflowColor, size: 10),
-            const SizedBox(width: 6),
-            const Text('Entrate + rimborsi')
-          ]),
-        ]),
-        const SizedBox(height: 16),
-        SizedBox(
-            height: 180,
-            child: BarChart(BarChartData(
-              maxY: math.max(
-                  1,
-                  report.trend.fold<int>(
-                          0,
-                          (m, e) =>
-                              math.max(m, math.max(e.cents, e.inflowCents))) /
-                      100 *
-                      1.2),
-              borderData: FlBorderData(show: false),
-              gridData: const FlGridData(show: false),
-              barTouchData: BarTouchData(enabled: false),
-              titlesData: FlTitlesData(
-                topTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                leftTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, _) => Text(
-                            DateFormat('MMM', 'it_IT')
-                                .format(report.trend[value.toInt()].month)))),
-              ),
-              barGroups: [
-                for (var i = 0; i < report.trend.length; i++)
-                  BarChartGroupData(x: i, barRods: [
-                    BarChartRodData(
-                      toY: math.max(0, report.trend[i].cents / 100),
-                      width: report.period.isYear ? 7 : 14,
-                      color: report.trend[i].partial
-                          ? color.withValues(alpha: 0.55)
-                          : color,
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(5)),
-                    ),
-                    BarChartRodData(
-                        toY: math.max(0, report.trend[i].inflowCents / 100),
-                        width: report.period.isYear ? 7 : 14,
-                        color: report.trend[i].partial
-                            ? inflowColor.withValues(alpha: 0.55)
-                            : inflowColor,
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(5))),
-                  ])
-              ],
-            ))),
-        const SizedBox(height: 16),
-        for (final month in report.trend) ...[
-          _AmountRow(
-              label:
-                  '${DateFormat('MMM yyyy', 'it_IT').format(month.month)}${month.future ? ' · Non ancora trascorso' : (month.partial ? ' · parziale' : '')}',
-              amount: month.future ? '—' : _money(month.cents)),
-          if (!month.future)
+          const SizedBox(height: 24),
+          LayoutBuilder(builder: (context, constraints) {
+            final compact = constraints.maxWidth < 700 && report.period.isYear;
+            final currentIndex =
+                report.trend.indexWhere((month) => month.partial);
+            return SizedBox(
+                height: constraints.maxWidth < 600 ? 210 : 260,
+                child: BarChart(BarChartData(
+                  minY: minCents / 100 * 1.15,
+                  maxY: math.max(1, maxCents / 100 * 1.15),
+                  borderData: FlBorderData(show: false),
+                  gridData: const FlGridData(show: false),
+                  barTouchData: BarTouchData(enabled: false),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 34,
+                            getTitlesWidget: (value, _) {
+                              final index = value.toInt();
+                              if (index < 0 || index >= report.trend.length) {
+                                return const SizedBox.shrink();
+                              }
+                              if (compact &&
+                                  index != currentIndex &&
+                                  (index % 3 != 0 ||
+                                      (index - currentIndex).abs() <= 1)) {
+                                return const SizedBox.shrink();
+                              }
+                              final month = report.trend[index];
+                              return Padding(
+                                  padding: const EdgeInsets.only(top: 10),
+                                  child: Text(
+                                      '${DateFormat('MMM', 'it_IT').format(month.month)}${month.partial ? '*' : ''}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                              color: ReportVisuals.muted(
+                                                  context))));
+                            })),
+                  ),
+                  barGroups: [
+                    for (var i = 0; i < report.trend.length; i++)
+                      BarChartGroupData(
+                          x: i,
+                          barsSpace: report.period.isYear ? 4 : 6,
+                          barRods: [
+                            BarChartRodData(
+                                toY: report.trend[i].cents / 100,
+                                width: report.period.isYear ? 8 : 15,
+                                color: report.trend[i].partial
+                                    ? outColor.withValues(alpha: .65)
+                                    : outColor,
+                                borderRadius: BorderRadius.circular(5)),
+                            BarChartRodData(
+                                toY: report.trend[i].inflowCents / 100,
+                                width: report.period.isYear ? 8 : 15,
+                                color: report.trend[i].partial
+                                    ? inColor.withValues(alpha: .65)
+                                    : inColor,
+                                borderRadius: BorderRadius.circular(5)),
+                          ])
+                  ],
+                )));
+          }),
+          if (report.period.isCurrent)
             Padding(
-                padding: const EdgeInsets.only(left: 12, bottom: 8),
-                child: _AmountRow(
-                    label: 'Entrate + rimborsi',
-                    amount: _money(month.inflowCents))),
-        ],
-      ]),
-    );
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                    report.period.isYear
+                        ? '* Mese corrente parziale. I mesi futuri non sono ancora trascorsi.'
+                        : '* Mese corrente parziale, fino alla data del periodo.',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: ReportVisuals.muted(context)))),
+          const SizedBox(height: 10),
+          ExpansionTile(
+              key: PageStorageKey(('report-trend-values', scope)),
+              tilePadding: EdgeInsets.zero,
+              title: Text('Valori mensili (${report.trend.length})'),
+              subtitle:
+                  const Text('Tutti gli importi, senza passare sul grafico'),
+              children: [
+                for (final month in report.trend)
+                  Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                                '${DateFormat('MMM yyyy', 'it_IT').format(month.month)}${month.future ? ' · Non ancora trascorso' : month.partial ? ' · parziale' : ''}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(
+                                        color: ReportVisuals.ink(context))),
+                            if (month.future)
+                              const Text('—')
+                            else ...[
+                              _AmountRow(
+                                  label: 'Uscite lorde',
+                                  amount: _money(month.cents)),
+                              _AmountRow(
+                                  label: 'Entrate + rimborsi',
+                                  amount: _money(month.inflowCents)),
+                            ],
+                            const Divider(height: 18),
+                          ]))
+              ]),
+        ]));
   }
 }
 
@@ -584,7 +641,7 @@ class _MemberPayments extends StatelessWidget {
                                 const SizedBox(height: 8),
                                 _bar(payments[i]),
                               ])),
-                          cell(Text(_money(payments[i].cents)), numeric: true),
+                          cell(ReportMoney(payments[i].cents), numeric: true),
                           cell(Text(_percent(payments[i])), numeric: true),
                           cell(Text('${payments[i].count}'), numeric: true),
                         ]),
@@ -618,90 +675,91 @@ class _Breakdown extends StatelessWidget {
       required this.subtitle,
       required this.slices,
       required this.total,
+      required this.scope,
       this.chart = false,
       this.emptyMessage = 'Nessuna spesa nel periodo.',
-      this.countLabel = 'spese'});
-  final String title, subtitle;
+      this.countLabel = 'spese',
+      this.extraLabel = 'categorie'});
+  final String title, subtitle, emptyMessage, countLabel, extraLabel;
   final List<ReportSlice> slices;
   final int total;
+  final Object scope;
   final bool chart;
-  final String emptyMessage, countLabel;
-  static const colors = [
-    Color(0xFF2D4A3E),
-    Color(0xFFB77945),
-    Color(0xFF689F8C),
-    Color(0xFF8A79A9),
-    Color(0xFFB3A05E),
-    Color(0xFF5D8BA8)
-  ];
   @override
-  Widget build(BuildContext context) => _Panel(
+  Widget build(BuildContext context) {
+    final color = chart ? ReportVisuals.forest : ReportVisuals.petrol;
+    Widget row(int index) {
+      final slice = slices[index];
+      final label =
+          '${slice.label}${slices.where((s) => s.label == slice.label).length > 1 ? ' (${index + 1})' : ''}';
+      final unit = slice.count == 1
+          ? (countLabel == 'spese'
+              ? 'spesa'
+              : countLabel == 'entrate'
+                  ? 'entrata'
+                  : countLabel)
+          : countLabel;
+      return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _AmountRow(label: label, amount: _money(slice.cents)),
+            const SizedBox(height: 6),
+            Text(
+                '${slice.count} $unit${total > 0 ? ' · ${NumberFormat('0.0', 'it_IT').format(slice.cents / total * 100)}%' : ''}',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: ReportVisuals.muted(context))),
+            const SizedBox(height: 10),
+            ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: LinearProgressIndicator(
+                    minHeight: 7,
+                    value: total > 0 ? (slice.cents / total).clamp(0, 1) : 0,
+                    color: ReportVisuals.dark(context)
+                        ? const Color(0xFFA5D1B4)
+                        : color,
+                    backgroundColor:
+                        ReportVisuals.line(context).withValues(alpha: .5))),
+          ]));
+    }
+
+    return _Panel(
         title: title,
         subtitle: subtitle,
         child: slices.isEmpty
             ? Text(emptyMessage)
-            : Column(children: [
-                if (chart && total > 0) ...[
-                  SizedBox(
-                      height: 150,
-                      child: PieChart(PieChartData(
-                        centerSpaceRadius: 38,
-                        sectionsSpace: 3,
-                        pieTouchData: PieTouchData(enabled: false),
-                        sections: [
-                          for (var i = 0; i < slices.length; i++)
-                            if (slices[i].cents > 0)
-                              PieChartSectionData(
-                                  value: slices[i].cents.toDouble(),
-                                  color: colors[i % colors.length],
-                                  showTitle: false,
-                                  radius: 28)
-                        ],
-                      ))),
-                  const SizedBox(height: 12),
-                ],
-                for (var i = 0; i < slices.length; i++)
-                  Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        _AmountRow(
-                            label:
-                                '${slices[i].label}${slices.where((s) => s.label == slices[i].label).length > 1 ? ' (${i + 1})' : ''}',
-                            amount: _money(slices[i].cents),
-                            color: chart ? colors[i % colors.length] : null),
-                        const SizedBox(height: 4),
-                        Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                                '${slices[i].count} $countLabel${total > 0 ? ' · ${NumberFormat('0.0', 'it_IT').format(slices[i].cents / total * 100)}%' : ''}')),
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(
-                            value: total > 0
-                                ? (slices[i].cents / total).clamp(0, 1)
-                                : 0,
-                            color: chart ? colors[i % colors.length] : null),
-                      ])),
-              ]),
-      );
+            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (var i = 0; i < math.min(4, slices.length); i++) row(i),
+                if (slices.length > 4)
+                  ExpansionTile(
+                      key:
+                          PageStorageKey(('report-ranked-extra', title, scope)),
+                      tilePadding: EdgeInsets.zero,
+                      title: Text('Altre ${slices.length - 4} $extraLabel'),
+                      subtitle: Text('${slices.length} in totale'),
+                      children: [
+                        for (var i = 4; i < slices.length; i++) row(i)
+                      ]),
+              ]));
+  }
 }
 
 class _AmountRow extends StatelessWidget {
-  const _AmountRow({required this.label, required this.amount, this.color});
+  const _AmountRow({required this.label, required this.amount});
   final String label, amount;
-  final Color? color;
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (color != null) ...[
-            Padding(
-                padding: const EdgeInsets.only(top: 5),
-                child: CircleAvatar(radius: 4, backgroundColor: color)),
-            const SizedBox(width: 8)
-          ],
           Expanded(child: Text(label)),
           const SizedBox(width: 12),
-          Text(amount, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Flexible(
+              child: ReportFormattedAmount(amount,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: ReportVisuals.ink(context)))),
         ]),
       );
 }

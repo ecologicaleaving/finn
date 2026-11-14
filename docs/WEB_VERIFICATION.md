@@ -1,5 +1,74 @@
 # Verifiche web — 9 novembre 2026
 
+## Aggiornamento 13 novembre — Report più chiaro e grafico (#90)
+
+Il Report ora organizza la lettura in risultato immediato, confronto grafico
+e dettagli. Il riquadro iniziale mette in evidenza importo e direzione del
+riequilibrio, con stati distinti per equilibrio, assenza di movimenti e dati
+da attribuire. Sul desktop risultato e grafico sono affiancati; sul telefono
+restano verticali. I colori foresta/petrolio identificano le persone per ID
+e restano coerenti invertendo l'ordine.
+
+Il grafico dei netti usa una scala comune che include zero e negativi;
+la tacca della quota compare solo nei confronti completi. I valori
+incompleti sono esplicitamente parziali, senza percentuali inventate.
+Categorie in evidenza, barre ordinate e dettagli espandibili permettono di
+scansionare il Report senza perdere l'elenco completo. Bilancio, andamento,
+statistiche e incassi hanno una gerarchia più compatta; ricerca, filtri,
+paginazione e apertura originale sono conservati.
+
+Dominio, provider, loader, filtri dei soli movimenti di gruppo e calcoli
+50/50 sono invariati rispetto a `d8e305a`. Nessuna nuova dipendenza,
+richiesta, scrittura, migrazione o modifica del tema globale.
+
+QA grafica nativa: **11 test passati, 0 saltati, exit 0**, con **12 PNG**
+del Report e della shell reali, fixture esplicitamente di esempio. Sono
+coperti 390/1440 px, testo 1,5, importi annuali grandi e tema scuro sintetico
+(non esposto dall'app). Il font locale Segoe sostituisce i Google Fonts solo
+nel helper ignorato; nessun download o font aggiunto al prodotto. Le immagini
+sono prove del layout nativo, non screenshot del conto reale nel browser.
+Root ha esaminato overview, categorie, andamento e stress, richiedendo
+prima del freeze legenda senza glifi mancanti, desktop affiancato e cifre
+annuali intere. La palette base verificata supera 4,5:1 per il testo normale.
+
+Helper, PNG e provenienza sono in `build/report-visual-qa/` (ignorato).
+Il primo render aveva un conflitto di nome TextDirection corretto nel
+solo helper UI; due asserzioni iniziali del helper QA sono state corrette:
+scroll orizzontale nullo dell'input e quota surplus dentro un dettaglio
+collassato. Il giro finale conserva anche il controllo della direzione e
+dei valori effettivi, senza declassare errori applicativi a fixture.
+
+Test funzionali finali del developer: **78 passati, 0 saltati, 0 failure,
+exit 0** (76 Report e 2 refresh). Le quattro nuove asserzioni del primo
+giro sono state rese indipendenti dalle sottoclassi dei bottoni e dalle
+metriche Ahem; controllano valori e semantica completi. Nessun sorgente
+applicativo è cambiato per adattare quei test. La prova grafica finale
+resta 11/11 passati con 12 PNG approvati.
+
+Analisi finale: **7 file su 7 con exit 0, 0 errori e 0 warning**; resta una
+sola informazione preesistente nel test Report. Un primo controllo di
+report_screen era terminato per timeout 124, poi il controllo mirato ha
+rilevato un parametro decorativo mai usato dopo la rimozione della torta:
+rimosso insieme a sole correzioni di const/graffe, con esito finale pulito.
+I log dei tentativi restano separati e il timeout non è contato come verde.
+Le ultime pulizie non cambiano il layout dei 12 PNG approvati.
+
+Verifica indipendente finale: **78 test passati, 0 saltati, 0 failure,
+exit 0**, sessione 17697 (76 Report e 2 refresh), runner 51 s. Le otto nuove
+verifiche grafiche sono incluse. Il verificatore ha esaminato tutti i 12 PNG
+senza rilievi bloccanti e confermato di nuovo che i quattro file di calcolo
+e lettura dati sono identici byte per byte al manifest precedente.
+
+Build release riuscita il 13 novembre (139,4 s), pacchetto preparato il
+14 novembre: 222 risorse del manifest verificate, quattro sorgenti UI
+antecedenti al bundle, configurazione limitata a URL e chiave pubblica.
+Archivio `finn-web-design90-20261114.tar.gz`, 17.223.017 byte, SHA-256
+`6319df07de99904d57c897d88629adf8a996cc4fcc4d703239a2a618c4fbebcb`.
+Bundle SHA-256
+`0bab5b41187032b21aad4dc5bb1c39e76c9fa85fc694279fd311c5227590f16a`.
+Pubblicazione in corso. Nessun accesso al conto reale nel browser è stato
+effettuato durante queste prove.
+
 ## Aggiornamento 12 novembre — equilibrio 50/50 per categoria e totale (#89)
 
 Il criterio confermato dall'utente è 50% per ciascuna delle due persone,
