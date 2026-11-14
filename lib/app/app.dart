@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,16 +24,17 @@ class FamilyExpenseTrackerApp extends ConsumerStatefulWidget {
 }
 
 class _FamilyExpenseTrackerAppState
-    extends ConsumerState<FamilyExpenseTrackerApp>
-    with WidgetsBindingObserver {
+    extends ConsumerState<FamilyExpenseTrackerApp> with WidgetsBindingObserver {
   DeepLinkHandler? _deepLinkHandler;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _setupShareIntentListener();
-    _setupDeepLinkHandler();
+    if (!kIsWeb) {
+      _setupShareIntentListener();
+      _setupDeepLinkHandler();
+    }
     // Recurring expenses (issue #69): run once at startup if the session is
     // already restored (the auth listener in build() covers the later login).
     WidgetsBinding.instance.addPostFrameCallback((_) => _runRecurring());
@@ -102,7 +104,7 @@ class _FamilyExpenseTrackerAppState
     );
 
     return MaterialApp.router(
-      title: 'Spese Famiglia',
+      title: 'Finn',
       debugShowCheckedModeBanner: false,
 
       // Localization
@@ -122,6 +124,16 @@ class _FamilyExpenseTrackerAppState
 
       // Routing
       routerConfig: router,
+      builder: (context, child) => ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1440),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+      ),
     );
   }
 }

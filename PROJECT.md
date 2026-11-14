@@ -2,7 +2,7 @@
 
 ## Project Info
 - **Name**: Finn
-- **Version**: v1.4.0
+- **Version**: v1.6.1
 - **Status**: production
 - **Platforms**: apk, ios, web
 - **Description**: App gestione finanze familiari con tracking spese, supporto multi-utente familiare e scansione ricevute AI-powered.
@@ -29,8 +29,13 @@
 - **Distribuzione**: GitHub Releases (direct install)
 
 ### 🌐 Frontend Web
-- **URL Produzione**: N/A (Flutter web — non ancora deployato)
-- **Build Method**: `flutter build web --release`
+- **URL Produzione**: https://finn.8020solutions.org — online dal 2026-11-09, HTTPS verificato tramite Cloudflare e direttamente sull'origine
+- **Base web**: app non ancora pubblicata v1.6.1, `release/v1.6.1` (`586eace`), richiesta #81
+- **Hosting**: Nginx su VPS `46.225.60.101`, release statiche in `/var/www/finn/releases/` e symlink `/var/www/finn/current`
+- **DNS**: Cloudflare, record `A finn → 46.225.60.101`, proxy attivo, TTL automatico (creato dall'utente)
+- **HTTPS origine**: Let's Encrypt emesso il 2026-11-09, scadenza 2027-02-07, in `/etc/letsencrypt/live/finn.8020solutions.org/`; ACME webroot `/var/www/letsencrypt`, timer Certbot attivo
+- **Build Method**: `scripts/build-web.ps1` con Flutter 3.35.7 e configurazione client pubblica Supabase
+- **Istruzioni**: [deploy e DNS](docs/CLOUDFLARE.md), [parità e verifica funzionale](docs/WEB_PARITY.md)
 
 ### 🗄️ Database
 - **Provider**: supabase-cloud
@@ -38,10 +43,10 @@
 - **Admin URL**: https://supabase.com/dashboard/project/ofsnyaplaowbduujuucb
 
 ### ⚙️ CI/CD
-- **Pipeline**: github-actions (unit tests)
-- **Trigger**: push to main
-- **CI Status**: passing (offline tests)
-- **Last Deploy**: 2026-02-14T20:47:00Z
+- **Pipeline**: github-actions (build APK, build web e test mirati)
+- **Trigger**: APK su push/PR; web su PR e workflow_dispatch
+- **CI Status**: web e APK verdi sul commit `d8e305a` (web run 43286341519); sul nuovo sorgente `eeecc74` in corso (web 43560607389); Flutter fissato a 3.35.7
+- **Last Deploy**: mobile 2026-10-10 (v1.6.0); web 2026-11-14 (app v1.6.1, Report grafico #90, sorgente `eeecc74`)
 
 ### 🔑 Environment Variables (GitHub Secrets)
 
@@ -55,8 +60,8 @@
 **Ultimo aggiornamento secrets**: 2026-02-14
 
 ## Repository
-- **Main Branch**: main
-- **Development Branch**: feature/issue-7-bug-totale-dashboard-non-si-aggiorna-aut
+- **Main Branch**: master
+- **Development Branch**: test
 - **GitHub**: https://github.com/ecologicaleaving/finn
 
 ## Tech Stack
@@ -91,7 +96,7 @@
 - **Build Process**:
   1. `flutter build apk --release` (Android)
   2. `flutter build ios --release` (iOS)
-  3. `flutter build web --release` (Web PWA)
+  3. `scripts/build-web.ps1` (Web PWA, configurazione client pubblica)
   4. `flutter build windows/macos/linux` (Desktop)
 
 ## Testing
@@ -128,14 +133,24 @@
 - **DONE**: #21 Feature — Entrate una tantum (income transactions)
 - **DONE**: #26 Feature - Le mie spese divise per mese con navigazione e dettaglio per categoria
 - **DONE**: #28 Feature - Supporto offline con cache locale e sync automatico
+- **DONE**: v1.6.0 — fix del check generale (#45 offline, #46 sicurezza gruppi, #47 rimborsi, #48 lista/modifica spese, #49 categorie, #50 budget, #51 dashboard, #52 importi, #61 CI, #64 cambio account, #65 paginazione/cache, #66 data a mezzanotte, #67 scontrini, #68 riquadro GRUPPO) e #69 spese ricorrenti sul database
 - **IN PROGRESS**: Advanced analytics e spending insights
 - **TODO**: #11 Bug — Visualizzazione per mese nella dashboard mostra tutti zero
 - **TODO**: Machine learning categorization automatica spese ricorrenti
 - **TODO**: Dashboard web per amministrazione family accounts
+- **IN PROGRESS**: #81 — app web v1.6.1 online via Nginx/Cloudflare; build e test browser passati, HTTPS verificato, prova autenticata e confronto CRUD con l'app da completare
+- **DONE**: #83 — dettaglio spese mensili per categoria: titolo da note, negozio storico o categoria, con etichetta neutra quando non esiste testo; nessuna modifica ai dati
+- **DONE (web)**: #84 — recupero gruppo dopo refresh, 43 test passati e bundle pubblico verificato; l'utente conferma il gruppo visibile sul sito con lo stesso account
+- **DONE (web)**: #85 — pagante nel dettaglio mensile per categoria online; 18 widget test passati, bundle pubblico verificato e conferma positiva dell'utente
+- **DONE (web)**: #86 — pagina Report online: KPI, confronto periodi, andamento sei mesi, categorie, paganti e insight; 56 test indipendenti passati, build e bundle pubblico verificati; conferma positiva dell'utente
+- **DONE (web)**: #87 — analisi annuale e componenti online: pagamenti effettivi, percentuali e numero spese; 35 test indipendenti passati, build e bundle pubblico verificati; conferma positiva dell'utente
+- **IN PROGRESS**: #88 — bilancio con entrate, rimborsi e dettaglio cercabile online; 52 test indipendenti passati, sorgenti senza diagnostiche, build e 222 risorse verificate, bundle pubblico uguale al locale; conferma sui dati dell'utente da completare
+- **IN PROGRESS**: #89 — equilibrio 50/50 per ogni categoria e totale online: criterio 100/100/40 confermato, attribuzioni esplicite e scostamenti; 70 test indipendenti passati, analisi senza errori/warning (3 INFO), build/222 risorse e bundle pubblico verificati; conferma sui dati dell'utente da completare
+- **IN PROGRESS**: #90 — Report più chiaro e grafico online: risultato immediato tra le persone, confronto netto/quota, categorie scansionabili e dettagli progressivi; 78 test indipendenti, 11 prove grafiche con 12 PNG, build/222 risorse e bundle pubblico verificati; calcoli 50/50 e soli movimenti di gruppo invariati, conferma dell'utente da completare
 - **TODO**: Integrazione bancaria automatica via Open Banking
 - **TODO**: Report fiscali automatici e export contabilità
 - **TODO**: Subscription management e recurring expense alerts
 - **TODO**: Investment tracking integration per portfolio overview
 
 ---
-*Last Updated: 2026-04-10T12:00:00Z*
+*Last Updated: 2026-11-14*

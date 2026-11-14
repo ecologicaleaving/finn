@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/exceptions.dart';
@@ -70,11 +73,18 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
   String? get _currentUserIdOrNull => supabaseClient.auth.currentUser?.id;
 
+  void _ensureSameUser(String userId) {
+    if (_currentUserIdOrNull != userId) {
+      throw const AppAuthException('La sessione è cambiata', 'SESSION_CHANGED');
+    }
+  }
+
   /// Cache group ID in secure storage
-  Future<void> _cacheGroupId(String groupId) async {
+  Future<void> _cacheGroupId(String groupId, String userId) async {
     try {
+      _ensureSameUser(userId);
       await _secureStorage.write(
-        key: _userKey(_groupIdKey, _currentUserId),
+        key: _userKey(_groupIdKey, userId),
         value: groupId,
       );
     } catch (e) {
@@ -84,10 +94,11 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
   }
 
   /// Cache group data
-  Future<void> _cacheGroupData(FamilyGroupModel group) async {
+  Future<void> _cacheGroupData(FamilyGroupModel group, String userId) async {
     try {
+      _ensureSameUser(userId);
       await _secureStorage.write(
-        key: _userKey(_groupDataKey, _currentUserId),
+        key: _userKey(_groupDataKey, userId),
         value: group.toJsonString(),
       );
     } catch (e) {
@@ -95,18 +106,17 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
     }
   }
 
-  /// Get cached group data: prima la chiave dell'utente, poi (solo per non
-  /// rompere l'uso offline subito dopo l'aggiornamento) quella legacy.
-  Future<FamilyGroupModel?> _getCachedGroupData() async {
+  /// Only a cache explicitly owned by the current session user may be used.
+  Future<FamilyGroupModel?> _getCachedGroupData(String userId) async {
     try {
-      final userId = _currentUserIdOrNull;
-      String? data;
-      if (userId != null) {
-        data = await _secureStorage.read(key: _userKey(_groupDataKey, userId));
-      }
-      data ??= await _secureStorage.read(key: _groupDataKey);
+      _ensureSameUser(userId);
+      final data = await _secureStorage.read(key: _userKey(_groupDataKey, userId));
+      final groupId = await _secureStorage.read(key: _userKey(_groupIdKey, userId));
+      _ensureSameUser(userId);
       if (data != null) {
-        return FamilyGroupModel.fromJsonString(data);
+        final group = FamilyGroupModel.fromJsonString(data);
+        if (groupId != null && group.id != groupId) return null;
+        return group;
       }
     } catch (e) {
       return null;
@@ -166,9 +176,9 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
 
   @override
   Future<FamilyGroupModel?> getCurrentGroup() async {
+    final userId = _currentUserId;
+    String? expectedGroupId;
     try {
-      final userId = _currentUserId;
-
       // Get user's profile to find group_id (with timeout to avoid hang when offline)
       final profileResponse = await supabaseClient
           .from('profiles')
@@ -176,14 +186,17 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', userId)
           .single()
           .timeout(const Duration(seconds: 5));
+      _ensureSameUser(userId);
 
       final groupId = profileResponse['group_id'] as String?;
       if (groupId == null) {
+        await clearCachedGroup(userId: userId);
         return null;
       }
+      expectedGroupId = groupId;
 
       // Cache the group ID for offline use
-      await _cacheGroupId(groupId);
+      await _cacheGroupId(groupId, userId);
 
       // Get the group
       final groupResponse = await supabaseClient
@@ -192,33 +205,40 @@ class GroupRemoteDataSourceImpl implements GroupRemoteDataSource {
           .eq('id', groupId)
           .single()
           .timeout(const Duration(seconds: 5));
+      _ensureSameUser(userId);
 
-      // Get member count
-      final memberCount = await supabaseClient
-          .from('profiles')
-          .select()
-          .eq('group_id', groupId)
-          .count(CountOption.exact)
-          .timeout(const Duration(seconds: 5));
-
-      final group = FamilyGroupModel.fromJson(groupResponse);
-      final groupWithCount = group.copyWith(memberCount: memberCount.count);
+      var group = FamilyGroupModel.fromJson(groupResponse);
+      // A missing optional count must not hide a successfully loaded membership.
+      try {
+        final memberCount = await supabaseClient
+            .from('profiles')
+            .select()
+            .eq('group_id', groupId)
+            .count(CountOption.exact)
+            .timeout(const Duration(seconds: 5));
+        group = group.copyWith(memberCount: memberCount.count);
+      } catch (_) {}
+      _ensureSameUser(userId);
 
       // Cache the group data for offline use
-      await _cacheGroupData(groupWithCount);
+      await _cacheGroupData(group, userId);
+      _ensureSameUser(userId);
       await _deleteLegacyCache();
 
-      return groupWithCount;
+      return group;
     } catch (e) {
-      // ANY error (timeout, SocketException, network) → try cache
-      final cachedGroup = await _getCachedGroupData();
-      if (cachedGroup != null) {
-        return cachedGroup;
+      if (e is AppAuthException) rethrow;
+      _ensureSameUser(userId);
+      // Permissions, missing rows and invalid responses are not offline evidence.
+      if (e is TimeoutException || e is http.ClientException) {
+        final cachedGroup = await _getCachedGroupData(userId);
+        if (cachedGroup != null &&
+            (expectedGroupId == null || cachedGroup.id == expectedGroupId)) {
+          return cachedGroup;
+        }
       }
 
-      // No cache — rethrow with proper type
-      if (e is AppAuthException) rethrow;
-      if (e is PostgrestException && e.code == 'PGRST116') return null;
+      if (e is PostgrestException) throw ServerException(e.message, e.code);
       throw ServerException(e.toString());
     }
   }

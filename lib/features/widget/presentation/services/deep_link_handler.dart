@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 /// Service for handling deep links from widget and other sources
@@ -13,6 +14,7 @@ class DeepLinkHandler {
 
   /// Initialize deep link handling
   Future<void> initialize() async {
+    if (kIsWeb) return;
     // Handle initial link (app opened from deep link)
     try {
       final initialUri = await _appLinks.getInitialLink();

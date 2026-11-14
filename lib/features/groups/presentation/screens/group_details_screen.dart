@@ -26,7 +26,6 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     super.initState();
     // Load group data when screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(groupProvider.notifier).loadCurrentGroup();
       // Filter expenses to show only group expenses
       ref.read(expenseListProvider.notifier).setFilterIsGroupExpense(true);
     });
@@ -193,7 +192,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       return Scaffold(
         appBar: AppBar(title: const Text('Gruppo')),
         body: ErrorDisplay(
-          message: 'Gruppo non trovato',
+          message: groupState.hasError
+              ? groupState.errorMessage ?? 'Impossibile caricare il gruppo. Riprova.'
+              : 'Non fai parte di nessun gruppo',
           onRetry: () => ref.read(groupProvider.notifier).loadCurrentGroup(),
         ),
       );

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:flutter/foundation.dart';
 
 /// Callback type for when shared image data is received.
 typedef SharedImageCallback = void Function(Uint8List imageData);
@@ -25,11 +26,12 @@ class ShareIntentService {
   /// - Stream: Images shared when app is already running
   /// - Initial media: Images shared when app is launched via share
   static Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (kIsWeb || _isInitialized) return;
 
     try {
       // Handle media shared when app is already running
-      _streamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
+      _streamSubscription =
+          ReceiveSharingIntent.instance.getMediaStream().listen(
         _handleSharedMedia,
         onError: (error) {
           // Silently handle stream errors
@@ -37,7 +39,8 @@ class ShareIntentService {
       );
 
       // Handle media shared when app was launched via share intent
-      final initialMedia = await ReceiveSharingIntent.instance.getInitialMedia();
+      final initialMedia =
+          await ReceiveSharingIntent.instance.getInitialMedia();
       if (initialMedia.isNotEmpty) {
         await _handleSharedMedia(initialMedia);
       }
@@ -127,6 +130,7 @@ class ShareIntentService {
   ///
   /// Should be called after successfully processing a shared image.
   static void reset() {
+    if (kIsWeb) return;
     try {
       ReceiveSharingIntent.instance.reset();
     } catch (e) {

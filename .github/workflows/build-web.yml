@@ -1,0 +1,50 @@
+name: Build Finn Web
+
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.yaml'
+      - 'scripts/build-web.ps1'
+      - 'scripts/prepare-cloudflare-web.ps1'
+      - '.github/workflows/build-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.35.7'
+          cache: true
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs --build-filter="lib/**"
+      - name: Test shared navigation and offline persistence
+        shell: pwsh
+        run: |
+          Set-Content -Path .env -Value '# Test asset: no credentials'
+          flutter test test/shared/widgets/adaptive_app_scaffold_test.dart test/shared/services/receipt_storage_test.dart test/shared/services/backend_reachability_test.dart test/features/offline/data/datasources/offline_expense_receipt_test.dart test/features/offline/domain/services/sync_queue_processor_receipt_test.dart test/features/offline/data/local/offline_database_v5_upgrade_test.dart test/app/session_cleanup_test.dart test/features/expenses/presentation/widgets/monthly_expense_category_view_test.dart test/features/groups/group_loading_test.dart test/features/groups/group_provider_rebuild_test.dart test/features/groups/data/group_membership_read_test.dart test/features/groups/group_cache_cleanup_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter test test/features/reports test/features/dashboard/presentation/providers/dashboard_refresh_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart test --platform chrome test/browser/receipt_storage_browser_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build web with public client configuration
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: ./scripts/build-web.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finn-web
+          path: build/web/
+          include-hidden-files: true
+          if-no-files-found: error

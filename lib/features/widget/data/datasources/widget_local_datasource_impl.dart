@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/widget_config_model.dart';
@@ -29,7 +30,7 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
     await sharedPreferences.setString(_widgetDataKey, jsonString);
 
     // iOS: Also save to App Group UserDefaults via MethodChannel
-    if (Platform.isIOS && platformChannel != null) {
+    if (!kIsWeb && Platform.isIOS && platformChannel != null) {
       try {
         await platformChannel!.invokeMethod('saveWidgetData', {
           'data': jsonString,
@@ -97,6 +98,8 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
       print('Failed to clear cached widget data: $e');
     }
 
+    if (kIsWeb) return;
+
     for (final key in _nativeWidgetKeys) {
       try {
         // home_widget: null value removes the key
@@ -122,6 +125,7 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
 
   @override
   Future<void> updateNativeWidget(WidgetDataModel data) async {
+    if (kIsWeb) return;
     try {
       print('WidgetLocalDataSource: Updating widget with data:');
       print('  - groupAmount: ${data.groupAmount}');
@@ -134,15 +138,18 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
       final jsonString = data.toJsonString();
       print('WidgetLocalDataSource: Saving JSON: $jsonString');
 
-      final result = await HomeWidget.saveWidgetData<String>('widgetDataJson', jsonString);
+      final result =
+          await HomeWidget.saveWidgetData<String>('widgetDataJson', jsonString);
       print('WidgetLocalDataSource: JSON save result: $result');
 
       // Save each field individually for native widget access
       print('WidgetLocalDataSource: Saving individual fields...');
       await HomeWidget.saveWidgetData<double>('groupAmount', data.groupAmount);
-      await HomeWidget.saveWidgetData<double>('personalAmount', data.personalAmount);
+      await HomeWidget.saveWidgetData<double>(
+          'personalAmount', data.personalAmount);
       await HomeWidget.saveWidgetData<double>('totalAmount', data.totalAmount);
-      await HomeWidget.saveWidgetData<String>('expenseCount', data.expenseCount.toString());
+      await HomeWidget.saveWidgetData<String>(
+          'expenseCount', data.expenseCount.toString());
       await HomeWidget.saveWidgetData<String>('month', data.month);
       await HomeWidget.saveWidgetData<String>('currency', data.currency);
       await HomeWidget.saveWidgetData<bool>('isDarkMode', data.isDarkMode);
@@ -151,7 +158,8 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
         'lastUpdated',
         data.lastUpdated.millisecondsSinceEpoch.toString(),
       );
-      await HomeWidget.saveWidgetData<String>('groupName', data.groupName ?? '');
+      await HomeWidget.saveWidgetData<String>(
+          'groupName', data.groupName ?? '');
       print('WidgetLocalDataSource: All fields saved');
 
       // Trigger widget update
@@ -169,7 +177,8 @@ class WidgetLocalDataSourceImpl implements WidgetLocalDataSource {
         );
         print('WidgetLocalDataSource: Widget update result: $updateResult');
       } else {
-        print('WidgetLocalDataSource: Platform channel not available, widget update skipped');
+        print(
+            'WidgetLocalDataSource: Platform channel not available, widget update skipped');
       }
 
       print('WidgetLocalDataSource: Widget update complete');

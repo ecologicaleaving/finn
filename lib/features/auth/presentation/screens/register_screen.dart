@@ -76,104 +76,110 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       ),
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Subtitle
-                  Text(
-                    'Inserisci i tuoi dati per creare un account',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Error message
-                  if (authState.hasError && authState.errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: InlineError(message: authState.errorMessage!),
-                    ),
-
-                  // Name field
-                  CustomTextField(
-                    controller: _nameController,
-                    focusNode: _nameFocusNode,
-                    label: 'Nome',
-                    hint: 'Come vuoi essere chiamato',
-                    prefixIcon: Icons.person_outlined,
-                    textCapitalization: TextCapitalization.words,
-                    enabled: !authState.isLoading,
-                    validator: Validators.validateDisplayName,
-                    onSubmitted: (_) => _emailFocusNode.requestFocus(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Email field
-                  EmailTextField(
-                    controller: _emailController,
-                    focusNode: _emailFocusNode,
-                    enabled: !authState.isLoading,
-                    validator: Validators.validateEmail,
-                    onSubmitted: (_) => _passwordFocusNode.requestFocus(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Password field
-                  PasswordTextField(
-                    controller: _passwordController,
-                    focusNode: _passwordFocusNode,
-                    enabled: !authState.isLoading,
-                    validator: Validators.validatePassword,
-                    textInputAction: TextInputAction.next,
-                    onSubmitted: (_) => _confirmPasswordFocusNode.requestFocus(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Confirm password field
-                  PasswordTextField(
-                    controller: _confirmPasswordController,
-                    focusNode: _confirmPasswordFocusNode,
-                    label: 'Conferma password',
-                    enabled: !authState.isLoading,
-                    validator: (value) => Validators.validatePasswordConfirmation(
-                      value,
-                      _passwordController.text,
-                    ),
-                    onSubmitted: (_) => _handleRegister(),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Register button
-                  PrimaryButton(
-                    onPressed: _handleRegister,
-                    label: 'Registrati',
-                    isLoading: authState.isLoading,
-                    loadingLabel: 'Registrazione in corso...',
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Login link
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Hai già un account?',
-                        style: theme.textTheme.bodyMedium,
+          child: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Subtitle
+                    Text(
+                      'Inserisci i tuoi dati per creare un account',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      TextButton(
-                        onPressed: authState.isLoading ? null : _navigateToLogin,
-                        child: const Text('Accedi'),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Error message
+                    if (authState.hasError && authState.errorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: InlineError(message: authState.errorMessage!),
                       ),
-                    ],
-                  ),
-                ],
+
+                    // Name field
+                    CustomTextField(
+                      controller: _nameController,
+                      focusNode: _nameFocusNode,
+                      label: 'Nome',
+                      hint: 'Come vuoi essere chiamato',
+                      prefixIcon: Icons.person_outlined,
+                      textCapitalization: TextCapitalization.words,
+                      enabled: !authState.isLoading,
+                      validator: Validators.validateDisplayName,
+                      onSubmitted: (_) => _emailFocusNode.requestFocus(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Email field
+                    EmailTextField(
+                      controller: _emailController,
+                      focusNode: _emailFocusNode,
+                      enabled: !authState.isLoading,
+                      validator: Validators.validateEmail,
+                      onSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Password field
+                    PasswordTextField(
+                      controller: _passwordController,
+                      focusNode: _passwordFocusNode,
+                      enabled: !authState.isLoading,
+                      validator: Validators.validatePassword,
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) =>
+                          _confirmPasswordFocusNode.requestFocus(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Confirm password field
+                    PasswordTextField(
+                      controller: _confirmPasswordController,
+                      focusNode: _confirmPasswordFocusNode,
+                      label: 'Conferma password',
+                      enabled: !authState.isLoading,
+                      validator: (value) =>
+                          Validators.validatePasswordConfirmation(
+                        value,
+                        _passwordController.text,
+                      ),
+                      onSubmitted: (_) => _handleRegister(),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Register button
+                    PrimaryButton(
+                      onPressed: _handleRegister,
+                      label: 'Registrati',
+                      isLoading: authState.isLoading,
+                      loadingLabel: 'Registrazione in corso...',
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Login link
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Hai già un account?',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        TextButton(
+                          onPressed:
+                              authState.isLoading ? null : _navigateToLogin,
+                          child: const Text('Accedi'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

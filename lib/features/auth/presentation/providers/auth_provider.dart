@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../app/session_cleanup.dart';
+import '../../../../core/errors/failures.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/user_entity.dart';
@@ -72,6 +73,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   final AuthRepository _authRepository;
+  int _profileRequest = 0;
 
   /// Best-effort cleanup hook called when a session ends (logout / account
   /// deletion). Never blocks the logout; errors are swallowed.
@@ -87,14 +89,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Initialize auth state
   Future<void> _init() async {
+    if (!mounted) return;
+    final request = ++_profileRequest;
     state = state.copyWith(status: AuthStatus.loading);
 
     final result = await _authRepository.getCurrentUser();
+    if (!mounted || request != _profileRequest) return;
     result.fold(
       (failure) {
-        state = state.copyWith(
-          status: AuthStatus.unauthenticated,
-          user: null,
+        state = AuthState(
+          status: failure is AuthFailure
+              ? AuthStatus.unauthenticated
+              : AuthStatus.error,
+          errorMessage: failure is AuthFailure
+              ? failure.message
+              : 'Impossibile caricare il profilo. Riprova.',
         );
       },
       (user) {
@@ -106,11 +115,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
+  Future<void> retryCurrentUser() => _init();
+
   /// Sign in with email and password
   Future<void> signInWithEmail({
     required String email,
     required String password,
   }) async {
+    _profileRequest++;
     print('[AUTH] signInWithEmail called with email: $email');
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
@@ -143,6 +155,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required String displayName,
   }) async {
+    _profileRequest++;
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
     final result = await _authRepository.signUpWithEmail(
@@ -169,6 +182,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Sign out
   Future<void> signOut() async {
+    _profileRequest++;
     final endingUserId = state.user?.id;
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
@@ -244,6 +258,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Delete account
   Future<bool> deleteAccount({required bool anonymizeExpenses}) async {
+    _profileRequest++;
     final endingUserId = state.user?.id;
     state = state.copyWith(status: AuthStatus.loading, errorMessage: null);
 
@@ -276,6 +291,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Clear error message
   void clearError() {
     state = state.copyWith(errorMessage: null);
+  }
+
+  /// Synchronize only the in-memory profile after a group read for this user.
+  /// This does not update profiles or membership on the server.
+  void applyLoadedGroup({required String userId, required String? groupId}) {
+    if (!mounted) return;
+    final user = state.user;
+    if (user == null || user.id != userId || user.groupId == groupId) return;
+    state = state.copyWith(
+      user: UserEntity(
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        groupId: groupId,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      ),
+    );
   }
 
   /// Refresh current user

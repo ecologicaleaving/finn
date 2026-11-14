@@ -239,8 +239,20 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
                     itemBuilder: (context, index) {
                       final expense = sorted[index];
                       return ListTile(
-                        title: Text(expense.merchant?.trim().isNotEmpty == true ? expense.merchant! : 'Spesa senza nome'),
-                        subtitle: Text(_expenseDateFormat.format(expense.date)),
+                        title: Text(_expenseTitle(expense)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_expenseDateFormat.format(expense.date)),
+                            if (expense.isGroupExpense)
+                              Text(
+                                'Pagato da: ${_expensePayerName(expense)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
+                        isThreeLine: expense.isGroupExpense,
                         trailing: Text(_currencyFormat.format(expense.amount)),
                         onTap: () {
                           Navigator.of(context).pop();
@@ -256,6 +268,30 @@ class _MonthlyExpenseCategoryViewState extends State<MonthlyExpenseCategoryView>
         );
       },
     );
+  }
+
+  String _expenseTitle(ExpenseEntity expense) {
+    // Manual entry saves optional text in notes; merchant remains on legacy rows.
+    for (final candidate in [expense.notes, expense.merchant, expense.categoryName]) {
+      final text = candidate?.trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return 'Spesa';
+  }
+
+  String _expensePayerName(ExpenseEntity expense) {
+    final payerName = expense.paidByName?.trim();
+    if (payerName != null && payerName.isNotEmpty) {
+      return payerName;
+    }
+    final payerId = expense.paidBy?.trim();
+    if (payerId == null || payerId.isEmpty || payerId == expense.createdBy.trim()) {
+      final creatorName = expense.createdByName?.trim();
+      if (creatorName != null && creatorName.isNotEmpty) {
+        return creatorName;
+      }
+    }
+    return 'Non specificato';
   }
 
   DateTime _toMonthStart(DateTime date) => DateTime(date.year, date.month, 1);

@@ -42,13 +42,13 @@ class GroupRepositoryImpl implements GroupRepository {
     try {
       final group = await groupRemoteDataSource.getCurrentGroup();
       if (group == null) {
-        return Left(GroupFailure('Non fai parte di nessun gruppo'));
+        return const Left(GroupFailure.noGroup);
       }
       return Right(group.toEntity());
     } on AppAuthException catch (e) {
-      return Left(AuthFailure(e.message));
+      return Left(AuthFailure(e.message, e.code));
     } on ServerException catch (e) {
-      return Left(ServerFailure(e.message));
+      return Left(ServerFailure(e.message, e.code));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

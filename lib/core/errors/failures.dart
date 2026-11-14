@@ -68,6 +68,12 @@ class ConflictFailure extends Failure {
 class GroupFailure extends Failure {
   const GroupFailure(super.message, [super.code]);
 
+  /// Only an explicitly empty profile.group_id confirms absence of membership.
+  static const noGroup = GroupFailure(
+    'Non fai parte di nessun gruppo',
+    'NO_GROUP',
+  );
+
   static const notMember = GroupFailure(
     'Non sei membro di questo gruppo',
     'NOT_MEMBER',

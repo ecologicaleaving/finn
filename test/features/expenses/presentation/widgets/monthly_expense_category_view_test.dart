@@ -4,6 +4,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import 'package:family_expense_tracker/core/enums/transaction_type.dart';
+import 'package:family_expense_tracker/features/expenses/data/models/expense_model.dart';
 import 'package:family_expense_tracker/features/expenses/domain/entities/expense_entity.dart';
 import 'package:family_expense_tracker/features/expenses/presentation/widgets/monthly_expense_category_view.dart';
 
@@ -17,6 +18,7 @@ void main() {
     required List<ExpenseEntity> expenses,
     DateTime? initialMonth,
     DateTime Function()? nowBuilder,
+    ValueChanged<ExpenseEntity>? onExpenseTap,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -25,6 +27,7 @@ void main() {
           hasMoreExpenses: false,
           initialMonth: initialMonth,
           nowBuilder: nowBuilder,
+          onExpenseTap: onExpenseTap,
         ),
       ),
     );
@@ -152,6 +155,206 @@ void main() {
       expect(find.text('Metro'), findsNothing);
     });
 
+    testWidgets('category detail shows the saved note without a merchant', (tester) async {
+      final savedExpense = _savedExpense(
+        id: 'current-food',
+        notes: '  Spesa settimanale  ',
+      );
+      ExpenseEntity? openedExpense;
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [
+          savedExpense,
+          _savedExpense(id: 'old-food', notes: 'Spesa ottobre', date: '2026-10-08'),
+          _savedExpense(id: 'current-travel', notes: 'Abbonamento treno', categoryName: 'Trasporti'),
+        ],
+        nowBuilder: () => DateTime(2026, 11, 9),
+        onExpenseTap: (expense) => openedExpense = expense,
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Spesa settimanale'), findsOneWidget);
+      expect(find.text('Spesa ottobre'), findsNothing);
+      expect(find.text('Abbonamento treno'), findsNothing);
+      expect(find.text('Spesa senza nome'), findsNothing);
+      await tester.tap(find.text('Spesa settimanale'));
+      await tester.pumpAndSettle();
+      expect(openedExpense, same(savedExpense));
+    });
+
+    testWidgets('category detail shows payer only on group expenses', (tester) async {
+      final groupExpense = _savedExpense(
+        id: 'group-food',
+        notes: 'Cena condivisa',
+        isGroupExpense: true,
+        paidBy: 'other-user',
+        paidByName: '  Giulia  ',
+        createdByName: 'Marco',
+      );
+      final personalExpense = _savedExpense(
+        id: 'personal-food',
+        notes: 'Pranzo personale',
+        paidByName: 'Nome personale',
+        createdByName: 'Marco',
+      );
+      ExpenseEntity? openedExpense;
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [groupExpense, personalExpense],
+        nowBuilder: () => DateTime(2026, 11, 9),
+        onExpenseTap: (expense) => openedExpense = expense,
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      final groupRow = find.ancestor(
+        of: find.text('Cena condivisa'),
+        matching: find.byType(ListTile),
+      );
+      final personalRow = find.ancestor(
+        of: find.text('Pranzo personale'),
+        matching: find.byType(ListTile),
+      );
+      expect(find.descendant(of: groupRow, matching: find.text('Pagato da: Giulia')), findsOneWidget);
+      expect(find.descendant(of: groupRow, matching: find.text('8 nov')), findsOneWidget);
+      expect(find.descendant(of: personalRow, matching: find.text('8 nov')), findsOneWidget);
+      expect(find.textContaining('Pagato da:'), findsOneWidget);
+      expect(find.textContaining('Marco'), findsNothing);
+      expect(find.textContaining('Nome personale'), findsNothing);
+      final amount = NumberFormat.currency(locale: 'it_IT', symbol: '\u20ac', decimalDigits: 2).format(24.90);
+      expect(find.descendant(of: groupRow, matching: find.text(amount)), findsOneWidget);
+      await tester.tap(find.text('Cena condivisa'));
+      await tester.pumpAndSettle();
+      expect(openedExpense, same(groupExpense));
+    });
+
+    final payerCases = [
+      (label: 'legacy missing payer', paidBy: null, payerName: null, creatorName: '  Marco  ', expected: 'Marco'),
+      (label: 'blank legacy payer', paidBy: '  ', payerName: ' ', creatorName: 'Marco', expected: 'Marco'),
+      (label: 'payer is creator', paidBy: 'user', payerName: ' ', creatorName: 'Marco', expected: 'Marco'),
+      (label: 'different payer without name', paidBy: 'other-user', payerName: null, creatorName: 'Marco', expected: 'Non specificato'),
+      (label: 'no names available', paidBy: null, payerName: null, creatorName: ' ', expected: 'Non specificato'),
+    ];
+    for (final example in payerCases) {
+      testWidgets('category detail handles ${example.label}', (tester) async {
+        await tester.pumpWidget(buildTestWidget(
+          expenses: [
+            _savedExpense(
+              id: 'group-food',
+              notes: 'Cena condivisa',
+              isGroupExpense: true,
+              paidBy: example.paidBy,
+              paidByName: example.payerName,
+              createdByName: example.creatorName,
+            ),
+          ],
+          nowBuilder: () => DateTime(2026, 11, 9),
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cibo'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pagato da: ${example.expected}'), findsOneWidget);
+        expect(find.textContaining('other-user'), findsNothing);
+        expect(find.textContaining('null'), findsNothing);
+        if (example.expected == 'Non specificato') {
+          expect(find.text('Pagato da: Marco'), findsNothing);
+        }
+      });
+    }
+
+    testWidgets('long payer name fits category detail on mobile', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      const name = 'Alessandra Maria Francesca Della Valle';
+      await tester.pumpWidget(buildTestWidget(
+        expenses: [
+          _savedExpense(
+            id: 'group-food',
+            notes: 'Cena condivisa',
+            isGroupExpense: true,
+            paidByName: name,
+          ),
+        ],
+        nowBuilder: () => DateTime(2026, 11, 9),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cibo'));
+      await tester.pumpAndSettle();
+
+      final payer = tester.widget<Text>(find.text('Pagato da: $name'));
+      expect(payer.maxLines, 1);
+      expect(payer.overflow, TextOverflow.ellipsis);
+      expect(find.text('8 nov'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    final titleCases = [
+      (
+        label: 'prefers the saved note to a legacy merchant',
+        notes: '  Materiale scolastico  ',
+        merchant: 'Negozio storico',
+        categoryName: 'Cibo',
+        category: 'Cibo',
+        title: 'Materiale scolastico',
+      ),
+      (
+        label: 'uses a legacy merchant when notes are blank',
+        notes: ' \n\t ',
+        merchant: '  Negozio storico  ',
+        categoryName: 'Cibo',
+        category: 'Cibo',
+        title: 'Negozio storico',
+      ),
+      (
+        label: 'uses the category when both optional text fields are empty',
+        notes: null,
+        merchant: '   ',
+        categoryName: ' Cibo ',
+        category: 'Cibo',
+        title: 'Cibo',
+      ),
+      (
+        label: 'uses a neutral expense label when no descriptive data exists',
+        notes: ' ',
+        merchant: null,
+        categoryName: null,
+        category: 'Altro',
+        title: 'Spesa',
+      ),
+    ];
+    for (final example in titleCases) {
+      testWidgets('category detail ${example.label}', (tester) async {
+        final savedExpense = _savedExpense(
+          id: 'saved-expense',
+          notes: example.notes,
+          merchant: example.merchant,
+          categoryName: example.categoryName,
+        );
+        ExpenseEntity? openedExpense;
+        await tester.pumpWidget(buildTestWidget(
+          expenses: [savedExpense],
+          nowBuilder: () => DateTime(2026, 11, 9),
+          onExpenseTap: (expense) => openedExpense = expense,
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(example.category));
+        await tester.pumpAndSettle();
+
+        final title = find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text(example.title),
+        );
+        expect(title, findsWidgets);
+        expect(find.text('Spesa senza nome'), findsNothing);
+        // When the title is the category, tap the expense row, not the sheet header.
+        await tester.tap(title.last);
+        await tester.pumpAndSettle();
+        expect(openedExpense, same(savedExpense));
+      });
+    }
+
     testWidgets('mese senza spese mostra stato vuoto', (tester) async {
       final expenses = [
         _expense(
@@ -240,6 +443,36 @@ void main() {
       expect(find.text('Nessuna spesa questo mese'), findsOneWidget);
       expect(find.text('Stipendio'), findsNothing);
     });
+  });
+}
+
+ExpenseEntity _savedExpense({
+  required String id,
+  String? notes,
+  String? merchant,
+  String? categoryName = 'Cibo',
+  String date = '2026-11-08',
+  bool isGroupExpense = false,
+  String? paidBy,
+  String? paidByName,
+  String? createdByName,
+}) {
+  return ExpenseModel.fromJson({
+    'id': id,
+    'group_id': 'group',
+    'created_by': 'user',
+    'amount': 24.90,
+    'date': date,
+    'category_id': categoryName?.trim().toLowerCase(),
+    'category_name': categoryName,
+    'payment_method_id': 'pm',
+    'payment_method_name': 'Carta',
+    'is_group_expense': isGroupExpense,
+    'paid_by': paidBy,
+    'paid_by_name': paidByName,
+    'created_by_name': createdByName,
+    'merchant': merchant,
+    'notes': notes,
   });
 }
 
