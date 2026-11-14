@@ -1,6 +1,6 @@
 # Verifiche web — 9 novembre 2026
 
-## Aggiornamento 13 novembre — Report più chiaro e grafico (#90)
+## Aggiornamento 14 novembre — Report più chiaro e grafico (#90)
 
 Il Report ora organizza la lettura in risultato immediato, confronto grafico
 e dettagli. Il riquadro iniziale mette in evidenza importo e direzione del
@@ -66,8 +66,14 @@ Archivio `finn-web-design90-20261114.tar.gz`, 17.223.017 byte, SHA-256
 `6319df07de99904d57c897d88629adf8a996cc4fcc4d703239a2a618c4fbebcb`.
 Bundle SHA-256
 `0bab5b41187032b21aad4dc5bb1c39e76c9fa85fc694279fd311c5227590f16a`.
-Pubblicazione in corso. Nessun accesso al conto reale nel browser è stato
-effettuato durante queste prove.
+Pubblicato il 14 novembre dal commit `eeecc748533d4d5cdd72a9cbd2da9268c1e41ea0`
+in `/var/www/finn/releases/20261114-eeecc74`, attivazione atomica di `current`
+dopo verifica di tutte le risorse anche sul VPS. La release `20261112-95d1932`
+è conservata per ripristino. Homepage e JavaScript pubblici HTTP 200;
+JavaScript con MIME corretto, no-store e Cloudflare BYPASS, SHA-256 uguale
+alla build locale sopra. CI web/APK sul commit sorgente in corso al controllo.
+Nessun accesso al conto reale nel browser è stato effettuato durante queste
+prove: la conferma sui dati dell'utente resta aperta.
 
 ## Aggiornamento 12 novembre — equilibrio 50/50 per categoria e totale (#89)
 
